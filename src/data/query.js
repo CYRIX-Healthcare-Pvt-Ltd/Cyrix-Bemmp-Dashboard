@@ -49,18 +49,24 @@ export function isPenalty(ds, windows, referenceDay, row) {
  * Applies the active filters and returns the matching row indices.
  * `filters.district` etc. are Sets of dictionary ids; an empty Set means "all".
  */
-export function filterRows(ds, filters) {
+export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
   const { dayFrom, dayTo, district, facilityType, equipmentType, bucket } = filters;
+  // dateField null means "every date" — used by the accrual view, where a ticket
+  // logged long before the period is still running up penalty inside it.
+  const dateCol = dateField ? cols[dateField] : null;
 
   const out = new Int32Array(rows);
   let n = 0;
 
   for (let i = 0; i < rows; i++) {
-    const day = cols.loggedDay[i];
-    if (day < 0) continue;
-    if (dayFrom != null && day < dayFrom) continue;
-    if (dayTo != null && day > dayTo) continue;
+    if (dateCol) {
+      // Unresolved rows carry -1, so a resolvedDay window drops them automatically.
+      const day = dateCol[i];
+      if (day < 0) continue;
+      if (dayFrom != null && day < dayFrom) continue;
+      if (dayTo != null && day > dayTo) continue;
+    }
     if (district.size && !district.has(cols.district[i])) continue;
     if (facilityType.size && !facilityType.has(cols.facilityType[i])) continue;
     if (equipmentType.size && !equipmentType.has(cols.equipmentType[i])) continue;
@@ -119,6 +125,80 @@ export function rowsInBucket(ds, idx, bucket) {
   const out = [];
   for (let k = 0; k < idx.length; k++) {
     if (ds.cols.bucket[idx[k]] === bucket) out.push(idx[k]);
+  }
+  return out;
+}
+
+/* --------------------------------------------------------------- penalty --- */
+
+/**
+ * Penalty money, following "KL Penalty Logic.xlsx".
+ *
+ * The workbook is written against `TODAY()` and the first of the current month.
+ * Here those become the selected date range, so the same arithmetic answers "what
+ * did June cost" as well as "what is accruing now":
+ *
+ *   start = max(logged + grace + 1, from)      column AN
+ *   end   = resolved > 0 ? min(resolved, to) : to    column AO
+ *   days  = max(end - start + 1, 0)            column AS
+ *   accrued = days * dayRate                   column AT
+ *
+ * `dayRate` is column AU — the Asset Value band, already zeroed at build time for
+ * tickets column AL exempts (RBER date, any ticket remark, or standby).
+ */
+export function penaltyStartDay(ds, row) {
+  return ds.cols.loggedDay[row] + (ds.meta.graceDays ?? 7) + 1;
+}
+
+/** Days of penalty a ticket accrues inside [from, to]. */
+export function penaltyDaysIn(ds, row, from, to) {
+  const { cols } = ds;
+  const resolved = cols.resolvedDay[row];
+  const start = Math.max(penaltyStartDay(ds, row), from);
+  const end = resolved > 0 ? Math.min(resolved, to) : to;
+  return Math.max(end - start + 1, 0);
+}
+
+/** Rupees a ticket accrues inside [from, to]. */
+export function penaltyAmountIn(ds, row, from, to) {
+  return penaltyDaysIn(ds, row, from, to) * ds.cols.dayRate[row];
+}
+
+/**
+ * Closure penalty, column AZ: `(resolved - (logged + grace + 1) + 1) * dayRate`.
+ *
+ * Clamped at zero. The workbook does not clamp, so a ticket closed inside its
+ * grace period yields a negative figure there; a negative penalty is not a
+ * meaningful number to report, and those tickets owe nothing.
+ */
+export function closurePenalty(ds, row) {
+  const span = ds.cols.resolvedDay[row] - penaltyStartDay(ds, row) + 1;
+  return Math.max(span, 0) * ds.cols.dayRate[row];
+}
+
+/**
+ * Tickets **closed** inside [from, to], whenever they were logged.
+ *
+ * Closure penalty is settled on the closing date, so this deliberately filters on
+ * Resolved Date rather than Logged Date — the rest of the dashboard filters on
+ * when a call came in.
+ */
+export function closedInRange(ds, from, to) {
+  const { cols, rows } = ds;
+  const out = [];
+  for (let i = 0; i < rows; i++) {
+    const r = cols.resolvedDay[i];
+    if (r > 0 && r >= from && r <= to) out.push(i);
+  }
+  return out;
+}
+
+/** Open rows currently accruing penalty, i.e. past grace and not exempt. */
+export function accruingRows(ds, idx, from, to) {
+  const out = [];
+  for (let k = 0; k < idx.length; k++) {
+    const i = idx[k];
+    if (ds.cols.dayRate[i] > 0 && penaltyDaysIn(ds, i, from, to) > 0) out.push(i);
   }
   return out;
 }
@@ -196,6 +276,38 @@ export function ticketsForAsset(ds, idx, barcodeId) {
   for (let k = 0; k < idx.length; k++) {
     const i = idx[k];
     if (cols.barcode[i] === barcodeId) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Groups by dictionary id and accumulates a per-row quantity.
+ *
+ * Returns `{ n, sum }` per group, which covers every non-count measure the
+ * dashboard needs: a rate is `sum / n` where the quantity is 1 or 0, and a mean is
+ * `sum / n` where it is the value itself.
+ */
+export function aggregateBy(ds, idx, column, valueOf) {
+  const col = ds.cols[column];
+  const map = new Map();
+  for (let k = 0; k < idx.length; k++) {
+    const i = idx[k];
+    const key = col[i];
+    let g = map.get(key);
+    if (!g) { g = { n: 0, sum: 0 }; map.set(key, g); }
+    g.n++;
+    g.sum += valueOf(i);
+  }
+  return map;
+}
+
+/** Resolved rows only — the denominator for anything about fix quality. */
+export function resolvedRows(ds, idx) {
+  const { cols } = ds;
+  const out = [];
+  for (let k = 0; k < idx.length; k++) {
+    const i = idx[k];
+    if (cols.resolvedDay[i] > 0 && cols.resolvedDay[i] - cols.loggedDay[i] >= 0) out.push(i);
   }
   return out;
 }

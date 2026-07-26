@@ -147,6 +147,39 @@ Andhra's export also carries its own `Penalty Down Days` and `Penalty Amount` co
 are preserved in the artifact but the dashboard computes the flag from the rule above so
 both states are measured identically.
 
+## Penalty money
+
+Kerala's rate card comes from `KL Penalty Logic.xlsx` and is encoded in the state config
+as `penaltyRates`. The workbook is written against `TODAY()` and the first of the current
+month; the dashboard substitutes the **selected date range**, so the same arithmetic
+answers "what did June cost" as well as "what is accruing now".
+
+| Workbook | Meaning | Here |
+|---|---|---|
+| `AL` | exemption: RBER date, any Ticket Remark, or a standby request | `penaltyExempt`, set at build time |
+| `AM` | penalty start = `Logged + 8` | `penaltyStartDay()` = logged + grace + 1 |
+| `AN` / `AO` | window clamped to the reporting period | `max(start, from)` / `min(resolved, to)` |
+| `AS` | penalty days = `AO - AN + 1`, floored at 0 | `penaltyDaysIn()` |
+| `AT` | accrued = days x rate | `penaltyAmountIn()` |
+| `AU` | per-day rate, by Asset Value band | `dayRate` column |
+| `AZ` | closure penalty = `(Resolved - (Logged+8) + 1) x AU` | `closurePenalty()` |
+
+Two things to keep in mind:
+
+- **Closure penalty is scoped by Resolved Date**, not Logged Date — a ticket logged in
+  April and closed in June belongs to June. It is the only view in the dashboard that
+  filters on a different date field; `filterRows` takes a `dateField` option for it.
+- **Accrual ignores the logged-date window entirely** (`dateField: null`). A call logged
+  in May is still running up penalty in July, which is exactly what `AN`'s clamp encodes.
+  Filtering accrual by logged date silently understates it.
+
+`closurePenalty()` clamps at zero. The workbook does not, so a ticket closed inside its
+grace window produces a negative figure there; those tickets owe nothing.
+
+Andhra has **no rate card** — `penaltyRates` is null and the money tab says so rather than
+inventing figures. Its export carries its own `Penalty Down Days` and `Penalty Amount`,
+preserved as `srcPenaltyDays`/`srcPenaltyAmount`.
+
 ## FTFR (First Time Fix Rate)
 
 A call logged today and resolved today or tomorrow is a first-time fix:

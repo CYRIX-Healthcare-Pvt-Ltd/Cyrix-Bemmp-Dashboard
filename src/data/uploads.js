@@ -6,6 +6,8 @@
  * user's machine — nothing here is ever sent anywhere.
  */
 
+import { FORMAT_VERSION } from '../../shared/schema.mjs';
+
 const DB_NAME = 'bemmp';
 const DB_VERSION = 1;
 const STORE = 'uploads';
@@ -50,7 +52,13 @@ export async function getUpload(stateId) {
   const db = await openDb();
   const value = await tx(db, 'readonly', (s) => s.get(stateId));
   db.close();
-  return value ?? null;
+  if (!value) return null;
+  // A cached upload from an older column layout cannot be sliced correctly.
+  if ((value.meta?.formatVersion ?? 1) !== FORMAT_VERSION) {
+    await deleteUpload(stateId);
+    return null;
+  }
+  return value;
 }
 
 /** Summaries for every stored upload, without pulling the binaries into memory. */
@@ -62,6 +70,7 @@ export async function listUploads() {
   for (const key of keys) {
     const value = await tx(db, 'readonly', (s) => s.get(key));
     if (!value) continue;
+    if ((value.meta?.formatVersion ?? 1) !== FORMAT_VERSION) continue;
     out[key] = {
       filename: value.filename,
       uploadedAt: value.uploadedAt,

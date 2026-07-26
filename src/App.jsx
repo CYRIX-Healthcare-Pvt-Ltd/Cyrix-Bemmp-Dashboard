@@ -7,7 +7,8 @@ import { STATES } from '../shared/schema.mjs';
 import UploadPanel from './components/UploadPanel.jsx';
 import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
-  defaultGranularity, rowsInBucket, penaltyRows,
+  defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
+  accruingRows, closurePenalty,
 } from './data/query.js';
 import Backdrop from './components/Backdrop.jsx';
 import Logo, { Tagline } from './components/Logo.jsx';
@@ -57,6 +58,77 @@ const TABS = [
   { id: 'calls', label: 'Open calls' },
   { id: 'penalty', label: 'Penalty calls' },
   { id: 'repeats', label: 'Repeat calls' },
+  { id: 'performance', label: 'Fix performance' },
+  { id: 'money', label: 'Penalty ₹' },
+];
+
+const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+/**
+ * The two money measures from "KL Penalty Logic.xlsx".
+ *
+ * Per-day penalty is column AU summed over tickets accruing inside the selected
+ * range — the daily burn rate. Closure penalty is column AZ over tickets *closed*
+ * inside the range, which is why it filters on Resolved Date instead of Logged
+ * Date: the charge settles when the ticket closes, however long ago it was logged.
+ */
+const MONEY = [
+  {
+    id: 'perday',
+    label: 'Per-day penalty',
+    tab: 'Per-day penalty',
+    color: 'var(--status-critical)',
+    kind: 'sum',
+    sort: 'desc',
+    dateField: 'loggedDay',
+    format: (v) => `${inr(v)}/d`,
+    subtitle: (n) => `${n.toLocaleString()} tickets`,
+    caption: 'Penalty accruing each day, by Asset Value band (column AU)',
+  },
+  {
+    id: 'closure',
+    label: 'Closure penalty',
+    tab: 'Closure penalty',
+    color: 'var(--series-2)',
+    kind: 'sum',
+    sort: 'desc',
+    dateField: 'resolvedDay',
+    format: inr,
+    subtitle: (n) => `${n.toLocaleString()} closed`,
+    caption: 'Penalty settled on tickets closed in this period (column AZ)',
+  },
+];
+
+/**
+ * Drill measures that are a rate or a mean rather than a count.
+ *
+ * Both run over resolved calls only — an open call has no fix to rate and no
+ * resolution time. `minSamples` keeps one-ticket groups off the ranking, which
+ * would otherwise show a perfect or terrible score with no evidence behind it.
+ */
+const PERFORMANCE = [
+  {
+    id: 'ftfr',
+    label: 'FTFR',
+    tab: 'FTFR %',
+    color: 'var(--status-good)',
+    sort: 'asc',
+    minSamples: 10,
+    format: (v) => `${(v * 100).toFixed(1)}%`,
+    subtitle: (n) => `${n.toLocaleString()} resolved`,
+    caption: 'Share of resolved calls fixed within 1 day of logging, worst first',
+  },
+  {
+    id: 'resolution',
+    label: 'Avg resolution',
+    tab: 'Avg resolution',
+    color: 'var(--series-2)',
+    sort: 'desc',
+    minSamples: 10,
+    format: (v) => `${v.toFixed(1)} d`,
+    subtitle: (n) => `${n.toLocaleString()} resolved`,
+    caption: 'Mean days from logged to resolved, slowest first',
+  },
 ];
 
 const STATE_KEY = 'bemmp-state';
@@ -111,6 +183,8 @@ export default function App() {
   const [callBucket, setCallBucket] = useState(BUCKET.OPEN);
   const [drawerRow, setDrawerRow] = useState(null);
   const [metricId, setMetricId] = useState('volume');
+  const [perfId, setPerfId] = useState('ftfr');
+  const [moneyId, setMoneyId] = useState('perday');
   const [granularity, setGranularity] = useState(null); // null = follow the range
   // Bumped after a refresh; busts the HTTP cache and re-runs the loader below.
   const [dataVersion, setDataVersion] = useState('');
@@ -220,6 +294,53 @@ export default function App() {
     () => (idx ? penaltyRows(ds, idx, referenceDay) : []),
     [ds, idx, referenceDay],
   );
+  const resolved = useMemo(() => (idx ? resolvedRows(ds, idx) : []), [ds, idx]);
+
+  const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
+
+  // Closure penalty is scoped by Resolved Date; every other view is scoped by
+  // Logged Date. The dimension filters apply either way.
+  const closedIdx = useMemo(
+    () => (ds && filters ? filterRows(ds, filters, { dateField: 'resolvedDay' }) : []),
+    [ds, filters],
+  );
+
+  // Accrual ignores the logged-date window on purpose: a call logged in May is
+  // still running up penalty in July, which is what the workbook's AN clamp does.
+  const undatedIdx = useMemo(
+    () => (ds && filters ? filterRows(ds, filters, { dateField: null }) : []),
+    [ds, filters],
+  );
+
+  const moneyRows = useMemo(() => {
+    if (!idx) return [];
+    return money.id === 'closure'
+      ? closedIdx
+      : accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo);
+  }, [ds, idx, closedIdx, undatedIdx, money, filters]);
+
+  const moneyMeasure = useMemo(() => ({
+    ...money,
+    value: money.id === 'closure'
+      ? (i) => closurePenalty(ds, i)
+      : (i) => ds.cols.dayRate[i],
+  }), [ds, money]);
+
+  const moneyTotal = useMemo(
+    () => moneyRows.reduce((sum, i) => sum + moneyMeasure.value(i), 0),
+    [moneyRows, moneyMeasure],
+  );
+
+  const perfMeasure = useMemo(() => {
+    const base = PERFORMANCE.find((m) => m.id === perfId) ?? PERFORMANCE[0];
+    const { cols } = ds ?? {};
+    return {
+      ...base,
+      value: base.id === 'ftfr'
+        ? (i) => (cols.resolvedDay[i] - cols.loggedDay[i] <= FTFR_MAX_DAYS ? 1 : 0)
+        : (i) => cols.resolvedDay[i] - cols.loggedDay[i],
+    };
+  }, [ds, perfId]);
 
   const breakdowns = useMemo(() => {
     if (!idx) return null;
@@ -363,6 +484,7 @@ export default function App() {
           onOpenBucket={openBucket}
           onOpenPenalty={() => setTab('penalty')}
           onOpenRepeats={() => setTab('repeats')}
+          onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
         />
 
         <div className="tabs" role="tablist">
@@ -499,6 +621,89 @@ export default function App() {
               + `measured as of ${formatDay(referenceDay)}. ${slaExample(meta.penaltyDays)}`
             )}
           />
+        )}
+
+        {tab === 'performance' && (
+          <>
+            <div className="segmented-row">
+              <div className="segmented" role="tablist" aria-label="Performance measure">
+                {PERFORMANCE.map((m) => (
+                  <button
+                    key={m.id} type="button" role="tab"
+                    aria-selected={perfId === m.id}
+                    onClick={() => setPerfId(m.id)}
+                  >
+                    {m.tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <DrillExplorer
+              key={`perf-${stateId}-${perfId}`}
+              ds={ds}
+              rows={resolved}
+              referenceDay={referenceDay}
+              onSelectRow={setDrawerRow}
+              measure={perfMeasure}
+              showResolutionColumn
+              intro={(n) => (
+                `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} resolved `
+                + `calls in range — open calls have no fix to rate. Groups with fewer than `
+                + `${perfMeasure.minSamples} resolved calls are left out of the ranking.`
+              )}
+            />
+          </>
+        )}
+
+        {tab === 'money' && (
+          <>
+            <div className="segmented-row">
+              <div className="segmented" role="tablist" aria-label="Penalty measure">
+                {MONEY.map((m) => (
+                  <button
+                    key={m.id} type="button" role="tab"
+                    aria-selected={moneyId === m.id}
+                    onClick={() => setMoneyId(m.id)}
+                  >
+                    {m.tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {!meta.penaltyRates ? (
+              <div className="panel">
+                <h2>No rate card for {meta.name}</h2>
+                <p className="caption">
+                  The penalty rate bands come from the state config. Kerala's are taken
+                  from <code>KL Penalty Logic.xlsx</code>; no equivalent has been supplied
+                  for {meta.name}, so money figures are not calculated here. Its export
+                  does carry its own Penalty Down Days and Penalty Amount columns, which
+                  are preserved in the artifact and can be surfaced once the rate card is
+                  confirmed.
+                </p>
+              </div>
+            ) : (
+              <DrillExplorer
+                key={`money-${stateId}-${moneyId}`}
+                ds={ds}
+                rows={moneyRows}
+                referenceDay={referenceDay}
+                onSelectRow={setDrawerRow}
+                measure={moneyMeasure}
+                showResolutionColumn={money.id === 'closure'}
+                intro={(n) => (
+                  `${money.id === 'closure' ? inr(moneyTotal) : `${inr(moneyTotal)} per day`}`
+                  + ` across ${n.toLocaleString()} tickets. ${money.caption}. `
+                  + (money.id === 'closure'
+                    ? 'Scoped by Resolved Date, so a ticket logged months earlier counts '
+                      + 'in the period it was closed. Tickets closed inside the grace '
+                      + 'window contribute nothing.'
+                    : 'Tickets exempted by an RBER date, a ticket remark or a standby '
+                      + 'request are excluded, matching column AL.')
+                )}
+              />
+            )}
+          </>
         )}
 
         {tab === 'repeats' && (

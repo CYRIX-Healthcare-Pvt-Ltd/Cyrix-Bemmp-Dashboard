@@ -24,13 +24,26 @@ export const STATES = [
     file: 'TM-KL.xlsx',
     barcodeWidth: 7,
     penaltyDays: { CRITICAL: 7, 'NON CRITICAL': 7 },
+    // Rupees per penalty day, by Asset Value band. From "KL Penalty Logic.xlsx"
+    // column AT; the first band whose `min` is met wins.
+    penaltyRates: [
+      { min: 10000000, rate: 10000 },
+      { min: 1000000, rate: 3000 },
+      { min: 100000, rate: 1000 },
+      { min: 10000, rate: 500 },
+      { min: 0, rate: 50 },
+    ],
     ticket: 'A',
     categorical: {
       B: 'barcode', D: 'zone', E: 'district', F: 'facilityType', G: 'facilityName',
       H: 'model', I: 'department', J: 'deviceGroup', K: 'equipment', L: 'equipmentType',
-      N: 'manufacturer', V: 'status', W: 'engineer', X: 'parkedReason', AG: 'lifecycle',
+      N: 'manufacturer', V: 'status', W: 'engineer', X: 'parkedReason',
+      Z: 'serviceRequestType', AG: 'lifecycle',
     },
-    numeric: { P: 'loggedDay', Q: 'resolvedDay', AI: 'downDays' },
+    numeric: {
+      P: 'loggedDay', Q: 'resolvedDay', AI: 'downDays',
+      S: 'rberDate', AD: 'assetValue',
+    },
   },
   {
     id: 'ap',
@@ -39,6 +52,10 @@ export const STATES = [
     file: 'TM-AP.xlsx',
     barcodeWidth: 8,
     penaltyDays: { CRITICAL: 2, 'NON CRITICAL': 7 },
+    // No rate card supplied for Andhra. Its export already carries Penalty Down
+    // Days and Penalty Amount, so the money figures come from the source columns
+    // rather than being recomputed. Add bands here if a rate card arrives.
+    penaltyRates: null,
     ticket: 'A',
     categorical: {
       B: 'barcode', D: 'district', E: 'facilityType', F: 'facilityName',
@@ -47,7 +64,8 @@ export const STATES = [
     },
     numeric: {
       N: 'loggedDay', P: 'resolvedDay', AB: 'downDays',
-      AC: 'penaltyDays', AD: 'penaltyAmount',
+      AC: 'srcPenaltyDays', AD: 'srcPenaltyAmount',
+      S: 'rberDate', Y: 'assetValue',
     },
   },
 ];
@@ -60,14 +78,21 @@ export const COLUMNS = [
   'ticketNo', 'ticketPrefix', 'barcode', 'zone', 'district', 'facilityType',
   'facilityName', 'model', 'department', 'deviceGroup', 'equipment', 'equipmentType',
   'manufacturer', 'status', 'engineer', 'lifecycle', 'parkedReason',
-  'loggedDay', 'resolvedDay', 'downDays', 'penaltyDays', 'penaltyAmount', 'bucket',
+  'loggedDay', 'resolvedDay', 'downDays', 'srcPenaltyDays', 'srcPenaltyAmount',
+  'assetValue', 'dayRate', 'penaltyExempt', 'bucket',
 ];
 
 export const CATEGORICAL_FIELDS = [
   'ticketPrefix', 'barcode', 'zone', 'district', 'facilityType', 'facilityName',
   'model', 'department', 'deviceGroup', 'equipment', 'equipmentType', 'manufacturer',
-  'status', 'engineer', 'lifecycle', 'parkedReason',
+  'status', 'engineer', 'lifecycle', 'parkedReason', 'serviceRequestType',
 ];
+
+/**
+ * Bumped whenever COLUMNS changes. A cached upload from an older layout would be
+ * sliced at the wrong offsets, so the reader discards anything that does not match.
+ */
+export const FORMAT_VERSION = 2;
 
 // Free-text columns where capitalisation varies row to row and carries no meaning.
 export const FOLD_CASE = new Set([
@@ -81,6 +106,30 @@ export const BUCKET = { OPEN: 0, PARKED: 1, RESOLVED: 2 };
  * Mirrored in src/data/query.js.
  */
 export const FTFR_MAX_DAYS = 1;
+
+/**
+ * Rupees per penalty day for one ticket, from its Asset Value band.
+ *
+ * Mirrors column AT of "KL Penalty Logic.xlsx". States with no rate card return 0
+ * and fall back to the penalty figures their own export carries.
+ */
+export function dayRateFor(state, assetValue) {
+  if (!state.penaltyRates) return 0;
+  const v = Number(assetValue) || 0;
+  for (const band of state.penaltyRates) if (v >= band.min) return band.rate;
+  return 0;
+}
+
+/**
+ * Whether a ticket is outside the penalty scope, mirroring column AL:
+ * an RBER date, any Ticket Remark, or a standby service request all exempt it.
+ */
+export function isPenaltyExempt(field) {
+  const rber = Number(String(field.rberDate ?? '').trim());
+  if (Number.isFinite(rber) && rber > 0) return true;
+  if (String(field.parkedReason ?? '').trim() !== '') return true;
+  return String(field.serviceRequestType ?? '').trim().toLowerCase() === 'standby';
+}
 
 /* ------------------------------------------------------------------ xml ---- */
 
@@ -265,8 +314,13 @@ export class Builder {
     cols.loggedDay[i] = loggedDay;
     cols.resolvedDay[i] = resolvedDay;
     cols.downDays[i] = Math.floor(+field.downDays) || 0;
-    cols.penaltyDays[i] = Math.floor(+field.penaltyDays) || 0;
-    cols.penaltyAmount[i] = Math.floor(+field.penaltyAmount) || 0;
+    cols.srcPenaltyDays[i] = Math.floor(+field.srcPenaltyDays) || 0;
+    cols.srcPenaltyAmount[i] = Math.floor(+field.srcPenaltyAmount) || 0;
+
+    const assetValue = Math.floor(+field.assetValue) || 0;
+    cols.assetValue[i] = assetValue;
+    cols.penaltyExempt[i] = isPenaltyExempt(field) ? 1 : 0;
+    cols.dayRate[i] = cols.penaltyExempt[i] ? 0 : dayRateFor(state, assetValue);
     cols.bucket[i] = bucket;
 
     // The `>= 0` guard matters: Andhra has a row that resolves before it was
@@ -316,10 +370,15 @@ export class Builder {
       source: `BEMMP DATA/${state.file}`,
       generatedAt: new Date().toISOString(),
       rows,
+      formatVersion: FORMAT_VERSION,
       columns: COLUMNS,
       dictionaries: Object.fromEntries(CATEGORICAL_FIELDS.map((f) => [f, dicts[f].values])),
       dateRange: { minDay: this.minDay, maxDay: this.maxDay },
       penaltyDays: state.penaltyDays,
+      penaltyRates: state.penaltyRates,
+      // Grace is expressed as "penalty starts on logged + graceDays + 1", which is
+      // the AM column's `P + 8` when the window is 7 days.
+      graceDays: state.penaltyDays['NON CRITICAL'],
       kpis: {
         total: rows,
         open: this.bucketTotals[BUCKET.OPEN],

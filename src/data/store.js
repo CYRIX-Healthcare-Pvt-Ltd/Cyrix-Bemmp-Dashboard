@@ -6,6 +6,8 @@
  * Each state lives in its own folder under public/data/.
  */
 
+import { FORMAT_VERSION } from '../../shared/schema.mjs';
+
 export const EXCEL_EPOCH_OFFSET = 25569; // days between 1899-12-30 and 1970-01-01
 const MS_PER_DAY = 86400000;
 
@@ -85,6 +87,12 @@ export async function loadDataset(stateId, version = '') {
  * parsed in the browser from an uploaded workbook have the identical layout.
  */
 export function datasetFrom(meta, buffer, source = 'server') {
+  if ((meta.formatVersion ?? 1) !== FORMAT_VERSION) {
+    throw new Error(
+      `This data was built for artifact format v${meta.formatVersion ?? 1}, `
+      + `but the app now reads v${FORMAT_VERSION}. Re-upload the workbook.`,
+    );
+  }
   const expected = meta.rows * meta.columns.length * 4;
   if (buffer.byteLength !== expected) {
     throw new Error(

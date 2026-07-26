@@ -741,6 +741,8 @@ button { font: inherit; color: inherit; }
   font-size: 12.5px; color: var(--text-secondary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Denominator caption on rate and mean bars, e.g. "1,204 resolved". */
+.b-sub { color: var(--text-muted); font-size: 11px; margin-left: 7px; }
 .bar-track {
   height: 9px; border-radius: 4px; background: var(--gridline); margin-top: 4px;
   overflow: hidden;

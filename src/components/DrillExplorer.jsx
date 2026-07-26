@@ -4,7 +4,7 @@ import {
 } from '../data/store.js';
 import {
   rowsWhere, countBy, topN, analyzeRepeats, ticketsForAsset,
-  penaltyWindows, isPenalty,
+  penaltyWindows, isPenalty, aggregateBy,
 } from '../data/query.js';
 import BarList from './BarList.jsx';
 
@@ -90,6 +90,7 @@ function displayValue(key, raw) {
 export default function DrillExplorer({
   ds, rows, mode = 'tickets', referenceDay, onSelectRow,
   intro, showPenaltyColumn = false, showAgeing = false,
+  measure = null, showResolutionColumn = false,
 }) {
   const { cols, dict } = ds;
   const [path, setPath] = useState([]);
@@ -114,19 +115,47 @@ export default function DrillExplorer({
     [path],
   );
 
-  const breakdowns = useMemo(() => remaining.map((dim) => ({
-    dim,
-    items: topN(countBy(ds, counted, dim.key), dict[dim.key], dim.top)
-      .map((it) => ({ ...it, label: displayValue(dim.key, it.id < 0 ? null : it.label) })),
-  })), [ds, counted, remaining, dict]);
+  const breakdowns = useMemo(() => remaining.map((dim) => {
+    if (!measure) {
+      return {
+        dim,
+        items: topN(countBy(ds, counted, dim.key), dict[dim.key], dim.top)
+          .map((it) => ({ ...it, label: displayValue(dim.key, it.id < 0 ? null : it.label) })),
+      };
+    }
+
+    // A rate or a mean is `sum / n`. Groups below `minSamples` are dropped rather
+    // than ranked: a single resolved call gives a 100% fix rate and would sit at
+    // the top of every chart while meaning nothing.
+    const reduce = measure.kind === 'sum' ? (g) => g.sum : (g) => g.sum / g.n;
+    const groups = [...aggregateBy(ds, counted, dim.key, measure.value).entries()]
+      .filter(([, g]) => g.n >= (measure.minSamples ?? 1))
+      .map(([id, g]) => ({
+        id,
+        label: displayValue(dim.key, id < 0 ? null : dict[dim.key][id]),
+        value: reduce(g),
+        display: measure.format(reduce(g)),
+        sub: measure.subtitle(g.n),
+      }))
+      .filter((g) => measure.kind !== 'sum' || g.value > 0);
+
+    groups.sort((a, b) => (measure.sort === 'asc' ? a.value - b.value : b.value - a.value));
+    return { dim, items: groups.slice(0, dim.top) };
+  }), [ds, counted, remaining, dict, measure]);
 
   const windows = useMemo(() => penaltyWindows(ds), [ds]);
 
   const ticketRows = useMemo(() => {
     const list = Array.from(counted);
-    list.sort((a, b) => cols.loggedDay[a] - cols.loggedDay[b]);
+    if (showResolutionColumn) {
+      // Slowest fix first — the useful order when looking at fix quality.
+      list.sort((a, b) => (cols.resolvedDay[b] - cols.loggedDay[b])
+        - (cols.resolvedDay[a] - cols.loggedDay[a]));
+    } else {
+      list.sort((a, b) => cols.loggedDay[a] - cols.loggedDay[b]);
+    }
     return list;
-  }, [counted, cols]);
+  }, [counted, cols, showResolutionColumn]);
 
   const assets = useMemo(
     () => (repeats ? repeats.assets.slice(0, MAX_ASSETS) : []),
@@ -195,7 +224,9 @@ export default function DrillExplorer({
                   <div>
                     <h2>{dim.label}</h2>
                     <p className="caption">
-                      {mode === 'repeats' ? 'Repeat calls' : 'Calls'} by {dim.noun}
+                      {measure
+                        ? `${measure.label} by ${dim.noun} · ${measure.sort === 'asc' ? 'worst' : 'highest'} first`
+                        : `${mode === 'repeats' ? 'Repeat calls' : 'Calls'} by ${dim.noun}`}
                       {items.length >= dim.top ? ` · top ${dim.top}` : ''}
                     </p>
                   </div>
@@ -203,9 +234,12 @@ export default function DrillExplorer({
                 </div>
                 <BarList
                   items={items}
-                  total={total}
-                  color={dim.color}
+                  total={measure ? null : total}
+                  color={measure?.color ?? dim.color}
                   onSelect={(item) => push(dim.key, item.id)}
+                  emptyText={measure
+                    ? `No ${dim.noun} to rank for this measure`
+                    : 'No data in range'}
                 />
               </div>
             ))}
@@ -251,7 +285,8 @@ export default function DrillExplorer({
             <div className="panel" style={{ '--i': breakdowns.length + 2 }}>
               <h2>Ticket list</h2>
               <p className="caption">
-                Oldest first · showing {Math.min(MAX_ROWS, ticketRows.length)} of{' '}
+                {showResolutionColumn ? 'Slowest fix first' : 'Oldest first'} · showing{' '}
+                {Math.min(MAX_ROWS, ticketRows.length)} of{' '}
                 {ticketRows.length.toLocaleString()} · select a row for full detail
               </p>
               <div className="table-scroll" style={{ maxHeight: 460, overflowY: 'auto' }}>
@@ -261,6 +296,7 @@ export default function DrillExplorer({
                       <th>Ticket</th><th className="num">Age</th><th>Logged</th>
                       <th>Equipment</th><th>Facility</th><th>District</th>
                       <th>Engineer</th>
+                      {showResolutionColumn && <th className="num">Resolution</th>}
                       {showPenaltyColumn && <th className="num">Over SLA</th>}
                     </tr>
                   </thead>
@@ -277,6 +313,13 @@ export default function DrillExplorer({
                           <td>{label(dict.facilityName, cols.facilityName[i])}</td>
                           <td>{label(dict.district, cols.district[i])}</td>
                           <td>{parseEngineer(label(dict.engineer, cols.engineer[i]))?.name ?? '—'}</td>
+                          {showResolutionColumn && (
+                            <td className="num">
+                              {cols.resolvedDay[i] > 0
+                                ? `${cols.resolvedDay[i] - cols.loggedDay[i]}d`
+                                : '—'}
+                            </td>
+                          )}
                           {showPenaltyColumn && (
                             <td className="num">
                               <span className="over-chip">+{over}d</span>

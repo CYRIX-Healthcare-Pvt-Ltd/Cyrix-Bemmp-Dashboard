@@ -61,7 +61,10 @@ function slaNote(penaltyDays) {
   return `Open beyond ${crit}d critical / ${non}d non-critical`;
 }
 
-export default function KpiTiles({ summary, repeats, penaltyDays, onOpenBucket, onOpenPenalty, onOpenRepeats }) {
+export default function KpiTiles({
+  summary, repeats, penaltyDays,
+  onOpenBucket, onOpenPenalty, onOpenRepeats, onOpenPerformance,
+}) {
   const share = (n) => (summary.total ? `${((n / summary.total) * 100).toFixed(1)}% of calls` : '—');
 
   return (
@@ -94,7 +97,8 @@ export default function KpiTiles({ summary, repeats, penaltyDays, onOpenBucket, 
       />
       <Tile
         index={5} label="FTFR" accent="good" value={summary.ftfrPct} format={pct1}
-        note={`${summary.firstTimeFixes.toLocaleString()} fixed within ${FTFR_MAX_DAYS} day of logging`}
+        note={`${summary.firstTimeFixes.toLocaleString()} fixed within ${FTFR_MAX_DAYS} day · drill in`}
+        onClick={() => onOpenPerformance('ftfr')}
       >
         <Ring pct={summary.ftfrPct} />
       </Tile>
@@ -106,7 +110,8 @@ export default function KpiTiles({ summary, repeats, penaltyDays, onOpenBucket, 
       <Tile
         index={7} label="Avg resolution" value={summary.avgResolutionDays}
         format={(n) => `${n.toFixed(1)} d`}
-        note="Logged to resolved"
+        note="Logged to resolved · drill in"
+        onClick={() => onOpenPerformance('resolution')}
       />
     </div>
   );
