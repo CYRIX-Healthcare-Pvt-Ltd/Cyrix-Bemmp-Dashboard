@@ -10,3 +10,6 @@ public/data/
 # Source exports are large SharePoint-synced binaries
 BEMMP DATA/
 desktop.ini
+
+# Real contract figures and sample values — this repository is public
+BASELINE.md

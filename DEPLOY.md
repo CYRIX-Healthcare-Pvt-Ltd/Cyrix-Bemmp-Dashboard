@@ -95,7 +95,7 @@ Use this if you do not want a machine of yours to be the server. You lose the Re
 button — a static host has no process to run the build, so the button hides itself and you
 republish by hand after each refresh.
 
-Build locally, then upload `dist/` (36.7 MB):
+Build locally, then upload `dist/` (tens of MB, mostly the `.bin` artifacts):
 
 - **Azure Static Web Apps** — built-in authentication, easiest of the three.
 - **Cloudflare Pages** + Cloudflare Access.
@@ -111,7 +111,8 @@ Configure the cache carefully:
 - Never cache `index.html` or `/data/`. Both keep stable names across rebuilds. A cached
   `index.html` pins returning browsers to an old build whose hashed assets no longer
   exist, and the only cure is a hard reload on every client.
-- Enable gzip/brotli for `.bin`. Kerala's `tickets.bin` is 24 MB of Int32 data and halves.
+- Enable gzip/brotli for `.bin`. `tickets.bin` is packed Int32 data and compresses to
+  roughly half its size; most servers leave `application/octet-stream` uncompressed.
 
 `scripts/serve.mjs` already gets all of this right.
 

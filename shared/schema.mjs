@@ -175,8 +175,9 @@ export function normalizeEquipmentType(v) {
 }
 
 /**
- * Ticket ids are `281191` in Kerala and `AP65522` in Andhra, with a few bare
- * numbers mixed in. Splitting the alpha prefix from the number keeps the id exact
+ * Ticket ids are a bare number in Kerala and an `AP` prefix plus a number in
+ * Andhra, with a few bare numbers mixed into the Andhra export too. Splitting
+ * the alpha prefix from the number keeps the id exact
  * while storing it as one small dictionary plus an Int32 rather than 265k strings.
  */
 export function splitTicket(v) {

@@ -68,14 +68,15 @@ adding code.
 | | Kerala (`kl`) | Andhra Pradesh (`ap`) |
 |---|---|---|
 | Source | `TM-KL.xlsx` | `TM-AP.xlsx` |
-| Rows | 265,769 | 130,356 |
-| Range | 2021-12-31 → 2026-07-23 | 2023-02-18 → 2026-07-23 |
-| Open / Penalty | 807 / 197 | 451 / 115 |
-| Parked / Resolved | 7,488 / 257,474 | 442 / 129,463 |
-| FTFR | 39.3% | 51.7% |
-| Assets (repeating) | 74,484 (43,108) | 54,913 (26,863) |
-| Penalty SLA | 7 days, all equipment | 2 days critical, 7 days non-critical |
+| Scale | a few hundred thousand rows | roughly half that |
+| Penalty SLA | one window for all equipment | shorter window for critical |
 | Barcode width | 7 | 8 |
+
+> This repository is public, so real contract figures live in `BASELINE.md`, which is
+> gitignored. That file carries the per-state totals, the Kerala cross-checks and the
+> real sample values, and it is the regression baseline — after any pipeline change,
+> `npm run build:data` must reproduce every number in it exactly. The SLA windows
+> themselves are in the `STATES` array in `scripts/build-data.mjs`.
 
 Column letters differ between the two, which is the main reason the config is per state:
 
@@ -88,7 +89,7 @@ Column letters differ between the two, which is the main reason the config is pe
 | Down days | `AI` | `AB` (plus `AC` penalty days, `AD` penalty amount) |
 | Zone, New Status Column | `D`, `AG` | absent |
 
-The Kerala sheet is ~275 MB of XML uncompressed and Andhra ~140 MB, so neither can be
+Both worksheets run to hundreds of megabytes of XML uncompressed, so neither can be
 opened with a load-the-whole-workbook parser. `build-data.mjs` streams them — unzip and
 read the worksheet incrementally against `xl/sharedStrings.xml`. Follow the same approach
 for any new one-off analysis.
@@ -109,7 +110,7 @@ pipeline, this document — but is **labelled "Unresolved calls" in the UI**, wh
 business's own wording. Only `BUCKET_LABEL` and a handful of user-facing strings carry the
 display name; do not rename the internal identifiers to match.
 
-Resolved Date blank *alone* overstates open by ~10x in Kerala (8,295 vs 807). Parked
+Resolved Date blank *alone* overstates open by roughly **ten times** in Kerala. Parked
 tickets are unresolved but outside the service scope, and Ticket Remark holds the reason —
 `rber`, `warranty`, `physical damage`, `not under scope`, `power fluctuation`,
 `rodent damage`. Report parked separately; never fold it into open.
@@ -118,12 +119,13 @@ tickets are unresolved but outside the service scope, and Ticket Remark holds th
 unresolved Resolved Date (never a missing cell); Andhra leaves the cell absent. Both
 coerce to `0`/epoch if parsed as a date.
 
-Cross-checks that must hold for Kerala after any pipeline change:
+Cross-checks that must hold for Kerala after any pipeline change — exact counts are in
+`BASELINE.md`:
 
-- The 807 open rows are exactly the rows where `AG New Status Column = 'Pending'` and
-  Ticket Remark is blank (`Pending` totals 1,397; 590 of those carry a remark).
-- In column `V`, `resolved` (763) is **not** open; it rolls up with `closed` into
-  `AG = 'COMPLETED'` (256,711 + 763 = 257,474).
+- The open rows are exactly those where `AG New Status Column = 'Pending'` and Ticket
+  Remark is blank. Not every `Pending` row qualifies; a substantial minority carry a remark.
+- In column `V`, `resolved` is **not** open. It rolls up with `closed` into
+  `AG = 'COMPLETED'`, and the two must sum to the resolved total.
 
 ## Penalty calls
 
@@ -159,23 +161,25 @@ No row in either state resolves before it was logged, so the duration never need
 All of it changes grouping only — every headline total is identical with and without it.
 
 **Barcode** — stored inconsistently: some cells are shared strings that keep the leading
-zero (`"0251397"`), others are numeric cells where Excel dropped it. Zero-padded to the
+zero (`"0123456"`), others are numeric cells where Excel dropped it. Zero-padded to the
 state's width before grouping, or the same asset counts as two.
 
 **Case folding** — `Dialysis Machine` and `Dialysis machine` are one equipment type stored
-two ways, which splits the counts the dashboard exists to report (at DH PALAKKAD: 205 + 190
-rather than 395). `facilityName`, `model`, `department`, `deviceGroup`, `equipment` and
+two ways, which splits the counts the dashboard exists to report — at one large facility
+the two spellings each held roughly half the true total. `facilityName`, `model`, `department`, `deviceGroup`, `equipment` and
 `manufacturer` are interned case-insensitively, displaying whichever spelling is most
 common. Deliberately case-only — spellings differing by more than capitalisation stay
-separate (`FRESENIOUS MEDICAL CARE` vs `Fresenius Medical Care AG & Co.`, `Sterlizer` vs
-`Sterilizer`); merging those needs a curated alias table, not a normalisation rule.
+separate — a misspelled manufacturer and its correctly spelled legal name remain two
+entries, as do `Sterlizer` and `Sterilizer`. Merging those needs a curated alias table,
+not a normalisation rule. See `BASELINE.md` for the real examples.
 
 **Equipment type** — Kerala writes `CRITICAL`/`NON CRITICAL`, Andhra `Critical`/
 `Non-Critical`. Both collapse to one vocabulary because the penalty rule keys off it.
 
 **District** — `KASARGODE` is the only shouted value in Kerala; title-cased to match.
 
-**Ticket id** — `281191` in Kerala, `AP65522` in Andhra with a few bare numbers mixed in.
+**Ticket id** — a bare number in Kerala, `AP` plus a number in Andhra, with a few bare
+numbers mixed into the Andhra export too.
 The alpha prefix is split from the number and stored as a tiny dictionary plus an Int32,
 which keeps the id exact without a 265k-entry string dictionary. Reassemble with
 `ticketLabel()` in `src/data/store.js`; never render `ticketNo` on its own.
@@ -194,11 +198,11 @@ Columns are a shared union across states; fields a state does not supply stay at
 `-1`/`0` sentinel so the reader never branches per state. Adding a column means updating
 both the writer in `scripts/build-data.mjs` and the reader in `src/data/`.
 
-Two source columns are deliberately excluded. Kerala's `AH Last Remark` is 250,898 unique
-strings (~14 MB of dictionary) because it embeds names and timestamps per row; `Customer
-mobile` is personal data the dashboard has no use for. The engineer column (`W Assigned`)
+Two source columns are deliberately excluded. Kerala's `AH Last Remark` is very nearly one
+unique string per row (~14 MB of dictionary) because it embeds names and timestamps;
+`Customer mobile` is personal data the dashboard has no use for. The engineer column (`W Assigned`)
 is only ~300 unique values per state and is included — `parseEngineer` splits its two
-shapes, `CYR208 - Ajithbabu K - 8848079288` and `KLM - Kollam - DI USER ID - 7593847161`.
+shapes, `CODE - Engineer Name - phone` and `ABC - District - DI USER ID - phone`.
 
 ## UI conventions
 
@@ -248,21 +252,21 @@ leave a short final row.
 - `Contract Status` has both `WARRANTY` and `Warranty`.
 - `Model` / `Manufacturer` / `Serial No` use `NA`, `na`, `NIL`, `Nil`, `nil`, `0000` and
   blanks interchangeably for "unknown".
-- `Device Group` is unreliable — rows carry groups unrelated to the asset (a laser
-  lithotripter filed under `Ice Lined Refrigerator`). Group by `Asset Description` instead.
+- `Device Group` is unreliable — rows carry groups unrelated to the asset (a surgical
+  laser filed under refrigeration). Group by `Asset Description` instead.
 - Dates are Excel serials on the 1900 system: `(serial - 25569) * 86400000` ms since epoch.
 
 ## Other exports in `BEMMP DATA/` (not wired up)
 
-| File | Shape | Notes |
-|------|-------|-------|
-| `TM-KL OFFLINE.csv` | 24 cols | Manually logged Kerala tickets. Text dates (`18-Jan-2024`), barcodes formula-escaped as `="1453918"`, has `Ticket Reason`/`Attended By` which the xlsx lacks. |
-| `TM-RJ.xlsx` | 48,555 × 23 | Rajasthan, sheet `sheet1`. `Complaint ID`, text timestamps, `Final Closed` status, barcodes prefixed `(8004890615671) 30171854`. |
-| `TM-UP1.xls`, `TM-UP.xls` | — | Legacy binary `.xls`, not OOXML — cannot be unzipped, needs a converter. |
-| `KL PM`, `KL CAL`, `AP PM`, `AP CAL` `.xlsx` | 61,991 / 126,492 / 338,570 / 156,241 rows | Shared **schedule** schema (`Schedule Id` = `WO/2026/…`). `Delay Days` is signed text (`+130 days`). Open items read `Not Yet Completed`. Note the double space in `Facility  Type`. |
-| `RJ CAL.xlsx`, `RJ PM.xlsx` | 72,574 rows / 82 MB | Report-style export — **data starts at row 4**; rows 1-3 are a print header. |
-| `TM - Care 360.xlsx` | 3,727 × 29 | Multi-state private program with a `State` column. Job-lifecycle timestamps and `TaT`. Uses inline `t="str"` cells, no shared-string table. |
-| `TM - PVT Service.xlsx` | 249 × 26 | Same family as Care 360. |
+| File | Notes |
+|------|-------|
+| `TM-KL OFFLINE.csv` | 24 cols. Manually logged Kerala tickets. Text dates (`18-Jan-2024`), barcodes formula-escaped as `="1234567"`, has `Ticket Reason`/`Attended By` which the xlsx lacks. |
+| `TM-RJ.xlsx` | 23 cols, sheet `sheet1`. Rajasthan. `Complaint ID`, text timestamps, `Final Closed` status, barcodes prefixed with a parenthesised GS1 code. |
+| `TM-UP1.xls`, `TM-UP.xls` | Legacy binary `.xls`, not OOXML — cannot be unzipped, needs a converter. |
+| `KL PM`, `KL CAL`, `AP PM`, `AP CAL` `.xlsx` | Shared **schedule** schema (`Schedule Id` = `WO/2026/…`), 20-22 cols. `Delay Days` is signed text (`+130 days`). Open items read `Not Yet Completed`. Note the double space in `Facility  Type`. |
+| `RJ CAL.xlsx`, `RJ PM.xlsx` | Report-style export — **data starts at row 4**; rows 1-3 are a print header. |
+| `TM - Care 360.xlsx` | 29 cols. Multi-state private program with a `State` column. Job-lifecycle timestamps and `TaT`. Uses inline `t="str"` cells, no shared-string table. |
+| `TM - PVT Service.xlsx` | 26 cols. Same family as Care 360. |
 
 Files under `BEMMP DATA/` are refreshed exports from a SharePoint sync and get overwritten
 periodically — treat them as read-only inputs and never edit in place. `desktop.ini` is a

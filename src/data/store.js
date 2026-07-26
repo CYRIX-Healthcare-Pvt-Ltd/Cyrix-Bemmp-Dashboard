@@ -128,8 +128,8 @@ export function label(dict, id, blank = '—') {
 }
 
 /**
- * Reassembles a ticket id from its stored prefix and number — `281191` in Kerala,
- * `AP65522` in Andhra.
+ * Reassembles a ticket id from its stored prefix and number — a bare number in
+ * Kerala, an `AP` prefix plus a number in Andhra.
  */
 export function ticketLabel(ds, row) {
   const prefix = label(ds.dict.ticketPrefix, ds.cols.ticketPrefix[row], '');
@@ -140,8 +140,8 @@ export function ticketLabel(ds, row) {
 /**
  * Splits the source "Assigned" string into its parts.
  *
- * Two shapes occur: an engineer, `CYR208 - Ajithbabu K - 8848079288`, and a
- * district desk, `KLM - Kollam - DI USER ID - 7593847161`.
+ * Two shapes occur: an engineer, `CODE - Engineer Name - phone`, and a district
+ * desk, `ABC - District - DI USER ID - phone`.
  */
 export function parseEngineer(raw) {
   if (!raw || raw === '—') return null;
