@@ -1,0 +1,24 @@
+{
+  "name": "bemmp-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:data": "node scripts/build-data.mjs",
+    "refresh": "npm run build:data && npm run build",
+    "dev": "vite",
+    "build": "vite build",
+    "build:static": "vite build && node scripts/strip-data.mjs",
+    "serve": "node scripts/serve.mjs",
+    "start": "npm run build && npm run serve",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}
