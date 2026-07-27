@@ -602,16 +602,15 @@ button { font: inherit; color: inherit; }
 /* ==================================================================== kpis == */
 
 /*
- * Eight tiles, kept in even rows at every breakpoint — 4+4, then 3 x 2 + 2 is
- * avoided by stepping straight from 4 to 2 so a short final row never appears.
+ * Ten tiles. Ten divides evenly only by 5 and 2, so the grid steps straight from
+ * 5 columns to 2 — any intermediate count (4 or 3) would leave a short final row.
  */
 .kpis {
   display: grid; gap: 13px; margin-bottom: 16px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
-@media (max-width: 1180px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 940px)  { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 420px)  { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; } }
+@media (max-width: 1240px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px)  { .kpis { gap: 9px; } }
 .kpi {
   position: relative; overflow: hidden;
   background: var(--surface-glass);

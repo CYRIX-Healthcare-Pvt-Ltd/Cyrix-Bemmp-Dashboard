@@ -58,7 +58,7 @@ const TABS = [
   { id: 'calls', label: 'Open calls' },
   { id: 'penalty', label: 'Penalty calls' },
   { id: 'repeats', label: 'Repeat calls' },
-  { id: 'performance', label: 'Fix performance' },
+  { id: 'performance', label: 'FTFR and Closure TAT' },
   { id: 'money', label: 'Penalty ₹' },
 ];
 
@@ -312,12 +312,25 @@ export default function App() {
     [ds, filters],
   );
 
-  const moneyRows = useMemo(() => {
-    if (!idx) return [];
-    return money.id === 'closure'
-      ? closedIdx
-      : accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo);
-  }, [ds, idx, closedIdx, undatedIdx, money, filters]);
+  const accruing = useMemo(
+    () => (idx ? accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo) : []),
+    [ds, idx, undatedIdx, filters],
+  );
+
+  // Both money figures feed the KPI tiles, so they are computed whichever tab is
+  // showing rather than only inside the money view.
+  const moneySummary = useMemo(() => {
+    if (!ds) return { hasRateCard: false, perDay: 0, closure: 0, accruingCount: 0, closedCount: 0 };
+    return {
+      hasRateCard: Boolean(ds.meta.penaltyRates),
+      perDay: accruing.reduce((sum, i) => sum + ds.cols.dayRate[i], 0),
+      closure: closedIdx.reduce((sum, i) => sum + closurePenalty(ds, i), 0),
+      accruingCount: accruing.length,
+      closedCount: closedIdx.length,
+    };
+  }, [ds, accruing, closedIdx]);
+
+  const moneyRows = money.id === 'closure' ? closedIdx : accruing;
 
   const moneyMeasure = useMemo(() => ({
     ...money,
@@ -481,10 +494,12 @@ export default function App() {
           summary={summary}
           repeats={repeats}
           penaltyDays={meta.penaltyDays}
+          money={moneySummary}
           onOpenBucket={openBucket}
           onOpenPenalty={() => setTab('penalty')}
           onOpenRepeats={() => setTab('repeats')}
           onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
+          onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
         />
 
         <div className="tabs" role="tablist">
