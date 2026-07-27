@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react';
 import {
-  formatDay, label, parseEngineer, ticketLabel, BUCKET_LABEL,
+  formatDay, label, parseEngineer, ticketLabel, BUCKET, BUCKET_LABEL,
 } from '../data/store.js';
 import {
   rowsWhere, countBy, topN, analyzeRepeats, ticketsForAsset,
-  penaltyWindows, isPenalty, aggregateBy,
+  penaltyWindows, isPenalty, aggregateBy, closurePenalty,
 } from '../data/query.js';
 import BarList from './BarList.jsx';
 
 const MAX_ROWS = 400;
 const MAX_ASSETS = 100;
 const BUCKET_DOT = ['open', 'parked', 'resolved'];
+
+const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 /**
  * Drill order. District first, then facility, equipment, manufacturer — the way a
@@ -96,6 +98,11 @@ export default function DrillExplorer({
   const [path, setPath] = useState([]);
   const [asset, setAsset] = useState(null);
 
+  // Andhra ships no rate card, so its dayRate is 0 throughout and the money
+  // columns would be a wall of dashes. Its own penalty figures live in the
+  // srcPenalty* columns instead.
+  const hasRateCard = Boolean(ds.meta.penaltyRates);
+
   const scoped = useMemo(() => {
     let cur = rows;
     for (const step of path) cur = rowsWhere(ds, cur, step.key, step.id);
@@ -147,7 +154,11 @@ export default function DrillExplorer({
 
   const ticketRows = useMemo(() => {
     const list = Array.from(counted);
-    if (showResolutionColumn) {
+    if (measure && measure.kind === 'sum') {
+      // Biggest money first. Sorting a rupee view by logged date buries the rows
+      // the total is actually made of behind the oldest, often zero-value, tickets.
+      list.sort((a, b) => measure.value(b) - measure.value(a));
+    } else if (showResolutionColumn) {
       // Slowest fix first — the useful order when looking at fix quality.
       list.sort((a, b) => (cols.resolvedDay[b] - cols.loggedDay[b])
         - (cols.resolvedDay[a] - cols.loggedDay[a]));
@@ -155,7 +166,7 @@ export default function DrillExplorer({
       list.sort((a, b) => cols.loggedDay[a] - cols.loggedDay[b]);
     }
     return list;
-  }, [counted, cols, showResolutionColumn]);
+  }, [counted, cols, showResolutionColumn, measure]);
 
   const assets = useMemo(
     () => (repeats ? repeats.assets.slice(0, MAX_ASSETS) : []),
@@ -285,7 +296,9 @@ export default function DrillExplorer({
             <div className="panel" style={{ '--i': breakdowns.length + 2 }}>
               <h2>Ticket list</h2>
               <p className="caption">
-                {showResolutionColumn ? 'Slowest fix first' : 'Oldest first'} · showing{' '}
+                {measure && measure.kind === 'sum'
+                  ? 'Largest first'
+                  : (showResolutionColumn ? 'Slowest fix first' : 'Oldest first')} · showing{' '}
                 {Math.min(MAX_ROWS, ticketRows.length)} of{' '}
                 {ticketRows.length.toLocaleString()} · select a row for full detail
               </p>
@@ -298,12 +311,16 @@ export default function DrillExplorer({
                       <th>Engineer</th>
                       {showResolutionColumn && <th className="num">Resolution</th>}
                       {showPenaltyColumn && <th className="num">Over SLA</th>}
+                      {hasRateCard && <th className="num">Per-day ₹</th>}
+                      {hasRateCard && <th className="num">Closure ₹</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {ticketRows.slice(0, MAX_ROWS).map((i) => {
                       const age = referenceDay - cols.loggedDay[i];
                       const over = age - windows[cols.equipmentType[i] + 1];
+                      const accruing = cols.bucket[i] === BUCKET.OPEN && cols.dayRate[i] > 0;
+                      const closed = cols.resolvedDay[i] > 0;
                       return (
                         <tr key={i} className="clickable" onClick={() => onSelectRow(i)}>
                           <td>{ticketLabel(ds, i)}</td>
@@ -323,6 +340,21 @@ export default function DrillExplorer({
                           {showPenaltyColumn && (
                             <td className="num">
                               <span className="over-chip">+{over}d</span>
+                            </td>
+                          )}
+                          {hasRateCard && (
+                            <td className="num">
+                              {/* Only an open ticket is still burning a daily rate. */}
+                              {accruing
+                                ? <span className="money-accruing">{inr(cols.dayRate[i])}/d</span>
+                                : <span className="money-nil">—</span>}
+                            </td>
+                          )}
+                          {hasRateCard && (
+                            <td className="num">
+                              {closed && cols.dayRate[i] > 0
+                                ? inr(closurePenalty(ds, i))
+                                : <span className="money-nil">—</span>}
                             </td>
                           )}
                         </tr>

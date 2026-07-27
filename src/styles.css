@@ -468,6 +468,9 @@ button { font: inherit; color: inherit; }
 
 .segmented-row { display: flex; margin-bottom: 16px; }
 
+.money-accruing { color: var(--status-critical); font-weight: 600; }
+.money-nil { color: var(--text-muted); }
+
 .count-chip, .over-chip {
   display: inline-block; min-width: 30px; padding: 1px 7px; border-radius: 999px;
   font-variant-numeric: tabular-nums; font-weight: 600; font-size: 11.5px;

@@ -193,11 +193,24 @@ export function closedInRange(ds, from, to) {
   return out;
 }
 
-/** Open rows currently accruing penalty, i.e. past grace and not exempt. */
+/**
+ * Rows currently accruing penalty: **open**, past grace, and not exempt.
+ *
+ * The open test is the point of this function. Per-day penalty is a burn rate —
+ * what the contract is costing today — so a ticket that has been closed is not
+ * accruing anything, however much it accrued before it closed. Dropping the test
+ * pulls in every ticket that merely *finished* accruing inside the window, which
+ * roughly doubles both the count and the daily figure; what those tickets owe is
+ * the closure penalty, reported separately by `closurePenalty`.
+ *
+ * Parked rows are already excluded upstream: any Ticket Remark makes a ticket
+ * penalty-exempt, which zeroes its `dayRate`.
+ */
 export function accruingRows(ds, idx, from, to) {
   const out = [];
   for (let k = 0; k < idx.length; k++) {
     const i = idx[k];
+    if (ds.cols.bucket[i] !== BUCKET.OPEN) continue;
     if (ds.cols.dayRate[i] > 0 && penaltyDaysIn(ds, i, from, to) > 0) out.push(i);
   }
   return out;

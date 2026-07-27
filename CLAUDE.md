@@ -164,14 +164,23 @@ answers "what did June cost" as well as "what is accruing now".
 | `AU` | per-day rate, by Asset Value band | `dayRate` column |
 | `AZ` | closure penalty = `(Resolved - (Logged+8) + 1) x AU` | `closurePenalty()` |
 
-Two things to keep in mind:
+Three things to keep in mind:
 
+- **Per-day penalty counts open tickets only.** It is a burn rate — what the contract
+  costs today — so a closed ticket contributes nothing however much it accrued before it
+  closed; that is the closure penalty's job. `accruingRows()` enforces this. Without the
+  bucket test it also picks up every ticket that merely *finished* accruing inside the
+  window, which in Kerala roughly doubled both the count and the daily figure.
 - **Closure penalty is scoped by Resolved Date**, not Logged Date — a ticket logged in
   April and closed in June belongs to June. It is the only view in the dashboard that
   filters on a different date field; `filterRows` takes a `dateField` option for it.
 - **Accrual ignores the logged-date window entirely** (`dateField: null`). A call logged
   in May is still running up penalty in July, which is exactly what `AN`'s clamp encodes.
   Filtering accrual by logged date silently understates it.
+
+The two measures are disjoint by construction — open tickets carry a per-day rate and no
+closure figure, closed tickets the reverse — which is what the `Per-day ₹` and `Closure ₹`
+columns in the ticket grid show. The grid renders them only when the state has a rate card.
 
 `closurePenalty()` clamps at zero. The workbook does not, so a ticket closed inside its
 grace window produces a negative figure there; those tickets owe nothing.
