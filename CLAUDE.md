@@ -276,8 +276,18 @@ costs nothing and the periods always line up. Granularity follows the selected d
 until the user picks one. Values are labelled selectively — peak, trough and latest — never
 one per point.
 
-**Motion**: decorative animation lives in `Backdrop.jsx` and is gated on `data-motion` on
-the root, seeded from the OS but overridable via `MotionToggle`. Windows' "Animation
+**Motion**: decorative animation lives in `Backdrop.jsx` — an aurora of five blurred
+orbs, a technical grid, rising bubbles, and a three-lane vitals stack (ECG, respiration,
+SpO2) borrowed from the bedside monitors this dashboard reports on. The lanes run at
+7s / 17s / 9.5s, which share no common period, so the field never visibly resyncs.
+
+Only `transform` and `stroke-dashoffset` are animated, keeping the whole layer on the
+compositor — an animated `feTurbulence` would look more organic but repaints the viewport
+every frame. The blobs get their fluid quality from rotating off-centre radial gradients
+instead. Below 640px the extra lanes, bubbles and two orbs drop out.
+
+It is gated on `data-motion` on the root, seeded from the OS but overridable via
+`MotionToggle`. Windows' "Animation
 effects" setting makes Chrome report `prefers-reduced-motion: reduce`, which silently
 killed the whole ambient layer with no way to switch it back on — hence the explicit
 toggle. Reduced now means *static*, not hidden: the orbs, grid and ECG still render, they
