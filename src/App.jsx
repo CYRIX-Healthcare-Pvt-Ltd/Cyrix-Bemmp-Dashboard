@@ -22,6 +22,7 @@ import MetricChart from './components/MetricChart.jsx';
 import BarList from './components/BarList.jsx';
 import DrillExplorer from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
+import AssistantPanel from './components/AssistantPanel.jsx';
 
 /** The charted metrics. All read from one `buildSeries` result. */
 const METRICS = [
@@ -190,6 +191,7 @@ export default function App() {
   const [dataVersion, setDataVersion] = useState('');
   const [uploads, setUploads] = useState(null); // stateId -> summary
   const [showUpload, setShowUpload] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   useEffect(() => {
     // A static deployment ships no artifacts at all, so a missing states.json is a
@@ -744,6 +746,28 @@ export default function App() {
         latestDay={referenceDay}
         onClose={() => setDrawerRow(null)}
       />
+
+      <button
+        type="button"
+        className="assistant-fab"
+        onClick={() => setShowAssistant(true)}
+        aria-label="Ask the data"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.3-.6L3 21l1.8-5a8.3 8.3 0 0 1-.8-3.6 8.4 8.4 0 0 1 8.5-8.4 8.4 8.4 0 0 1 8.5 8.4Z" />
+        </svg>
+        <span>Ask</span>
+      </button>
+
+      {showAssistant && (
+        <AssistantPanel
+          ds={ds}
+          filters={filters}
+          referenceDay={referenceDay}
+          onClose={() => setShowAssistant(false)}
+        />
+      )}
     </>
   );
 }

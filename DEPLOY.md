@@ -162,6 +162,31 @@ first time. If most of your users are in the office, the server build with its R
 button is a nicer experience; the upload build is the right answer when you need a link you
 can send outside and cannot put a gateway in front of it.
 
+## The assistant's OpenAI key
+
+Never commit a key and never put one in the built bundle. Everything in `dist/` is
+readable by anyone who opens the site, so a key shipped that way is published.
+
+**On the office server** — put it in the environment and the browser never sees it:
+
+```bash
+set OPENAI_API_KEY=sk-...
+npm run serve
+```
+
+The banner then reads `Assistant on (gpt-4o-mini, key held server-side)`. The page posts to
+`/api/assistant` and the key stays in the Node process. Set it in the scheduled task's
+environment, not in a file in the repo. `OPENAI_MODEL` overrides the model, which is pinned
+server-side so a client cannot ask for an expensive one.
+
+**On GitHub Pages** — a static host has no process to hold a secret, so the app asks each
+user for their own key and keeps it in that browser's local storage. That is the only safe
+arrangement there. If you want one shared company key instead, the dashboard has to be
+served by something that can run code — which is the office-server route above.
+
+If a key is ever exposed, revoke it at **platform.openai.com/api-keys** and issue a new
+one. Revoking is immediate; rotating later is not a substitute.
+
 ## Refreshing the data
 
 The exports in `BEMMP DATA/` are overwritten by a SharePoint sync. Nothing picks that up on

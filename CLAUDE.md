@@ -246,6 +246,34 @@ unique string per row (~14 MB of dictionary) because it embeds names and timesta
 is only ~300 unique values per state and is included — `parseEngineer` splits its two
 shapes, `CODE - Engineer Name - phone` and `ABC - District - DI USER ID - phone`.
 
+## Assistant
+
+`AssistantPanel` answers plain-language questions, by voice or text, in six languages.
+
+**The model never sees ticket data.** It receives only the question and the fixed
+`QUERY_TOOL` schema, and returns a small JSON spec — measure, dimension, order, limit,
+range, optional filter. `runQuery` in `src/data/assistant.js` executes that spec against
+the typed arrays and `describeResult` composes the answer sentence locally. Consequences
+worth preserving:
+
+- Figures quoted back are the dashboard's own, so the sentence and the chart cannot
+  disagree, and nothing is hallucinated.
+- Engineer names, phone numbers and facility names never leave the browser.
+- Free-text filter values ("palakkad") are resolved against the dictionaries here, which
+  is why no dictionary needs to be sent either.
+
+Translation sends only the already-composed sentence, so the numbers in it are fixed
+before any model sees them. Voice in and out use the browser's own Web Speech engines —
+no audio is uploaded.
+
+Engineer labels go through `parseEngineer` before display, or the answer reads a phone
+number aloud.
+
+**Keys.** There are two modes and deliberately no third. `server` keeps the key in the
+serve.mjs process behind `/api/assistant`; `byok` asks each user for their own key, held
+in their own localStorage. A key must never be committed or bundled — a static build is
+readable by every visitor, so a shared key shipped in the JS is a shared key given away.
+
 ## UI conventions
 
 **Drill-down** is one component, `DrillExplorer`, used by the open, penalty and repeat

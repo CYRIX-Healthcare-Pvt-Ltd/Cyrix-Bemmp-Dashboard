@@ -46,6 +46,65 @@ if (!fs.existsSync(DIST)) {
   process.exit(1);
 }
 
+/* -------------------------------------------------------------- assistant -- */
+
+const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+/**
+ * Forwards one chat-completions request using the server-held key.
+ *
+ * The body is capped and the model is pinned server-side, so a client cannot use
+ * this as an open relay to run arbitrary expensive jobs on the company key.
+ */
+function proxyToOpenAI(req, res) {
+  const chunks = [];
+  let size = 0;
+  let aborted = false;
+
+  req.on('data', (chunk) => {
+    size += chunk.length;
+    if (size > 128 * 1024) {
+      aborted = true;
+      sendJson(res, 413, { error: 'request too large' });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  req.on('end', async () => {
+    if (aborted) return;
+    let body;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON' });
+      return;
+    }
+    body.model = OPENAI_MODEL;
+
+    try {
+      const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await upstream.text();
+      res.writeHead(upstream.status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(text);
+    } catch (err) {
+      sendJson(res, 502, { error: `upstream request failed: ${err.message}` });
+    }
+  });
+}
+
 /* ------------------------------------------------------------------ auth -- */
 
 /*
@@ -208,6 +267,25 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /*
+   * Assistant proxy. The OpenAI key stays in this process and is never sent to the
+   * browser; the page posts a request body here and gets the completion back. Without
+   * OPENAI_API_KEY the health check fails and the app falls back to asking each user
+   * for their own key.
+   */
+  if (url === '/api/assistant/health') {
+    if (!OPENAI_KEY) { sendJson(res, 503, { error: 'OPENAI_API_KEY not set' }); return; }
+    sendJson(res, 200, { ok: true, model: OPENAI_MODEL });
+    return;
+  }
+
+  if (url === '/api/assistant') {
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'use POST' }); return; }
+    if (!OPENAI_KEY) { sendJson(res, 503, { error: 'OPENAI_API_KEY not set' }); return; }
+    proxyToOpenAI(req, res);
+    return;
+  }
+
   // Serving a half-written artifact would hand the browser a torn binary, so the
   // data route is closed for the ~10s a rebuild takes.
   const isData = url.startsWith('/data/');
@@ -267,6 +345,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Local     http://localhost:${PORT}`);
   for (const ip of lan) console.log(`  Network   http://${ip}:${PORT}`);
   console.log(`\n  Password  ${AUTH_ON ? `on (user "${AUTH_USER}")` : 'off — anyone who can reach this port can read the data'}`);
+  console.log(`  Assistant ${OPENAI_KEY ? `on (${OPENAI_MODEL}, key held server-side)` : 'off — set OPENAI_API_KEY to enable'}`);
   console.log('  The Refresh button in the header re-reads BEMMP DATA/ on demand.');
   console.log('  Ctrl+C to stop.\n');
 });
