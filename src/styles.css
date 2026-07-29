@@ -35,7 +35,9 @@
 
   --radius: 14px;
   --radius-sm: 9px;
-  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Space Grotesk is loaded in index.html; the system sans carries the page until
+     it arrives, and permanently if the machine is offline. */
+  --font: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Ambient layer. Light mode needs less: saturated blurs on a near-white

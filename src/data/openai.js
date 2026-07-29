@@ -168,6 +168,22 @@ export async function synthesizeSpeech({ text, session, voice = 'nova' }) {
 }
 
 /**
+ * Terms that stay in English inside a translated sentence.
+ *
+ * These are what the dashboard's own labels say, and what staff use on the phone.
+ * Translating "penalty call" into Malayalam produces a phrase nobody uses and that
+ * matches no tile on screen, so the sentence stops agreeing with the UI beside it.
+ */
+const GLOSSARY = [
+  'FTFR', 'SLA', 'BEMMP', 'ticket', 'tickets', 'call', 'calls',
+  'open call', 'open calls', 'unresolved call', 'unresolved calls',
+  'repeat call', 'repeat calls', 'repeated call', 'repeated calls',
+  'penalty', 'penalty call', 'penalty calls',
+  'per-day penalty', 'closure penalty', 'resolution time',
+  'district', 'facility', 'equipment', 'manufacturer', 'engineer', 'department',
+];
+
+/**
  * Translates one already-computed sentence. Only the sentence travels, so the
  * figures in it are the app's own — translation cannot change them.
  */
@@ -180,8 +196,13 @@ export async function translateSentence({ text, language, session }) {
     messages: [
       {
         role: 'system',
-        content: `Translate the user's sentence into ${language}. Keep all numbers, `
-          + 'percentages, currency amounts and proper nouns exactly as written. '
+        content: `Translate the user's sentence into ${language}. `
+          + 'Keep all numbers, percentages, currency amounts and proper nouns '
+          + '(district, facility, equipment, manufacturer and engineer names) exactly '
+          + 'as written, in Latin script. '
+          + 'Leave these domain terms in English too, because they are what the '
+          + `dashboard labels say: ${GLOSSARY.join(', ')}. `
+          + 'Translate only the connecting words around them. '
           + 'Reply with the translation only.',
       },
       { role: 'user', content: text },

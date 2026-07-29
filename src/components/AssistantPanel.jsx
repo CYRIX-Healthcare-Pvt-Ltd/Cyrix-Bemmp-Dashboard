@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  QUERY_TOOL, datasetContext, runQuery, describeResult, MEASURES,
+  QUERY_TOOL, datasetContext, runQuery, describeResult,
 } from '../data/assistant.js';
 import {
-  planQuery, translateSentence, probeServer, storedKey, storeKey,
+  planQuery, translateSentence, probeServer, storedKey,
   storedModel, DEFAULT_MODEL, synthesizeSpeech,
 } from '../data/openai.js';
 import useSpeech, {
@@ -12,12 +12,25 @@ import useSpeech, {
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
 
-/**
- * Set VITE_ASSISTANT_REQUIRE_PROXY=1 at build time to drop the key box entirely.
- * Use it when a proxy is meant to be the only route, so a missing proxy shows a
- * configuration message rather than inviting every user to paste a key.
- */
-const PROXY_ONLY = String(import.meta.env?.VITE_ASSISTANT_REQUIRE_PROXY || '') === '1';
+const HISTORY_KEY = 'bemmp-assistant-history';
+const HISTORY_LIMIT = 40;
+
+function loadHistory(stateId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}');
+    return Array.isArray(all[stateId]) ? all[stateId] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(stateId, entries) {
+  try {
+    const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}');
+    all[stateId] = entries.slice(-HISTORY_LIMIT);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(all));
+  } catch { /* storage full or disabled; history is not worth failing over */ }
+}
 
 const SUGGESTIONS = [
   'Which district has the highest FTFR?',
@@ -27,45 +40,59 @@ const SUGGESTIONS = [
   'Per-day penalty by district',
 ];
 
+/**
+ * Flattens a query result into something plain enough to store.
+ *
+ * The result carries the measure definition, which holds functions — those cannot
+ * be serialised, so history would break on reload. This keeps only what the answer
+ * card actually draws.
+ */
+function toView(result) {
+  return {
+    headline: result.headline ? { display: result.headline.display } : null,
+    items: result.items.map((it) => ({
+      id: it.id, label: it.label, value: it.value, display: it.display, sub: it.sub,
+    })),
+    measureLabel: result.measure.label,
+    colour: result.measure.kind === 'sum' ? 'var(--status-critical)' : 'var(--series-1)',
+    dimension: result.spec.dimension,
+    range: result.spec.range,
+    filterLabel: result.appliedFilter?.label ?? null,
+  };
+}
+
 /** One answered question: the spoken/typed prompt plus its rendered result. */
-function Answer({ entry, onDrill, onReplay }) {
+function Answer({ entry, onReplay }) {
   if (entry.error) {
     return <div className="chat-error">{entry.error}</div>;
   }
 
-  const { result, sentence, translated } = entry;
-  const colour = result.measure.kind === 'sum'
-    ? 'var(--status-critical)'
-    : 'var(--series-1)';
+  const { view, sentence, translated } = entry;
 
   return (
     <div className="chat-answer">
-      {result.headline && (
+      {view.headline && (
         <div className="answer-headline">
-          <div className="answer-figure">{result.headline.display}</div>
-          <div className="answer-measure">{result.measure.label}</div>
+          <div className="answer-figure">{view.headline.display}</div>
+          <div className="answer-measure">{view.measureLabel}</div>
         </div>
       )}
 
       <p className="answer-text">{translated || sentence}</p>
       {translated && <p className="answer-original">{sentence}</p>}
 
-      {result.items.length > 0 && (
+      {view.items.length > 0 && (
         <div className="answer-chart">
-          <BarList
-            items={result.items}
-            color={colour}
-            onSelect={onDrill ? (item) => onDrill(result, item) : undefined}
-          />
+          <BarList items={view.items} color={view.colour} />
         </div>
       )}
 
       <div className="answer-meta">
         <span>
-          {result.measure.label}
-          {result.spec.dimension !== 'none' && ` by ${result.spec.dimension}`}
-          {result.appliedFilter && ` · ${result.appliedFilter.label}`}
-          {` · ${result.spec.range === 'current' ? 'current filters' : result.spec.range}`}
+          {view.measureLabel}
+          {view.dimension !== 'none' && ` by ${view.dimension}`}
+          {view.filterLabel && ` · ${view.filterLabel}`}
+          {` · ${view.range === 'current' ? 'current filters' : view.range}`}
         </span>
         <button
           type="button" className="replay"
@@ -84,17 +111,19 @@ function Answer({ entry, onDrill, onReplay }) {
   );
 }
 
-export default function AssistantPanel({ ds, filters, referenceDay, onClose, onDrill }) {
+export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   const [session, setSession] = useState({ mode: null, apiKey: storedKey(), model: storedModel() });
   const [language, setLanguage] = useState(() => STATE_LANGUAGE[ds.meta.id] || 'en-IN');
   const [question, setQuestion] = useState('');
-  const [entries, setEntries] = useState([]);
+  const [entries, setEntries] = useState(() => loadHistory(ds.meta.id));
   const [busy, setBusy] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [keyDraft, setKeyDraft] = useState(storedKey());
   const [speaking, setSpeaking] = useState(false);
   const [voicesReady, setVoicesReady] = useState(false);
   const logRef = useRef(null);
+
+  // History is per contract: the figures in an answer only mean anything against
+  // the dataset they were computed from.
+  useEffect(() => { saveHistory(ds.meta.id, entries); }, [ds.meta.id, entries]);
 
   const speech = useSpeech(language);
 
@@ -140,8 +169,10 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
   }, [entries, busy]);
 
-  const needsKey = session.mode === 'byok' && !session.apiKey;
-  const unavailable = PROXY_ONLY && session.mode === 'byok';
+  // No key entry in the UI: the key belongs on the server, so a deployment without
+  // one is unconfigured rather than something a user can fix by pasting a secret.
+  const unavailable = session.mode === 'byok' && !session.apiKey;
+  const needsKey = unavailable;
 
   async function ask(text) {
     const trimmed = text.trim();
@@ -168,10 +199,14 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
         translated = await translateSentence({ text: sentence, language: name, session });
       }
 
-      setEntries((prev) => [...prev, { question: trimmed, result, sentence, translated }]);
+      setEntries((prev) => [...prev, {
+        question: trimmed, view: toView(result), sentence, translated, at: Date.now(),
+      }].slice(-HISTORY_LIMIT));
       say(translated || sentence);
     } catch (err) {
-      setEntries((prev) => [...prev, { question: trimmed, error: err.message }]);
+      setEntries((prev) => [...prev, {
+        question: trimmed, error: err.message, at: Date.now(),
+      }].slice(-HISTORY_LIMIT));
     } finally {
       setBusy(false);
     }
@@ -203,17 +238,19 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
                 <option key={l.code} value={l.code}>{l.label}</option>
               ))}
             </select>
-            <button
-              type="button" className="icon-btn"
-              onClick={() => setShowSettings((v) => !v)}
-              aria-label="Assistant settings"
-            >
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-                   strokeWidth="2" strokeLinecap="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" />
-              </svg>
-            </button>
+            {entries.length > 0 && (
+              <button
+                type="button" className="icon-btn"
+                onClick={() => { halt(); setEntries([]); }}
+                aria-label="Clear chat history"
+                title="Clear chat history"
+              >
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                </svg>
+              </button>
+            )}
             <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
                    strokeWidth="2" strokeLinecap="round">
@@ -223,39 +260,13 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
           </div>
         </header>
 
-        {(showSettings || needsKey) && (
+        {unavailable && (
           <div className="assistant-settings">
-            {session.mode === 'server' ? (
-              <p className="caption">
-                Using the key configured on the server. Nothing is stored in your browser.
-              </p>
-            ) : PROXY_ONLY ? (
-              <p className="caption">
-                The assistant is not configured on this deployment. It needs a proxy
-                holding the OpenAI key — see DEPLOY.md.
-              </p>
-            ) : (
-              <>
-                <label htmlFor="oa-key">Your OpenAI API key</label>
-                <div className="key-row">
-                  <input
-                    id="oa-key" type="password" placeholder="sk-…"
-                    value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)}
-                  />
-                  <button
-                    type="button" className="reset"
-                    onClick={() => { storeKey(keyDraft); setSession((s) => ({ ...s, apiKey: keyDraft.trim() })); setShowSettings(false); }}
-                  >
-                    Save
-                  </button>
-                </div>
-                <p className="caption">
-                  Held only in this browser&apos;s local storage and sent straight to OpenAI.
-                  This site has no server to hold a shared key. Your question and the query
-                  schema are all that leave the page — no ticket data, names or numbers.
-                </p>
-              </>
-            )}
+            <p className="caption">
+              The assistant is not configured on this deployment. Set{' '}
+              <code>OPENAI_API_KEY</code> in <code>.env.local</code> and restart the
+              server, or point the build at a proxy — see DEPLOY.md.
+            </p>
           </div>
         )}
 
@@ -279,7 +290,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
           {entries.map((entry, i) => (
             <div className="chat-turn" key={i}>
               <div className="chat-question">{entry.question}</div>
-              <Answer entry={entry} onDrill={onDrill} onReplay={say} />
+              <Answer entry={entry} onReplay={say} />
             </div>
           ))}
 
@@ -344,5 +355,3 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
     </>
   );
 }
-
-export { MEASURES };
