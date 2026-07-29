@@ -21,6 +21,16 @@ const inr = (v) => `₹${Math.round(v).toLocaleString('en-IN')}`;
 const int = (v) => Math.round(v).toLocaleString('en-IN');
 
 /**
+ * A measure label as it should read mid-sentence.
+ *
+ * Lowercasing suits "the highest average resolution time", but an acronym must
+ * survive it — "the highest ftfr" is wrong on screen and wrong read aloud.
+ */
+function measureName(measure) {
+  return /^[A-Z]{2,}$/.test(measure.label) ? measure.label : measure.label.toLowerCase();
+}
+
+/**
  * Each measure declares which rows it runs over and how a single row scores.
  * `kind` decides how a group of rows collapses: counts add up, rates and means
  * divide by the group size.
@@ -268,7 +278,7 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
   if (!measure) throw new Error(`I don't know how to measure "${spec.measure}".`);
   if (measure.needsRateCard && !ds.meta.penaltyRates) {
     throw new Error(
-      `${ds.meta.name} has no penalty rate card, so ${measure.label.toLowerCase()} cannot be calculated.`,
+      `${ds.meta.name} has no penalty rate card, so ${measureName(measure)} cannot be calculated.`,
     );
   }
 
@@ -385,7 +395,7 @@ export function describeResult(ds, result) {
   }
 
   if (!items.length) {
-    return `No ${measure.label.toLowerCase()} data${where} for ${contract} in this period.`;
+    return `No ${measureName(measure)} data${where} for ${contract} in this period.`;
   }
 
   const [singular, plural] = DIM_NOUN[spec.dimension] ?? [spec.dimension, `${spec.dimension}s`];
@@ -400,7 +410,7 @@ export function describeResult(ds, result) {
     ? `Top ${items.length} of ${int(total)} ${plural}.`
     : `Across ${total} ${total === 1 ? singular : plural}.`;
 
-  return `${best.label} has the ${superlative} ${measure.label.toLowerCase()}${where} `
+  return `${best.label} has the ${superlative} ${measureName(measure)}${where} `
     + `for ${contract} at ${best.display}`
     + (rest ? `, followed by ${rest}` : '')
     + `. ${scope}`;

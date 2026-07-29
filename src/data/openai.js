@@ -97,7 +97,10 @@ guess or state any figures — the application computes them. Choose the measure
 dimension that best answer the question. If the user names a district, facility,
 equipment type, manufacturer or engineer, put it in filterDimension/filterValue.
 "Best"/"top" for a rate means order desc; for resolution time, lower is better so
-"best" means order asc. If the user gives no period, use range "current".`;
+"best" means order asc. If the user gives no period, use range "current".
+Even when the question asks for a single winner ("which district has the highest…"),
+return limit 5 or more so the answer shows the ranking around it. Only use a small
+limit if the user explicitly asks for one result.`;
 
 /**
  * Turns a question into a query spec. Only the question and the fixed tool schema
@@ -196,13 +199,17 @@ export async function translateSentence({ text, language, session }) {
     messages: [
       {
         role: 'system',
-        content: `Translate the user's sentence into ${language}. `
-          + 'Keep all numbers, percentages, currency amounts and proper nouns '
-          + '(district, facility, equipment, manufacturer and engineer names) exactly '
-          + 'as written, in Latin script. '
-          + 'Leave these domain terms in English too, because they are what the '
-          + `dashboard labels say: ${GLOSSARY.join(', ')}. `
-          + 'Translate only the connecting words around them. '
+        content: `Translate the user's sentence into ${language}.\n\n`
+          + 'Rules, in order of importance:\n'
+          + '1. Do NOT translate these terms. Copy them verbatim in English, keeping '
+          + `their exact capitalisation: ${GLOSSARY.join(', ')}.\n`
+          + '2. Do NOT translate proper nouns — district, facility, equipment, '
+          + 'manufacturer and engineer names stay in Latin script exactly as written.\n'
+          + '3. Do NOT change numbers, percentages or currency amounts.\n'
+          + '4. Translate only the connecting words between them.\n\n'
+          + 'Example for Malayalam — input: "Pathanamthitta has the highest FTFR at '
+          + '79.8%. Top 5 of 14 districts." Output: "Pathanamthitta-യ്ക്കാണ് ഏറ്റവും '
+          + 'ഉയർന്ന FTFR, 79.8%. 14 districts-ൽ ആദ്യ 5."\n\n'
           + 'Reply with the translation only.',
       },
       { role: 'user', content: text },
