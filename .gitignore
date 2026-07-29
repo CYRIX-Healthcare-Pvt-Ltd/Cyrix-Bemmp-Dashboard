@@ -13,3 +13,7 @@ desktop.ini
 
 # Real contract figures and sample values — this repository is public
 BASELINE.md
+
+# Local secrets: OpenAI key, site password. Read by scripts/serve.mjs only,
+# never bundled and never served to the browser.
+.env.local

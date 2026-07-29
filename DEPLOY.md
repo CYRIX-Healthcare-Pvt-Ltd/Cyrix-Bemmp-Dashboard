@@ -167,12 +167,19 @@ can send outside and cannot put a gateway in front of it.
 Never commit a key and never put one in the built bundle. Everything in `dist/` is
 readable by anyone who opens the site, so a key shipped that way is published.
 
-**On the office server** — put it in the environment and the browser never sees it:
+**On the office server** — put it in a file, once:
 
 ```bash
-set OPENAI_API_KEY=sk-...
-npm run serve
+copy .env.local.example .env.local
 ```
+
+Open `.env.local`, paste the key after `OPENAI_API_KEY=`, save, then `npm start`. The
+banner reads `Assistant on (gpt-4o-mini, key held server-side)` and nobody is ever prompted
+for a key.
+
+`.env.local` is gitignored, so it does not reach GitHub. It is read by `scripts/serve.mjs`
+in the server process; the browser never receives it. A real environment variable still
+wins over the file, which is what scheduled tasks and CI should use.
 
 The banner then reads `Assistant on (gpt-4o-mini, key held server-side)`. The page posts to
 `/api/assistant` and the key stays in the Node process. Set it in the scheduled task's
@@ -203,12 +210,24 @@ Secrets and variables → Actions → Variables) so the Pages workflow picks it 
 Edit `ALLOWED_ORIGINS` in the worker before deploying. Without that check the endpoint is
 an open relay and anyone who finds the URL can spend the key.
 
-**Why the key cannot simply be downloaded.** A common suggestion is to keep the key on the
-server and have the page fetch it at startup. That is the same as publishing it: whatever
-the page receives is visible in the browser's network tab, and the endpoint serving it can
-be called directly by anyone. The key has to stay on the server and the *request* has to
-travel to it — which is what both proxies here do. With either in place the key is entered
-once by you, never by a user.
+Build with `VITE_ASSISTANT_REQUIRE_PROXY=1` if you would rather the key box never appear at
+all: when no proxy answers the assistant then reports itself unconfigured instead of asking
+the user for a key.
+
+**Why the key cannot live in `src/` or `public/`.** Putting it in a file the *page* reads —
+`src/key.txt`, `public/key.txt`, a constant in the bundle — publishes it three times over:
+
+- Anything under `src/` is compiled into `dist/assets/index-*.js`, which every visitor
+  downloads. The key is then two clicks away in DevTools.
+- Anything under `public/` is served verbatim, so the key sits at a plain URL like
+  `/key.txt` that anyone can open.
+- This repository is public, so the commit itself publishes it. GitHub's secret scanning
+  reports OpenAI keys automatically and the key is usually revoked within minutes.
+
+Hiding the input box hides the key from your users, not from anyone looking for it. The key
+has to stay on a server and the *request* has to travel to it — which is what `.env.local`
+plus `/api/assistant`, or the Worker, both do. Either way it is entered once by you and
+never by a user.
 
 If a key is ever exposed, revoke it at **platform.openai.com/api-keys** and issue a new
 one. Revoking is immediate; rotating later is not a substitute.

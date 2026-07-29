@@ -12,6 +12,13 @@ import useSpeech, {
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
 
+/**
+ * Set VITE_ASSISTANT_REQUIRE_PROXY=1 at build time to drop the key box entirely.
+ * Use it when a proxy is meant to be the only route, so a missing proxy shows a
+ * configuration message rather than inviting every user to paste a key.
+ */
+const PROXY_ONLY = String(import.meta.env?.VITE_ASSISTANT_REQUIRE_PROXY || '') === '1';
+
 const SUGGESTIONS = [
   'Which district has the highest FTFR?',
   'Top 5 equipment by repeat calls',
@@ -134,6 +141,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
   }, [entries, busy]);
 
   const needsKey = session.mode === 'byok' && !session.apiKey;
+  const unavailable = PROXY_ONLY && session.mode === 'byok';
 
   async function ask(text) {
     const trimmed = text.trim();
@@ -221,6 +229,11 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
               <p className="caption">
                 Using the key configured on the server. Nothing is stored in your browser.
               </p>
+            ) : PROXY_ONLY ? (
+              <p className="caption">
+                The assistant is not configured on this deployment. It needs a proxy
+                holding the OpenAI key — see DEPLOY.md.
+              </p>
             ) : (
               <>
                 <label htmlFor="oa-key">Your OpenAI API key</label>
@@ -296,7 +309,9 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
             type="text"
             value={speech.listening ? (speech.interim || 'Listening…') : question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder={needsKey ? 'Add an OpenAI key to begin' : 'Ask about this contract…'}
+            placeholder={unavailable
+              ? 'Assistant not configured'
+              : (needsKey ? 'Add an OpenAI key to begin' : 'Ask about this contract…')}
             disabled={busy || speech.listening || needsKey}
           />
           {speaking ? (

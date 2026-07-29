@@ -28,6 +28,32 @@ const SOURCE_DIR = path.join(ROOT, 'BEMMP DATA');
 const portArg = process.argv.indexOf('--port');
 const PORT = portArg !== -1 ? Number(process.argv[portArg + 1]) : 4173;
 
+/**
+ * Loads `.env.local` from the repo root, so the OpenAI key and the site password
+ * can be set once in a file instead of exported before every run.
+ *
+ * The file is gitignored. It is read *here*, in the server process — the browser
+ * never receives it. A key placed anywhere the browser can fetch (src/, public/,
+ * the bundle) is a published key, because everything the page can read, so can
+ * every visitor.
+ */
+function loadEnvFile() {
+  const file = path.join(ROOT, '.env.local');
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    // Tolerate quoted values, which is what people paste out of a password manager.
+    const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+    // A real environment variable wins, so CI and scheduled tasks can override.
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+loadEnvFile();
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
