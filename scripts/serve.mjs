@@ -50,6 +50,7 @@ if (!fs.existsSync(DIST)) {
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 
 /**
  * Forwards one chat-completions request using the server-held key.
@@ -57,7 +58,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
  * The body is capped and the model is pinned server-side, so a client cannot use
  * this as an open relay to run arbitrary expensive jobs on the company key.
  */
-function proxyToOpenAI(req, res) {
+function proxyToOpenAI(req, res, kind = 'chat') {
   const chunks = [];
   let size = 0;
   let aborted = false;
@@ -82,10 +83,16 @@ function proxyToOpenAI(req, res) {
       sendJson(res, 400, { error: 'invalid JSON' });
       return;
     }
-    body.model = OPENAI_MODEL;
+    // Speech returns audio bytes; chat returns JSON. Both pin the model here so a
+    // client cannot ask the company key for an expensive one.
+    const speech = kind === 'speech';
+    const endpoint = speech
+      ? 'https://api.openai.com/v1/audio/speech'
+      : 'https://api.openai.com/v1/chat/completions';
+    body.model = speech ? OPENAI_TTS_MODEL : OPENAI_MODEL;
 
     try {
-      const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+      const upstream = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,6 +100,18 @@ function proxyToOpenAI(req, res) {
         },
         body: JSON.stringify(body),
       });
+
+      if (speech && upstream.ok) {
+        const audio = Buffer.from(await upstream.arrayBuffer());
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': audio.length,
+          'Cache-Control': 'no-store',
+        });
+        res.end(audio);
+        return;
+      }
+
       const text = await upstream.text();
       res.writeHead(upstream.status, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -275,14 +294,14 @@ const server = http.createServer((req, res) => {
    */
   if (url === '/api/assistant/health') {
     if (!OPENAI_KEY) { sendJson(res, 503, { error: 'OPENAI_API_KEY not set' }); return; }
-    sendJson(res, 200, { ok: true, model: OPENAI_MODEL });
+    sendJson(res, 200, { ok: true, model: OPENAI_MODEL, tts: true });
     return;
   }
 
-  if (url === '/api/assistant') {
+  if (url === '/api/assistant' || url === '/api/assistant/speech') {
     if (req.method !== 'POST') { sendJson(res, 405, { error: 'use POST' }); return; }
     if (!OPENAI_KEY) { sendJson(res, 503, { error: 'OPENAI_API_KEY not set' }); return; }
-    proxyToOpenAI(req, res);
+    proxyToOpenAI(req, res, url.endsWith('/speech') ? 'speech' : 'chat');
     return;
   }
 

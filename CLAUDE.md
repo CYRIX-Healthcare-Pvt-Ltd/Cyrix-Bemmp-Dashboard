@@ -269,10 +269,22 @@ no audio is uploaded.
 Engineer labels go through `parseEngineer` before display, or the answer reads a phone
 number aloud.
 
-**Keys.** There are two modes and deliberately no third. `server` keeps the key in the
-serve.mjs process behind `/api/assistant`; `byok` asks each user for their own key, held
-in their own localStorage. A key must never be committed or bundled — a static build is
-readable by every visitor, so a shared key shipped in the JS is a shared key given away.
+**Voice.** Speech input is the browser's own engine, so no audio is uploaded. Output
+prefers OpenAI's multilingual model: Windows ships no voice for Malayalam, Telugu, Tamil
+or Kannada, and `speechSynthesis` responds by silently substituting an English voice that
+reads the script with English phonetics rather than failing. `hasNativeVoice()` is the
+check that routes around it; the browser engine remains the fallback when no key is
+available. `stopSpeaking()` halts either engine.
+
+**Keys.** The key lives behind a proxy — `serve.mjs` at `/api/assistant`, or the
+Cloudflare Worker in `serverless/` for static deployments, selected by
+`VITE_ASSISTANT_URL` at build time. Each user supplying their own key is only the
+fallback when no proxy is reachable.
+
+A key must never be committed, bundled, or served to the page. Fetching a key from the
+backend and holding it in the browser is equivalent to publishing it: it appears in the
+network tab and the endpoint serving it can be called by anyone. The key stays server-side
+and the request travels to it.
 
 ## UI conventions
 

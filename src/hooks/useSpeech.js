@@ -108,14 +108,63 @@ export default function useSpeech(language) {
   return { listen, stop, listening, interim, error, supported: speechSupported };
 }
 
-/** Reads a sentence aloud, picking a voice that matches the language if present. */
-export function speak(text, language) {
-  if (!synthesisSupported || !text) return;
-  window.speechSynthesis.cancel();
+/**
+ * Whether the browser actually has a voice for this language.
+ *
+ * Windows ships none for Malayalam, Telugu, Tamil or Kannada. Without this check
+ * the engine silently substitutes an English voice, which then reads the script
+ * with English phonetics instead of refusing — so the caller must ask first and
+ * route to the multilingual model when the answer is no.
+ */
+export function hasNativeVoice(language) {
+  if (!synthesisSupported) return false;
+  const base = language.split('-')[0];
+  return window.speechSynthesis.getVoices()
+    .some((v) => v.lang?.split('-')[0] === base);
+}
+
+/** Voice lists populate asynchronously; this resolves once they are there. */
+export function whenVoicesReady() {
+  return new Promise((resolve) => {
+    if (!synthesisSupported) { resolve([]); return; }
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length) { resolve(voices); return; }
+    const onChange = () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', onChange);
+      resolve(window.speechSynthesis.getVoices());
+    };
+    window.speechSynthesis.addEventListener('voiceschanged', onChange);
+    setTimeout(() => resolve(window.speechSynthesis.getVoices()), 1200);
+  });
+}
+
+// The clip currently playing, so stopSpeaking can halt either engine.
+let currentAudio = null;
+
+/** Plays an audio clip produced by the multilingual model. */
+export function playClip(url, { onEnd } = {}) {
+  stopSpeaking();
+  const audio = new Audio(url);
+  currentAudio = audio;
+  audio.addEventListener('ended', () => {
+    URL.revokeObjectURL(url);
+    if (currentAudio === audio) currentAudio = null;
+    onEnd?.();
+  });
+  audio.play().catch(() => { onEnd?.(); });
+  return audio;
+}
+
+/** Reads a sentence with the browser engine, picking a matching voice if present. */
+export function speak(text, language, { onEnd } = {}) {
+  if (!synthesisSupported || !text) { onEnd?.(); return; }
+  stopSpeaking();
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
   utterance.rate = 0.98;
+  utterance.onend = () => onEnd?.();
+  utterance.onerror = () => onEnd?.();
 
   const voices = window.speechSynthesis.getVoices();
   const exact = voices.find((v) => v.lang === language);
@@ -125,6 +174,11 @@ export function speak(text, language) {
   window.speechSynthesis.speak(utterance);
 }
 
+/** Halts whichever engine is talking. */
 export function stopSpeaking() {
   if (synthesisSupported) window.speechSynthesis.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
 }

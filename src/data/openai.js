@@ -17,6 +17,16 @@ const KEY_STORAGE = 'bemmp-openai-key';
 const MODEL_STORAGE = 'bemmp-openai-model';
 export const DEFAULT_MODEL = 'gpt-4o-mini';
 
+/**
+ * Where the proxy lives.
+ *
+ * Defaults to this origin, which is right when serve.mjs is hosting. A static
+ * deployment has no server of its own, so it is built with VITE_ASSISTANT_URL
+ * pointing at a small function elsewhere — see serverless/ — and then nobody has
+ * to enter a key either.
+ */
+const BASE = (import.meta.env?.VITE_ASSISTANT_URL || 'api/assistant').replace(/\/+$/, '');
+
 export function storedKey() {
   return localStorage.getItem(KEY_STORAGE) || '';
 }
@@ -34,19 +44,19 @@ export function storeModel(model) {
 /** Is a server-side key configured? Decides whether the user is asked for one. */
 export async function probeServer() {
   try {
-    const r = await fetch('api/assistant/health', { cache: 'no-store' });
-    if (!r.ok) return { mode: 'byok', model: null };
+    const r = await fetch(`${BASE}/health`, { cache: 'no-store' });
+    if (!r.ok) return { mode: 'byok', model: null, tts: false };
     const body = await r.json();
-    return { mode: 'server', model: body.model || DEFAULT_MODEL };
+    return { mode: 'server', model: body.model || DEFAULT_MODEL, tts: body.tts !== false };
   } catch {
-    return { mode: 'byok', model: null };
+    return { mode: 'byok', model: null, tts: false };
   }
 }
 
 /** One chat-completions round trip, via whichever mode is active. */
 async function chat(body, { mode, apiKey }) {
   if (mode === 'server') {
-    const r = await fetch('api/assistant', {
+    const r = await fetch(BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -115,6 +125,46 @@ export async function planQuery({ question, context, tool, session, history = []
   } catch {
     throw new Error('The model returned a malformed query.');
   }
+}
+
+/**
+ * Speech from OpenAI rather than the browser.
+ *
+ * The Web Speech engine can only speak a language it has a voice installed for.
+ * Windows ships none for Malayalam, Telugu, Tamil or Kannada, so it falls back to
+ * an English voice and reads the script with English phonetics — the "English
+ * tone" problem. This model is genuinely multilingual and pronounces the text as
+ * the language it is written in.
+ *
+ * Returns an object URL for an audio clip, or null if speech is unavailable, in
+ * which case the caller falls back to the browser engine.
+ */
+export async function synthesizeSpeech({ text, session, voice = 'nova' }) {
+  const body = { model: 'gpt-4o-mini-tts', voice, input: text, response_format: 'mp3' };
+
+  let response;
+  if (session.mode === 'server') {
+    if (session.tts === false) return null;
+    response = await fetch(`${BASE}/speech`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } else {
+    if (!session.apiKey) return null;
+    response = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  if (!response.ok) return null; // fall back to the browser voice
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 /**

@@ -4,10 +4,11 @@ import {
 } from '../data/assistant.js';
 import {
   planQuery, translateSentence, probeServer, storedKey, storeKey,
-  storedModel, DEFAULT_MODEL,
+  storedModel, DEFAULT_MODEL, synthesizeSpeech,
 } from '../data/openai.js';
 import useSpeech, {
   LANGUAGES, STATE_LANGUAGE, speak, stopSpeaking, synthesisSupported,
+  hasNativeVoice, whenVoicesReady, playClip,
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
 
@@ -20,7 +21,7 @@ const SUGGESTIONS = [
 ];
 
 /** One answered question: the spoken/typed prompt plus its rendered result. */
-function Answer({ entry, onDrill }) {
+function Answer({ entry, onDrill, onReplay }) {
   if (entry.error) {
     return <div className="chat-error">{entry.error}</div>;
   }
@@ -53,10 +54,24 @@ function Answer({ entry, onDrill }) {
       )}
 
       <div className="answer-meta">
-        {result.measure.label}
-        {result.spec.dimension !== 'none' && ` by ${result.spec.dimension}`}
-        {result.appliedFilter && ` · ${result.appliedFilter.label}`}
-        {` · ${result.spec.range === 'current' ? 'current filters' : result.spec.range}`}
+        <span>
+          {result.measure.label}
+          {result.spec.dimension !== 'none' && ` by ${result.spec.dimension}`}
+          {result.appliedFilter && ` · ${result.appliedFilter.label}`}
+          {` · ${result.spec.range === 'current' ? 'current filters' : result.spec.range}`}
+        </span>
+        <button
+          type="button" className="replay"
+          onClick={() => onReplay(translated || sentence)}
+          aria-label="Read this answer aloud"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          </svg>
+          Replay
+        </button>
       </div>
     </div>
   );
@@ -70,6 +85,8 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [keyDraft, setKeyDraft] = useState(storedKey());
+  const [speaking, setSpeaking] = useState(false);
+  const [voicesReady, setVoicesReady] = useState(false);
   const logRef = useRef(null);
 
   const speech = useSpeech(language);
@@ -78,9 +95,39 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
     probeServer().then((r) => setSession((s) => ({
       ...s,
       mode: r.mode,
+      tts: r.tts,
       model: r.model || s.model || DEFAULT_MODEL,
     })));
+    whenVoicesReady().then(() => setVoicesReady(true));
   }, []);
+
+  // Stop any audio when the panel closes, or it keeps talking to an empty room.
+  useEffect(() => () => stopSpeaking(), []);
+
+  /**
+   * Prefers the multilingual model, falling back to the browser engine. Without
+   * this the browser reads Malayalam or Telugu with an English voice, because it
+   * has no voice installed for those languages.
+   */
+  async function say(text) {
+    stopSpeaking();
+    setSpeaking(true);
+    const done = () => setSpeaking(false);
+
+    const native = hasNativeVoice(language);
+    if (!native || !language.startsWith('en')) {
+      try {
+        const url = await synthesizeSpeech({ text, session });
+        if (url) { playClip(url, { onEnd: done }); return; }
+      } catch { /* fall through to the browser voice */ }
+    }
+    speak(text, language, { onEnd: done });
+  }
+
+  function halt() {
+    stopSpeaking();
+    setSpeaking(false);
+  }
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
@@ -94,7 +141,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
 
     setQuestion('');
     setBusy(true);
-    stopSpeaking();
+    halt();
 
     try {
       const spec = await planQuery({
@@ -114,7 +161,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
       }
 
       setEntries((prev) => [...prev, { question: trimmed, result, sentence, translated }]);
-      speak(translated || sentence, language);
+      say(translated || sentence);
     } catch (err) {
       setEntries((prev) => [...prev, { question: trimmed, error: err.message }]);
     } finally {
@@ -219,7 +266,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
           {entries.map((entry, i) => (
             <div className="chat-turn" key={i}>
               <div className="chat-question">{entry.question}</div>
-              <Answer entry={entry} onDrill={onDrill} />
+              <Answer entry={entry} onDrill={onDrill} onReplay={say} />
             </div>
           ))}
 
@@ -252,12 +299,29 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose, onD
             placeholder={needsKey ? 'Add an OpenAI key to begin' : 'Ask about this contract…'}
             disabled={busy || speech.listening || needsKey}
           />
-          <button type="submit" className="ask" disabled={busy || !question.trim() || needsKey}>
-            Ask
-          </button>
+          {speaking ? (
+            <button type="button" className="ask stop" onClick={halt}>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+              Stop
+            </button>
+          ) : (
+            <button type="submit" className="ask" disabled={busy || !question.trim() || needsKey}>
+              Ask
+            </button>
+          )}
         </form>
 
         {speech.error && <div className="assistant-note">{speech.error}</div>}
+        {voicesReady && !language.startsWith('en') && !hasNativeVoice(language)
+          && session.mode === 'byok' && !session.apiKey && (
+          <div className="assistant-note">
+            This device has no {LANGUAGES.find((l) => l.code === language)?.name} voice
+            installed, so answers would be read with an English accent. Adding a key
+            switches to the multilingual voice.
+          </div>
+        )}
         {!synthesisSupported && (
           <div className="assistant-note">This browser cannot read answers aloud.</div>
         )}

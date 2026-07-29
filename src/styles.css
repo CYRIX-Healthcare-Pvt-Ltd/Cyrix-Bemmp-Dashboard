@@ -1109,6 +1109,20 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .answer-meta {
   margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gridline);
   font-size: 11px; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.replay {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: none;
+  color: var(--text-secondary); font-size: 11px;
+  transition: background 0.2s, color 0.2s;
+}
+.replay:hover { background: var(--hover-wash); color: var(--text-primary); }
+
+.ask.stop {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--status-critical);
 }
 .chat-error {
   border: 1px solid color-mix(in srgb, var(--status-critical) 45%, transparent);

@@ -38,9 +38,14 @@ jobs:
       # build:static runs vite build and then strips dist/data. It never runs
       # build:data, so the workbooks are not needed here — which is exactly why
       # this can build in CI at all.
+      # VITE_ASSISTANT_URL points the assistant at a proxy that holds the OpenAI
+      # key, so users are never asked for one. Left unset, the assistant falls back
+      # to each user supplying their own. It is a variable, not a secret — it is a
+      # public URL, and the key itself never leaves the proxy.
       - run: npm run build:static
         env:
           VITE_BASE: ${{ steps.pages.outputs.base_path }}
+          VITE_ASSISTANT_URL: ${{ vars.VITE_ASSISTANT_URL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -179,10 +179,36 @@ The banner then reads `Assistant on (gpt-4o-mini, key held server-side)`. The pa
 environment, not in a file in the repo. `OPENAI_MODEL` overrides the model, which is pinned
 server-side so a client cannot ask for an expensive one.
 
-**On GitHub Pages** — a static host has no process to hold a secret, so the app asks each
-user for their own key and keeps it in that browser's local storage. That is the only safe
-arrangement there. If you want one shared company key instead, the dashboard has to be
-served by something that can run code — which is the office-server route above.
+**On GitHub Pages** — Pages serves files and runs no code, so it cannot hold a secret
+itself. Point the site at a tiny proxy that can. `serverless/cloudflare-worker.js` is one,
+free on Cloudflare's plan:
+
+```bash
+npm install -g wrangler
+wrangler init bemmp-assistant --no-deploy
+# replace src/index.js with serverless/cloudflare-worker.js
+wrangler secret put OPENAI_API_KEY
+wrangler deploy
+```
+
+Then build the site against it, and nobody is ever asked for a key:
+
+```bash
+VITE_ASSISTANT_URL=https://bemmp-assistant.<subdomain>.workers.dev npm run build:static
+```
+
+Set the same value as a repository variable named `VITE_ASSISTANT_URL` (Settings →
+Secrets and variables → Actions → Variables) so the Pages workflow picks it up.
+
+Edit `ALLOWED_ORIGINS` in the worker before deploying. Without that check the endpoint is
+an open relay and anyone who finds the URL can spend the key.
+
+**Why the key cannot simply be downloaded.** A common suggestion is to keep the key on the
+server and have the page fetch it at startup. That is the same as publishing it: whatever
+the page receives is visible in the browser's network tab, and the endpoint serving it can
+be called directly by anyone. The key has to stay on the server and the *request* has to
+travel to it — which is what both proxies here do. With either in place the key is entered
+once by you, never by a user.
 
 If a key is ever exposed, revoke it at **platform.openai.com/api-keys** and issue a new
 one. Revoking is immediate; rotating later is not a substitute.
