@@ -17,8 +17,12 @@ export const LANGUAGES = [
   { code: 'kn-IN', label: 'ಕನ್ನಡ', name: 'Kannada' },
 ];
 
-/** The language a contract's staff are most likely to speak. */
-export const STATE_LANGUAGE = { kl: 'ml-IN', ap: 'te-IN' };
+/**
+ * English is the default everywhere. The dashboard's own labels are English, so an
+ * answer in English matches the tiles beside it; a local language is a deliberate
+ * choice the user makes from the picker.
+ */
+export const DEFAULT_LANGUAGE = 'en-IN';
 
 const Recognition = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)

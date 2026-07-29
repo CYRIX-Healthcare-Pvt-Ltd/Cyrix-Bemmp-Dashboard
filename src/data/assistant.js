@@ -222,6 +222,36 @@ export const QUERY_TOOL = {
   },
 };
 
+/**
+ * The escape hatch for anything that is not a data question.
+ *
+ * Without it a greeting gets forced through `query_dashboard` and comes back as a
+ * ticket count, which reads as a machine that did not listen. With two tools the
+ * model picks, and "hi" gets a hello.
+ */
+export const CHAT_TOOL = {
+  type: 'function',
+  function: {
+    name: 'reply_conversationally',
+    description:
+      'Use for greetings, thanks, small talk, or questions about what this assistant '
+      + 'can do — anything that is not a request for a figure from the data.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reply: {
+          type: 'string',
+          description:
+            'A warm, brief reply in the first person, at most two sentences. Be human '
+            + 'and friendly, not corporate. If the user seems to want data but was '
+            + 'vague, offer one concrete example question they could ask.',
+        },
+      },
+      required: ['reply'],
+    },
+  },
+};
+
 /** Compact description of the loaded dataset, for the system prompt. */
 export function datasetContext(ds, filters) {
   const rangeLabel = `${filters.dayFrom} to ${filters.dayTo} (Excel day serials)`;

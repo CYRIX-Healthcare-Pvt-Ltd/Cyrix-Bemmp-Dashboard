@@ -1126,6 +1126,16 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   display: inline-flex; align-items: center; gap: 7px;
   background: var(--status-critical);
 }
+/* Conversational replies are lighter than an answer card — no figure, no chart. */
+.chat-reply {
+  background: none;
+  border-color: transparent;
+  border-left: 2px solid color-mix(in srgb, var(--series-1) 45%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 4px 0 4px 14px;
+}
+.chat-reply .answer-text { margin: 0; }
+
 .chat-error {
   border: 1px solid color-mix(in srgb, var(--status-critical) 45%, transparent);
   background: color-mix(in srgb, var(--status-critical) 10%, transparent);

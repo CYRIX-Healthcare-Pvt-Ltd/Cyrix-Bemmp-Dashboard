@@ -91,43 +91,65 @@ async function readError(response) {
   return detail || `OpenAI request failed (${response.status}).`;
 }
 
-const SYSTEM = `You translate questions about a biomedical equipment service dashboard
-into a single query_dashboard call. You never see the underlying data and must not
-guess or state any figures — the application computes them. Choose the measure and
-dimension that best answer the question. If the user names a district, facility,
-equipment type, manufacturer or engineer, put it in filterDimension/filterValue.
-"Best"/"top" for a rate means order desc; for resolution time, lower is better so
-"best" means order asc. If the user gives no period, use range "current".
-Even when the question asks for a single winner ("which district has the highest…"),
-return limit 5 or more so the answer shows the ranking around it. Only use a small
-limit if the user explicitly asks for one result.`;
+const SYSTEM = `You are the assistant inside a biomedical equipment service dashboard,
+talking to service managers at Cyrix Healthcare. You are warm and brief.
+
+Every turn you call exactly one tool.
+
+Call query_dashboard when the user wants a figure from the data. You never see the
+underlying data and must not guess or state any figures — the application computes
+them. Choose the measure and dimension that best answer the question. If the user
+names a district, facility, equipment type, manufacturer or engineer, put it in
+filterDimension/filterValue. "Best"/"top" for a rate means order desc; for resolution
+time, lower is better so "best" means order asc. If the user gives no period, use
+range "current". Even when the question asks for a single winner ("which district has
+the highest…"), return limit 5 or more so the answer shows the ranking around it.
+Only use a small limit if the user explicitly asks for one result.
+
+Call reply_conversationally for greetings, thanks, small talk, or questions about
+what you can do. Answer like a colleague would — "Hello! Ask me anything about the
+Kerala contract, for example which district has the highest FTFR." Never invent
+figures there.`;
 
 /**
  * Turns a question into a query spec. Only the question and the fixed tool schema
  * are sent — no ticket rows, no dictionaries, no figures.
  */
-export async function planQuery({ question, context, tool, session, history = [] }) {
+export async function planQuery({ question, context, tools, session, history = [] }) {
   const body = {
     model: session.model || DEFAULT_MODEL,
-    temperature: 0,
+    temperature: 0.3,
     messages: [
       { role: 'system', content: `${SYSTEM}\n\n${context}` },
       ...history,
       { role: 'user', content: question },
     ],
-    tools: [tool],
-    tool_choice: { type: 'function', function: { name: tool.function.name } },
+    tools,
+    tool_choice: 'required',
   };
 
   const data = await chat(body, session);
-  const call = data.choices?.[0]?.message?.tool_calls?.[0];
-  if (!call) throw new Error('I could not turn that into a query. Try rephrasing it.');
+  const message = data.choices?.[0]?.message;
+  const call = message?.tool_calls?.[0];
 
+  // No tool call means the model answered in prose; treat that as conversation
+  // rather than failing, since the reply is usually perfectly good.
+  if (!call) {
+    const text = message?.content?.trim();
+    if (text) return { kind: 'chat', reply: text };
+    throw new Error('I could not turn that into a query. Try rephrasing it.');
+  }
+
+  let args;
   try {
-    return JSON.parse(call.function.arguments);
+    args = JSON.parse(call.function.arguments);
   } catch {
     throw new Error('The model returned a malformed query.');
   }
+
+  return call.function.name === 'reply_conversationally'
+    ? { kind: 'chat', reply: args.reply }
+    : { kind: 'query', spec: args };
 }
 
 /**
@@ -201,12 +223,16 @@ export async function translateSentence({ text, language, session }) {
         role: 'system',
         content: `Translate the user's sentence into ${language}.\n\n`
           + 'Rules, in order of importance:\n'
-          + '1. Do NOT translate these terms. Copy them verbatim in English, keeping '
+          + '1. Every digit stays a Western Arabic numeral (0-9). Never write numbers '
+          + 'as words and never convert them to Malayalam, Telugu, Tamil, Kannada or '
+          + 'Devanagari digits. "79.8" stays "79.8", "1,39,900" stays "1,39,900".\n'
+          + '2. Keep the symbols % and ₹ and the letter "d" for days exactly as they '
+          + 'appear, attached to their number.\n'
+          + '3. Do NOT translate these terms. Copy them verbatim in English, keeping '
           + `their exact capitalisation: ${GLOSSARY.join(', ')}.\n`
-          + '2. Do NOT translate proper nouns — district, facility, equipment, '
+          + '4. Do NOT translate proper nouns — district, facility, equipment, '
           + 'manufacturer and engineer names stay in Latin script exactly as written.\n'
-          + '3. Do NOT change numbers, percentages or currency amounts.\n'
-          + '4. Translate only the connecting words between them.\n\n'
+          + '5. Translate only the connecting words between them.\n\n'
           + 'Example for Malayalam — input: "Pathanamthitta has the highest FTFR at '
           + '79.8%. Top 5 of 14 districts." Output: "Pathanamthitta-യ്ക്കാണ് ഏറ്റവും '
           + 'ഉയർന്ന FTFR, 79.8%. 14 districts-ൽ ആദ്യ 5."\n\n'
@@ -217,5 +243,32 @@ export async function translateSentence({ text, language, session }) {
   };
 
   const data = await chat(body, session);
-  return data.choices?.[0]?.message?.content?.trim() || text;
+  return normalizeDigits(data.choices?.[0]?.message?.content?.trim() || text);
+}
+
+/**
+ * Forces every digit back to 0-9.
+ *
+ * The prompt asks for this, but a prompt is a request and figures are the point of
+ * the answer — a Malayalam ൭൯.൮% beside a chart reading 79.8% is a defect. Each
+ * Indic script keeps its ten digits in one contiguous block starting at its own
+ * base, so the mapping is arithmetic.
+ */
+const DIGIT_BASES = [
+  0x0966, // Devanagari
+  0x09e6, // Bengali
+  0x0be6, // Tamil
+  0x0c66, // Telugu
+  0x0ce6, // Kannada
+  0x0d66, // Malayalam
+];
+
+export function normalizeDigits(text) {
+  if (!text) return text;
+  return text.replace(/[०-९০-৯௦-௯౦-౯೦-೯൦-൯]/g,
+    (ch) => {
+      const code = ch.codePointAt(0);
+      const base = DIGIT_BASES.find((b) => code >= b && code <= b + 9);
+      return base ? String(code - base) : ch;
+    });
 }

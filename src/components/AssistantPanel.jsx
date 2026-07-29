@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  QUERY_TOOL, datasetContext, runQuery, describeResult,
+  QUERY_TOOL, CHAT_TOOL, datasetContext, runQuery, describeResult,
 } from '../data/assistant.js';
 import {
   planQuery, translateSentence, probeServer, storedKey,
   storedModel, DEFAULT_MODEL, synthesizeSpeech,
 } from '../data/openai.js';
 import useSpeech, {
-  LANGUAGES, STATE_LANGUAGE, speak, stopSpeaking, synthesisSupported,
+  LANGUAGES, DEFAULT_LANGUAGE, speak, stopSpeaking, synthesisSupported,
   hasNativeVoice, whenVoicesReady, playClip,
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
@@ -67,6 +67,16 @@ function Answer({ entry, onReplay }) {
     return <div className="chat-error">{entry.error}</div>;
   }
 
+  // A greeting or a capability question: prose, no figures, no chart.
+  if (entry.reply) {
+    return (
+      <div className="chat-answer chat-reply">
+        <p className="answer-text">{entry.translated || entry.reply}</p>
+        {entry.translated && <p className="answer-original">{entry.reply}</p>}
+      </div>
+    );
+  }
+
   const { view, sentence, translated } = entry;
 
   return (
@@ -113,7 +123,7 @@ function Answer({ entry, onReplay }) {
 
 export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   const [session, setSession] = useState({ mode: null, apiKey: storedKey(), model: storedModel() });
-  const [language, setLanguage] = useState(() => STATE_LANGUAGE[ds.meta.id] || 'en-IN');
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [question, setQuestion] = useState('');
   const [entries, setEntries] = useState(() => loadHistory(ds.meta.id));
   const [busy, setBusy] = useState(false);
@@ -183,21 +193,38 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
     halt();
 
     try {
-      const spec = await planQuery({
+      // Recent turns give the model enough thread to handle "and for Palakkad?"
+      // without re-reading the whole conversation.
+      const history = entries.slice(-4).flatMap((e) => ([
+        { role: 'user', content: e.question },
+        { role: 'assistant', content: e.sentence || e.reply || e.error || '' },
+      ]));
+
+      const plan = await planQuery({
         question: trimmed,
         context: datasetContext(ds, filters),
-        tool: QUERY_TOOL,
+        tools: [QUERY_TOOL, CHAT_TOOL],
         session,
+        history,
       });
 
-      const result = runQuery(ds, filters, referenceDay, spec);
-      const sentence = describeResult(ds, result);
+      const languageName = LANGUAGES.find((l) => l.code === language)?.name;
+      const translate = (text) => (language.startsWith('en')
+        ? Promise.resolve(null)
+        : translateSentence({ text, language: languageName, session }));
 
-      let translated = null;
-      if (!language.startsWith('en')) {
-        const name = LANGUAGES.find((l) => l.code === language)?.name;
-        translated = await translateSentence({ text: sentence, language: name, session });
+      if (plan.kind === 'chat') {
+        const translated = await translate(plan.reply);
+        setEntries((prev) => [...prev, {
+          question: trimmed, reply: plan.reply, translated, at: Date.now(),
+        }].slice(-HISTORY_LIMIT));
+        say(translated || plan.reply);
+        return;
       }
+
+      const result = runQuery(ds, filters, referenceDay, plan.spec);
+      const sentence = describeResult(ds, result);
+      const translated = await translate(sentence);
 
       setEntries((prev) => [...prev, {
         question: trimmed, view: toView(result), sentence, translated, at: Date.now(),
