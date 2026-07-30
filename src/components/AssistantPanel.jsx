@@ -10,6 +10,7 @@ import useSpeech, {
   LANGUAGES, DEFAULT_LANGUAGE, speak, stopSpeaking, synthesisSupported,
   hasNativeVoice, whenVoicesReady, playClip,
 } from '../hooks/useSpeech.js';
+import { spellNumbersForSpeech } from '../data/numberWords.js';
 import BarList from './BarList.jsx';
 
 /**
@@ -176,8 +177,12 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
     const done = () => setSpeaking(false);
 
     const languageName = LANGUAGES.find((l) => l.code === language)?.name;
+    // Figures go to the voice as English words. Left as digits they get read in
+    // whatever language the sentence is set to, so the number heard would not
+    // match the number on screen.
+    const spoken = spellNumbersForSpeech(text);
     try {
-      const url = await synthesizeSpeech({ text, session, language: languageName });
+      const url = await synthesizeSpeech({ text: spoken, session, language: languageName });
       if (url) { playClip(url, { onEnd: done }); return; }
     } catch { /* fall through to the browser voice */ }
 
@@ -185,10 +190,10 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
     // voice produces noise, so speak the English original instead — losing the
     // translation is better than losing the sentence.
     if (!language.startsWith('en') && !hasNativeVoice(language) && englishFallback) {
-      speak(englishFallback, 'en-IN', { onEnd: done });
+      speak(spellNumbersForSpeech(englishFallback), 'en-IN', { onEnd: done });
       return;
     }
-    speak(text, language, { onEnd: done });
+    speak(spoken, language, { onEnd: done });
   }
 
   function halt() {

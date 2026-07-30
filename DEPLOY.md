@@ -23,6 +23,33 @@ not protection.
 That rules out publishing the **server build** to any unprotected host. It does *not* rule
 out the **upload build**, which ships no data at all — see below.
 
+## Running it so it stays up
+
+Double-click **`start-dashboard.cmd`**, or run `npm start` in a terminal you opened
+yourself. Keep that window open — the server lives as long as it does.
+
+A server started from any tool or automation session dies when that session ends,
+which looks exactly like the app breaking: the assistant stops answering and the
+voice goes silent, because the page can no longer reach `/api/assistant`.
+
+**For colleagues on the same wifi**, Windows blocks inbound connections on port 4173
+by default. Run this once, in PowerShell **as Administrator**:
+
+```powershell
+New-NetFirewallRule -DisplayName "BEMMP dashboard 4173" -Direction Inbound -Protocol TCP -LocalPort 4173 -Action Allow -Profile Private
+```
+
+Then the `Network` address the banner prints works for anyone on that wifi. Without
+the rule, only `localhost` on the host machine can connect.
+
+### Malayalam and other Indian-language voices
+
+The assistant speaks through OpenAI's multilingual model whenever a key is
+configured, which needs nothing installed locally. The browser's own engine is only
+the fallback, and Windows ships no Malayalam, Telugu, Tamil or Kannada voice — to
+add one: Settings → Time & language → Language & region → Add a language → pick the
+language → tick **Speech** among the optional features. Then restart the browser.
+
 ## Recommended: run it on one machine, share it over a tunnel
 
 This is the only route that keeps the **Refresh button** working, because the button needs

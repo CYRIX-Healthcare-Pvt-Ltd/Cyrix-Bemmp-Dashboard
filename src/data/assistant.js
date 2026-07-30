@@ -8,7 +8,7 @@
  * numbers quoted back are the same ones the dashboard shows rather than
  * something a language model estimated.
  */
-import { BUCKET, monthStart, parseEngineer } from './store.js';
+import { BUCKET, monthStart, parseEngineer, formatDay } from './store.js';
 import {
   filterRows, summarize, rowsInBucket, penaltyRows, accruingRows, closedInRange,
   closurePenalty, analyzeRepeats, resolvedRows, aggregateBy, countBy, topN,
@@ -16,6 +16,8 @@ import {
 } from './query.js';
 
 /* --------------------------------------------------------------- measures -- */
+
+const MS_PER_DAY = 86400000;
 
 const inr = (v) => `₹${Math.round(v).toLocaleString('en-IN')}`;
 const int = (v) => Math.round(v).toLocaleString('en-IN');
@@ -158,6 +160,18 @@ function dimensionLabel(dimension, raw) {
   return parseEngineer(raw)?.name ?? raw;
 }
 
+/**
+ * Start of the calendar month `n - 1` months before the newest data.
+ *
+ * "Last 3 months" means three calendar months including this one, which is how a
+ * service review reads it — not the previous 90 days.
+ */
+function monthsBackStart(maxDay, n) {
+  const d = new Date((maxDay - 25569) * MS_PER_DAY);
+  const target = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - (Math.max(1, n) - 1), 1);
+  return Math.round(target / MS_PER_DAY) + 25569;
+}
+
 const RANGES = {
   current: null, // whatever the dashboard is already showing
   month: (r) => [monthStart(r.maxDay), r.maxDay],
@@ -205,7 +219,17 @@ export const QUERY_TOOL = {
           type: 'string',
           enum: Object.keys(RANGES),
           description:
-            'Date window. "current" keeps whatever the dashboard is already filtered to.',
+            'Date window. Use "current" ONLY when the user names no period at all — it '
+            + 'keeps whatever the dashboard is already filtered to. If the user says '
+            + '"this month" use month, "last 30 days" use last30, "last 90 days" or '
+            + '"last quarter" use last90, "this year" or "last 12 months" use last365, '
+            + '"all time"/"ever"/"overall" use all.',
+        },
+        lastMonths: {
+          type: 'integer',
+          description:
+            'For "last N months", give N here (e.g. "last 3 months" -> 3) and it wins '
+            + 'over range. Counts whole calendar months including the current one.',
         },
         filterDimension: {
           type: 'string',
@@ -312,12 +336,22 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
     );
   }
 
-  // Apply the requested window on top of the dashboard's other filters.
+  // Apply the requested window on top of the dashboard's other filters. An explicit
+  // month count wins over the preset, since "last 3 months" is more specific than
+  // anything the enum offers.
   let effective = filters;
-  const range = RANGES[spec.range];
-  if (range) {
-    const [from, to] = range(ds.meta.dateRange);
-    effective = { ...filters, dayFrom: Math.max(from, ds.meta.dateRange.minDay), dayTo: to };
+  let window = null;
+  if (Number.isFinite(spec.lastMonths) && spec.lastMonths > 0) {
+    window = [monthsBackStart(ds.meta.dateRange.maxDay, spec.lastMonths), ds.meta.dateRange.maxDay];
+  } else if (RANGES[spec.range]) {
+    window = RANGES[spec.range](ds.meta.dateRange);
+  }
+  if (window) {
+    effective = {
+      ...filters,
+      dayFrom: Math.max(window[0], ds.meta.dateRange.minDay),
+      dayTo: window[1],
+    };
   }
 
   // An explicit filter from the question narrows it further.
@@ -413,19 +447,28 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
  * invented; this way the sentence and the chart cannot disagree.
  */
 export function describeResult(ds, result) {
-  const { measure, spec, items, headline, appliedFilter } = result;
+  const { measure, spec, items, headline, appliedFilter, effective } = result;
   const where = appliedFilter ? ` in ${appliedFilter.label}` : '';
   const contract = ds.meta.name;
+
+  // Name the window whenever it is not simply what the dashboard already shows, so
+  // it is obvious the figure was recomputed for the period asked about.
+  const asked = Number.isFinite(spec.lastMonths) && spec.lastMonths > 0
+    ? true
+    : spec.range && spec.range !== 'current';
+  const period = asked
+    ? ` from ${formatDay(effective.dayFrom)} to ${formatDay(effective.dayTo)}`
+    : '';
 
   if (headline) {
     const size = measure.kind === 'rate' || measure.kind === 'mean'
       ? ` across ${int(headline.sampleSize)} resolved calls`
       : '';
-    return `${measure.label}${where} for ${contract} is ${headline.display}${size}.`;
+    return `${measure.label}${where} for ${contract}${period} is ${headline.display}${size}.`;
   }
 
   if (!items.length) {
-    return `No ${measureName(measure)} data${where} for ${contract} in this period.`;
+    return `No ${measureName(measure)} data${where} for ${contract}${period}.`;
   }
 
   const [singular, plural] = DIM_NOUN[spec.dimension] ?? [spec.dimension, `${spec.dimension}s`];
@@ -441,7 +484,7 @@ export function describeResult(ds, result) {
     : `Across ${total} ${total === 1 ? singular : plural}.`;
 
   return `${best.label} has the ${superlative} ${measureName(measure)}${where} `
-    + `for ${contract} at ${best.display}`
+    + `for ${contract}${period} at ${best.display}`
     + (rest ? `, followed by ${rest}` : '')
     + `. ${scope}`;
 }
