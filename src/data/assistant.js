@@ -237,8 +237,9 @@ export const QUERY_TOOL = {
             'Explicit start date as YYYY-MM-DD. Use this whenever the user names any '
             + 'specific date or month, and it wins over range and lastMonths. Numeric '
             + 'dates are day-first Indian format: "1-01-26" is 2026-01-01, "23-07-26" '
-            + 'is 2026-07-23. A bare month means its first day: "from Jan 26" and '
-            + '"since January 2026" are both 2026-01-01.',
+            + 'is 2026-07-23. A month name followed by a bare two-digit number is a '
+            + 'YEAR, not a day, and means that whole month: "dec 25" is 2025-12-01, '
+            + '"from jan 26" is 2026-01-01. Only "25 Dec" or "Dec 25th" mean the 25th.',
         },
         toDate: {
           type: 'string',

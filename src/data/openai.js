@@ -165,7 +165,58 @@ export async function planQuery({ question, context, tools, session, history = [
 
   return call.function.name === 'reply_conversationally'
     ? { kind: 'chat', reply: args.reply }
-    : { kind: 'query', spec: args };
+    : { kind: 'query', spec: disambiguateMonthYear(args, question) };
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/*
+ * "dec 25" and "jan 26" mean December 2025 and January 2026 here — a month name
+ * followed by a bare two-digit number is a year, not a day. Models read it the
+ * other way round, so "from dec 25" answered from the 25th of December.
+ *
+ * Requires the month name to come first, so "25 Dec" is still a date, and skips
+ * anything followed by a full year, so "dec 25 2025" is left alone. Ordinals like
+ * "jan 26th" also fall through, since \b will not match inside "26th".
+ */
+const MONTH_YEAR = new RegExp(
+  `\\b(${MONTHS.join('|')})[a-z]*\\.?\\s*'?(\\d{2})\\b(?!\\s*\\d{4})`,
+  'gi',
+);
+
+export function disambiguateMonthYear(spec, question) {
+  if (!spec || (!spec.fromDate && !spec.toDate)) return spec;
+
+  const seen = [];
+  for (const m of String(question).matchAll(MONTH_YEAR)) {
+    const month = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1;
+    const yy = Number(m[2]);
+    // Two-digit years only make sense near the present; 1-12 would be a day.
+    if (month && yy >= 20 && yy <= 40) seen.push({ month, year: 2000 + yy, day: yy });
+  }
+  if (!seen.length) return spec;
+
+  const fixed = { ...spec };
+  const pad = (n) => String(n).padStart(2, '0');
+
+  for (const field of ['fromDate', 'toDate']) {
+    const value = fixed[field];
+    if (!value) continue;
+    const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!parts) continue;
+    const day = Number(parts[3]);
+
+    // Only correct when the model used the year digits as the day — the exact
+    // misreading this guards against.
+    const hit = seen.find((s) => s.day === day && s.month === Number(parts[2]));
+    if (!hit) continue;
+
+    fixed[field] = field === 'fromDate'
+      ? `${hit.year}-${pad(hit.month)}-01`
+      // An end month means its last day; day 0 of the next month is that.
+      : `${hit.year}-${pad(hit.month)}-${pad(new Date(Date.UTC(hit.year, hit.month, 0)).getUTCDate())}`;
+  }
+  return fixed;
 }
 
 /**
