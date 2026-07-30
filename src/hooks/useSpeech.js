@@ -29,6 +29,23 @@ const Recognition = typeof window !== 'undefined'
   : null;
 
 export const speechSupported = Boolean(Recognition);
+
+/**
+ * Why the microphone is unavailable, or null when it works.
+ *
+ * Browsers expose SpeechRecognition only in a secure context. `localhost` counts,
+ * a LAN address over plain http does not — so the mic silently vanishes on a phone
+ * opening `http://192.168.x.x:4173` while working fine on the host machine. Saying
+ * so beats hiding the button.
+ */
+export function micUnavailableReason() {
+  if (speechSupported) return null;
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'Voice input needs a secure connection. It works on this machine, but a '
+      + 'phone on the office address needs the site served over HTTPS.';
+  }
+  return 'This browser does not support voice input. Chrome or Edge does.';
+}
 export const synthesisSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
 export default function useSpeech(language) {

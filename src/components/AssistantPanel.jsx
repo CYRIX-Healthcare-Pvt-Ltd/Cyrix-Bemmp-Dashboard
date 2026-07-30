@@ -8,7 +8,7 @@ import {
 } from '../data/openai.js';
 import useSpeech, {
   LANGUAGES, DEFAULT_LANGUAGE, speak, stopSpeaking, synthesisSupported,
-  hasNativeVoice, whenVoicesReady, playClip,
+  hasNativeVoice, whenVoicesReady, playClip, micUnavailableReason,
 } from '../hooks/useSpeech.js';
 import { spellNumbersForSpeech } from '../data/numberWords.js';
 import BarList from './BarList.jsx';
@@ -145,6 +145,8 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voicesReady, setVoicesReady] = useState(false);
+  const [micNote, setMicNote] = useState(null);
+  const micReason = micUnavailableReason();
   const logRef = useRef(null);
 
   // History is per contract: the figures in an answer only mean anything against
@@ -354,21 +356,23 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
           className="assistant-input"
           onSubmit={(e) => { e.preventDefault(); ask(question); }}
         >
-          {speech.supported && (
-            <button
-              type="button"
-              className={`mic${speech.listening ? ' is-listening' : ''}`}
-              onClick={onMic}
-              aria-label={speech.listening ? 'Stop listening' : 'Ask by voice'}
-              disabled={busy}
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="2" width="6" height="11" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
-              </svg>
-            </button>
-          )}
+          {/* Shown even when unavailable: a missing button reads as a broken build,
+              where a disabled one that explains itself does not. */}
+          <button
+            type="button"
+            className={`mic${speech.listening ? ' is-listening' : ''}${micReason ? ' is-blocked' : ''}`}
+            onClick={micReason ? () => setMicNote(micReason) : onMic}
+            aria-label={speech.listening ? 'Stop listening' : 'Ask by voice'}
+            title={micReason ?? 'Ask by voice'}
+            disabled={busy}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="11" rx="3" />
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
+              {micReason && <path d="M3 3l18 18" />}
+            </svg>
+          </button>
           <input
             type="text"
             value={speech.listening ? (speech.interim || 'Listening…') : question}
@@ -392,6 +396,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
           )}
         </form>
 
+        {micNote && <div className="assistant-note">{micNote}</div>}
         {speech.error && <div className="assistant-note">{speech.error}</div>}
         {voicesReady && !language.startsWith('en') && !hasNativeVoice(language)
           && session.mode === 'byok' && !session.apiKey && (

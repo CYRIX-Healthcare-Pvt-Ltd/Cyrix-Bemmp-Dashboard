@@ -203,6 +203,120 @@ button { font: inherit; color: inherit; }
   to   { transform: rotate(360deg) translate3d(3vw, 0, 0) scale(1.08); }
 }
 
+/* ============================================================== state map == */
+
+/*
+ * Kerala's green, in three steps. Deliberately outside the chart palette: the map
+ * is chrome, and must never be mistaken for a data series.
+ */
+:root {
+  --kerala-deep:  #0a3b2c;
+  --kerala-mid:   #12795a;
+  --kerala-light: #34d399;
+  --map-alpha: 0.42;
+}
+/* The map carries further on a dark surface, so it can afford more presence. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) { --map-alpha: 0.58; }
+}
+:root[data-theme='dark'] { --map-alpha: 0.58; }
+
+.statemap {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: var(--map-alpha);
+  /* Distance from the viewer; smaller values exaggerate the tilt. */
+  perspective: 1400px;
+}
+
+.statemap-stage {
+  position: relative;
+  width: min(46vh, 30vw);
+  height: 84vh;
+  transform-style: preserve-3d;
+  animation: mapTilt 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.statemap-slice,
+.statemap-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Base slices: unlit sides of the extrusion, darker the further back they sit. */
+.statemap-slice { transform: translateZ(var(--z)); }
+.statemap-slice path {
+  fill: var(--kerala-deep);
+  stroke: var(--kerala-deep);
+  stroke-width: 1.5;
+  opacity: calc(0.25 + var(--slice) * 0.5);
+}
+
+.statemap-face { transform: translateZ(2px); }
+.statemap-district {
+  fill: url(#mapFace);
+  stroke: var(--kerala-light);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  /* Districts carrying more open calls sit brighter and pulse harder. */
+  opacity: calc(0.42 + var(--heat) * 0.5);
+  animation: districtBreathe 9s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes districtBreathe {
+  0%, 100% { opacity: calc(0.42 + var(--heat) * 0.5); }
+  50%      { opacity: calc(0.52 + var(--heat) * 0.48); }
+}
+
+/* Slow orbit, never settling on the same angle twice in a session. */
+@keyframes mapTilt {
+  from { transform: rotateX(16deg) rotateY(-15deg) rotateZ(-2deg); }
+  50%  { transform: rotateX(6deg)  rotateY(10deg)  rotateZ(1deg); }
+  to   { transform: rotateX(18deg) rotateY(20deg)  rotateZ(3deg); }
+}
+
+/* A coverage pass sweeping down the state: the servicing motif. */
+.statemap-sweep {
+  position: absolute;
+  left: -12%; right: -12%;
+  height: 22%;
+  border-radius: 50%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--kerala-light) 42%, transparent),
+    transparent
+  );
+  filter: blur(14px);
+  transform: translateZ(14px);
+  animation: mapSweep 11s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes mapSweep {
+  0%   { top: -18%; opacity: 0; }
+  15%  { opacity: 0.85; }
+  85%  { opacity: 0.7; }
+  100% { top: 96%; opacity: 0; }
+}
+
+/* Below the two-column breakpoint the map competes with the content for the
+   middle of the screen, so it moves aside and dims. */
+@media (max-width: 1240px) {
+  .statemap { justify-items: end; padding-right: 2vw; opacity: calc(var(--map-alpha) * 0.6); }
+  .statemap-stage { width: min(38vh, 46vw); height: 70vh; }
+}
+@media (max-width: 640px) {
+  .statemap { display: none; }
+}
+
 /* Oxygen bubbles: the slow vertical drift that keeps the field feeling alive
    between the aurora's very long periods. */
 .bubbles { position: absolute; inset: 0; overflow: hidden; }
@@ -1171,6 +1285,7 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 .mic:hover { color: var(--text-primary); }
+.mic.is-blocked { color: var(--text-muted); border-style: dashed; }
 .mic.is-listening {
   color: #fff; background: var(--status-critical); border-color: var(--status-critical);
   animation: micPulse 1.4s ease-out infinite;

@@ -13,6 +13,8 @@
  * stylesheet, leaving the artwork visible but still.
  */
 
+import StateMap from './StateMap.jsx';
+
 const WIDTH = 1600;
 
 /** One PQRST beat, 200 units wide, drawn relative to the baseline. */
@@ -75,9 +77,11 @@ function Trace({ name, d, height, top }) {
   );
 }
 
-export default function Backdrop() {
+export default function Backdrop({ stateId, districtLoad }) {
   return (
     <div className="backdrop" aria-hidden="true">
+      {stateId && <StateMap stateId={stateId} intensity={districtLoad} />}
+
       {/* Five overlapping blobs on different rotation periods. The union of them
           morphs continuously, which reads as fluid without the cost of animating
           an SVG turbulence filter every frame. */}

@@ -371,6 +371,21 @@ export default function App() {
     };
   }, [ds, idx]);
 
+  /**
+   * Open calls per district, keyed by district name, for the map behind the page.
+   * Open rather than total: the backdrop should show where the pressure is now,
+   * not which district is simply the biggest.
+   */
+  const districtLoad = useMemo(() => {
+    if (!idx) return null;
+    const counts = countBy(ds, rowsInBucket(ds, idx, BUCKET.OPEN), 'district');
+    const out = {};
+    for (const [id, n] of counts) {
+      if (id >= 0) out[ds.dict.district[id]] = n;
+    }
+    return out;
+  }, [ds, idx]);
+
   const openBucket = useCallback((bucket) => {
     setCallBucket(bucket);
     setTab('calls');
@@ -433,7 +448,7 @@ export default function App() {
 
   return (
     <>
-      <Backdrop />
+      <Backdrop stateId={meta.id} districtLoad={districtLoad} />
       <div className={`app${busy ? ' is-busy' : ''}`}>
         <header className="masthead">
           <div className="brand">
