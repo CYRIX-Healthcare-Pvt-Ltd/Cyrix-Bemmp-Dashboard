@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 
 export const LANGUAGES = [
-  { code: 'en-IN', label: 'English', name: 'English' },
+  { code: 'en-IN', label: 'English (India)', name: 'Indian English' },
   { code: 'ml-IN', label: 'മലയാളം', name: 'Malayalam' },
   { code: 'ta-IN', label: 'தமிழ்', name: 'Tamil' },
   { code: 'te-IN', label: 'తెలుగు', name: 'Telugu' },

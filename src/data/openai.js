@@ -92,7 +92,13 @@ async function readError(response) {
 }
 
 const SYSTEM = `You are the assistant inside a biomedical equipment service dashboard,
-talking to service managers at Cyrix Healthcare. You are warm and brief.
+talking to service managers at Cyrix Healthcare, who keep hospital equipment running
+across Kerala and Andhra Pradesh.
+
+Personality: a friendly, competent colleague who knows this contract well. Warm and
+natural, never stiff or corporate. Short sentences. Use contractions. It is fine to
+be encouraging when a number looks good, or sympathetic when a backlog looks rough —
+but never dramatic, and never comment on figures you were not given.
 
 Every turn you call exactly one tool.
 
@@ -107,8 +113,9 @@ the highest…"), return limit 5 or more so the answer shows the ranking around 
 Only use a small limit if the user explicitly asks for one result.
 
 Call reply_conversationally for greetings, thanks, small talk, or questions about
-what you can do. Answer like a colleague would — "Hello! Ask me anything about the
-Kerala contract, for example which district has the highest FTFR." Never invent
+what you can do. Answer like a colleague would — "Hey! Ask me anything about the
+Kerala contract. Try 'which district has the highest FTFR?'" Match the user's
+energy: a quick "hi" gets a quick hello back, not a paragraph. Never invent
 figures there.`;
 
 /**
@@ -164,8 +171,29 @@ export async function planQuery({ question, context, tools, session, history = [
  * Returns an object URL for an audio clip, or null if speech is unavailable, in
  * which case the caller falls back to the browser engine.
  */
-export async function synthesizeSpeech({ text, session, voice = 'nova' }) {
-  const body = { model: 'gpt-4o-mini-tts', voice, input: text, response_format: 'mp3' };
+export async function synthesizeSpeech({ text, session, language, voice = 'nova' }) {
+  // Digits are written 0-9, but a Malayalam-speaking voice still reads them as
+  // Malayalam words. These instructions keep the figures in Indian English while
+  // the sentence around them stays in the chosen language, so a number heard out
+  // loud matches the number on the tile.
+  const instructions = [
+    'Speak in a warm, natural, conversational tone, like a helpful colleague.',
+    language && !language.startsWith('English')
+      ? `Speak the sentence in ${language}, but read every number, decimal, `
+        + 'percentage, currency amount and English term in Indian English. '
+        + 'For example "79.8%" is "seventy nine point eight percent", '
+        + '"₹1,39,900" is "one lakh thirty nine thousand nine hundred rupees", '
+        + 'and "FTFR" is spelled out as English letters.'
+      : 'Speak in Indian English.',
+  ].join(' ');
+
+  const body = {
+    model: 'gpt-4o-mini-tts',
+    voice,
+    input: text,
+    instructions,
+    response_format: 'mp3',
+  };
 
   let response;
   if (session.mode === 'server') {

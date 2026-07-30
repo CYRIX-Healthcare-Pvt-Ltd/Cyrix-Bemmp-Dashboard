@@ -12,6 +12,21 @@ import useSpeech, {
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
 
+/**
+ * A short human lead-in before a figure, picked here rather than by the model.
+ *
+ * Warmth is the point, but the sentence after it states real numbers, so nothing
+ * that touches it can be generated — an invented opener risks an invented figure.
+ */
+const OPENERS = [
+  'Here you go —',
+  'Had a look —',
+  'Right —',
+  'Found it —',
+  'Sure thing —',
+];
+const opener = () => OPENERS[Math.floor(Math.random() * OPENERS.length)];
+
 const HISTORY_KEY = 'bemmp-assistant-history';
 const HISTORY_LIMIT = 40;
 
@@ -155,17 +170,23 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
    * this the browser reads Malayalam or Telugu with an English voice, because it
    * has no voice installed for those languages.
    */
-  async function say(text) {
+  async function say(text, englishFallback) {
     stopSpeaking();
     setSpeaking(true);
     const done = () => setSpeaking(false);
 
-    const native = hasNativeVoice(language);
-    if (!native || !language.startsWith('en')) {
-      try {
-        const url = await synthesizeSpeech({ text, session });
-        if (url) { playClip(url, { onEnd: done }); return; }
-      } catch { /* fall through to the browser voice */ }
+    const languageName = LANGUAGES.find((l) => l.code === language)?.name;
+    try {
+      const url = await synthesizeSpeech({ text, session, language: languageName });
+      if (url) { playClip(url, { onEnd: done }); return; }
+    } catch { /* fall through to the browser voice */ }
+
+    // No multilingual voice available. Reading Malayalam text with an English
+    // voice produces noise, so speak the English original instead — losing the
+    // translation is better than losing the sentence.
+    if (!language.startsWith('en') && !hasNativeVoice(language) && englishFallback) {
+      speak(englishFallback, 'en-IN', { onEnd: done });
+      return;
     }
     speak(text, language, { onEnd: done });
   }
@@ -218,18 +239,18 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
         setEntries((prev) => [...prev, {
           question: trimmed, reply: plan.reply, translated, at: Date.now(),
         }].slice(-HISTORY_LIMIT));
-        say(translated || plan.reply);
+        say(translated || plan.reply, plan.reply);
         return;
       }
 
       const result = runQuery(ds, filters, referenceDay, plan.spec);
-      const sentence = describeResult(ds, result);
+      const sentence = `${opener()} ${describeResult(ds, result)}`;
       const translated = await translate(sentence);
 
       setEntries((prev) => [...prev, {
         question: trimmed, view: toView(result), sentence, translated, at: Date.now(),
       }].slice(-HISTORY_LIMIT));
-      say(translated || sentence);
+      say(translated || sentence, sentence);
     } catch (err) {
       setEntries((prev) => [...prev, {
         question: trimmed, error: err.message, at: Date.now(),
