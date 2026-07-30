@@ -1,0 +1,41 @@
+# On-prem deployment. From the repo directory on the Ubuntu server:
+#
+#   cp .env.example .env      # then edit: OPENAI_API_KEY, BEMMP_PASSWORD
+#   mkdir -p "BEMMP DATA"     # drop the TM-*.xlsx exports in here
+#   docker compose up -d --build
+#
+# To take an update:
+#
+#   git pull && docker compose up -d --build
+#
+# The key lives in .env and the artifacts live in a named volume, so neither is
+# touched by a rebuild. Nothing has to be re-entered.
+
+services:
+  bemmp:
+    build: .
+    image: bemmp-dashboard:latest
+    container_name: bemmp-dashboard
+    restart: unless-stopped
+
+    # OPENAI_API_KEY, BEMMP_PASSWORD and the optional model overrides. Real
+    # environment variables win over the .env.local file the server also reads, so
+    # this is the one place to set them in a container.
+    env_file:
+      - .env
+
+    ports:
+      - "4173:4173"
+
+    volumes:
+      # The exports, read-only: the container must never write to a SharePoint sync.
+      - ./BEMMP DATA:/app/BEMMP DATA:ro
+      # Generated artifacts. A named volume rather than a bind mount, so a rebuild
+      # or a `git pull` cannot wipe them and the Refresh button has somewhere to write.
+      - bemmp-artifacts:/app/public/data
+
+    # A rebuild reads a 46 MB workbook and holds the parsed columns in memory.
+    mem_limit: 2g
+
+volumes:
+  bemmp-artifacts:

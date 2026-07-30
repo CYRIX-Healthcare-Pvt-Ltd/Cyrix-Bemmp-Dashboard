@@ -23,6 +23,95 @@ not protection.
 That rules out publishing the **server build** to any unprotected host. It does *not* rule
 out the **upload build**, which ships no data at all — see below.
 
+## On-prem: Ubuntu server with Docker
+
+The best home for this. It survives reboots, needs no laptop, and updates in one
+command.
+
+### First time
+
+```bash
+git clone https://github.com/Kevi47/bemmp-dashboard.git
+cd bemmp-dashboard
+
+cp .env.example .env          # then edit: OPENAI_API_KEY, BEMMP_PASSWORD
+mkdir -p "BEMMP DATA"         # copy the TM-*.xlsx exports into here
+
+docker compose up -d --build
+```
+
+It comes up on `http://<server-ip>:4173`. On the first start the entrypoint sees an
+empty artifact volume, finds the workbooks, and builds them — so it serves data
+immediately rather than showing the upload screen.
+
+### Taking an update
+
+```bash
+./docker/update.sh
+```
+
+That pulls, rebuilds, restarts and waits for the health check. Or by hand:
+
+```bash
+git pull && docker compose up -d --build
+```
+
+**The key and the data survive both.** `OPENAI_API_KEY` lives in `.env`, which is
+gitignored and never enters the image; the generated artifacts live in the
+`bemmp-artifacts` named volume, which a rebuild cannot reach. Nothing is re-entered.
+
+### Where things live
+
+| | |
+|---|---|
+| `.env` on the server | the OpenAI key and site password |
+| `./BEMMP DATA` bind mount, read-only | the `TM-*.xlsx` exports |
+| `bemmp-artifacts` volume | generated `meta.json` / `tickets.bin` |
+
+The exports are mounted **read-only** — the container must never write into a
+SharePoint sync.
+
+### Refreshing the data
+
+Replace the files in `./BEMMP DATA` on the host, then either press **Refresh** in
+the dashboard header, or:
+
+```bash
+docker compose exec bemmp node scripts/build-data.mjs
+```
+
+For a nightly refresh, a host crontab entry is enough:
+
+```
+30 6 * * * cd /srv/bemmp-dashboard && docker compose exec -T bemmp node scripts/build-data.mjs
+```
+
+### HTTPS, and why it matters here
+
+Voice input needs a secure context — `SpeechRecognition` does not exist over plain
+`http`, so the microphone is unavailable on phones until the site is served over
+HTTPS. Put a reverse proxy in front once the rest is working: Caddy is two lines
+and gets a certificate on its own.
+
+```
+bemmp.cyrix.in {
+    reverse_proxy localhost:4173
+}
+```
+
+Then set `BEMMP_PASSWORD`, or restrict access at the proxy.
+
+### Notes
+
+- The runtime image carries no `node_modules`: `serve.mjs` and `build-data.mjs`
+  import only Node's own library, so the second stage copies `dist/`, `scripts/`
+  and `shared/` and nothing else.
+- `mem_limit` is 2 GB because a rebuild parses a 46 MB workbook and holds the
+  columns in memory. Lower it and Kerala will be killed mid-build.
+- The health check reports unhealthy while a rebuild runs, which is correct — the
+  data route is closed for those few seconds so a half-written artifact is never
+  served.
+
 ## Running it so it stays up
 
 Double-click **`start-dashboard.cmd`**, or run `npm start` in a terminal you opened

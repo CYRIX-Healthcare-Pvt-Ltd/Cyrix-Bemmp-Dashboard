@@ -17,3 +17,5 @@ BASELINE.md
 # Local secrets: OpenAI key, site password. Read by scripts/serve.mjs only,
 # never bundled and never served to the browser.
 .env.local
+# Docker reads .env; .env.example is the committed template.
+.env

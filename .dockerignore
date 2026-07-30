@@ -1,0 +1,18 @@
+# Keep the build context small and keep secrets and data out of the image.
+node_modules
+dist
+.git
+.github
+
+# Never bake these in: the key belongs in the container's environment, and the
+# workbooks and artifacts belong on volumes.
+.env
+.env.local
+BEMMP DATA
+public/data
+BASELINE.md
+
+.claude
+*.log
+desktop.ini
+start-dashboard.cmd

@@ -1,0 +1,19 @@
+# The repo is edited on Windows and deployed on Ubuntu. Without this, shell
+# scripts get checked out with CRLF and the kernel reads the carriage return as
+# part of the interpreter path — "/bin/sh^M: bad interpreter" — which is a
+# confusing way for a deploy to fail.
+* text=auto eol=lf
+
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+docker-compose.yml text eol=lf
+*.yml           text eol=lf
+*.md            text eol=lf
+
+# Windows batch files need CRLF; cmd.exe mis-parses LF-only files.
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+
+# Generated artifacts are binary and must never be line-ending converted.
+*.bin           binary
+*.xlsx          binary
