@@ -8,7 +8,7 @@
  * numbers quoted back are the same ones the dashboard shows rather than
  * something a language model estimated.
  */
-import { BUCKET, monthStart, parseEngineer, formatDay } from './store.js';
+import { BUCKET, monthStart, parseEngineer, formatDay, serialToISO } from './store.js';
 import {
   filterRows, summarize, rowsInBucket, penaltyRows, accruingRows, closedInRange,
   closurePenalty, analyzeRepeats, resolvedRows, aggregateBy, countBy, topN,
@@ -231,6 +231,21 @@ export const QUERY_TOOL = {
             'For "last N months", give N here (e.g. "last 3 months" -> 3) and it wins '
             + 'over range. Counts whole calendar months including the current one.',
         },
+        fromDate: {
+          type: 'string',
+          description:
+            'Explicit start date as YYYY-MM-DD. Use this whenever the user names any '
+            + 'specific date or month, and it wins over range and lastMonths. Numeric '
+            + 'dates are day-first Indian format: "1-01-26" is 2026-01-01, "23-07-26" '
+            + 'is 2026-07-23. A bare month means its first day: "from Jan 26" and '
+            + '"since January 2026" are both 2026-01-01.',
+        },
+        toDate: {
+          type: 'string',
+          description:
+            'Explicit end date as YYYY-MM-DD. Omit it for "to date", "till now" or '
+            + '"so far", which mean the newest day in the data.',
+        },
         filterDimension: {
           type: 'string',
           enum: [...Object.keys(DIMENSIONS), 'none'],
@@ -276,12 +291,21 @@ export const CHAT_TOOL = {
   },
 };
 
-/** Compact description of the loaded dataset, for the system prompt. */
+/**
+ * Compact description of the loaded dataset, for the system prompt.
+ *
+ * Dates are given as real ISO dates, not the Excel serials the columns hold — the
+ * model was being told the range was "46204 to 46226", which it cannot reason
+ * about, so "till date" had nothing to anchor to.
+ */
 export function datasetContext(ds, filters) {
-  const rangeLabel = `${filters.dayFrom} to ${filters.dayTo} (Excel day serials)`;
+  const iso = (day) => serialToISO(day);
   return [
     `Active contract: ${ds.meta.name}.`,
-    `Dashboard is currently filtered to ${rangeLabel}.`,
+    `The newest day in this data is ${iso(ds.meta.dateRange.maxDay)}; treat that as `
+      + `today for "to date", "till now" and "so far". The data starts `
+      + `${iso(ds.meta.dateRange.minDay)}.`,
+    `The dashboard is currently filtered to ${iso(filters.dayFrom)} .. ${iso(filters.dayTo)}.`,
     ds.meta.penaltyRates
       ? 'This contract has a penalty rate card, so money measures are available.'
       : 'This contract has NO penalty rate card; money measures are unavailable.',
@@ -292,22 +316,116 @@ export function datasetContext(ds, filters) {
 
 /* --------------------------------------------------------------- matching -- */
 
-/** Finds a dictionary id by loose text match, so "palakkad" finds "Palakkad". */
+/**
+ * Parses `YYYY-MM-DD` into an Excel day serial, or null.
+ *
+ * Deliberately strict: a half-understood date silently answering for the wrong
+ * period is worse than refusing, which is the failure this whole path exists to
+ * fix. Interpreting the user's wording is the model's job; this only accepts the
+ * ISO form it was asked to emit.
+ */
+function parseISODay(text) {
+  if (!text) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text).trim());
+  if (!m) return null;
+  const [, y, mo, d] = m.map(Number);
+  const ms = Date.UTC(y, mo - 1, d);
+  const back = new Date(ms);
+  // Rejects 2026-02-31 and friends, which Date.UTC would happily roll over.
+  if (back.getUTCMonth() + 1 !== mo || back.getUTCDate() !== d) return null;
+  return Math.round(ms / MS_PER_DAY) + 25569;
+}
+
+/**
+ * Everyday names for places the data spells differently.
+ *
+ * Staff say Trivandrum and Calicut; the export says Thiruvananthapuram and
+ * Kozhikode. Without this the question simply fails, which reads as the assistant
+ * not knowing its own contract. Keyed by normalised form.
+ */
+const PLACE_ALIASES = {
+  // Kerala
+  trivandrum: 'thiruvananthapuram',
+  tvm: 'thiruvananthapuram',
+  calicut: 'kozhikode',
+  cochin: 'ernakulam',
+  kochi: 'ernakulam',
+  ekm: 'ernakulam',
+  trichur: 'thrissur',
+  quilon: 'kollam',
+  alleppey: 'alappuzha',
+  palghat: 'palakkad',
+  cannanore: 'kannur',
+  kasaragod: 'kasargode',
+  kasargod: 'kasargode',
+  // Andhra Pradesh
+  vizag: 'vishakhapatnam',
+  visakhapatnam: 'vishakhapatnam',
+  vizianagram: 'vizianagaram',
+  anantapur: 'ananthpur',
+  anantapuram: 'ananthpur',
+  cuddapah: 'ysrkadapa',
+  kadapa: 'ysrkadapa',
+  ongole: 'prakasam',
+  vijayawada: 'ntr',
+  rajahmundry: 'eastgodavari',
+  tirupati: 'sribalaji',
+};
+
+/** Punctuation and case dropped, so "YSR Kadapa" and "ysr-kadapa" compare equal. */
+const foldName = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Levenshtein, capped: past a couple of edits these are different places. */
+function editDistance(a, b) {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > 3) return 99;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let last = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
+      last = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+/**
+ * Resolves what the user said to a value the data actually holds.
+ *
+ * Tried in order, most confident first: exact, a known everyday alias, prefix or
+ * substring, then a small edit distance for typos and transliteration drift. The
+ * distance is scaled to the word's length so short names cannot collide — at a
+ * flat threshold "Kollam" and "Kannur" are close enough to swap.
+ */
 function matchDictionary(values, text) {
   if (!text) return -1;
-  const needle = String(text).trim().toLowerCase();
-  if (!needle) return -1;
+  const raw = foldName(text);
+  if (!raw) return -1;
+  const needle = PLACE_ALIASES[raw] ?? raw;
 
-  let exact = -1;
   let starts = -1;
   let contains = -1;
-  values.forEach((v, i) => {
-    const hay = String(v).toLowerCase();
-    if (hay === needle) { if (exact < 0) exact = i; return; }
-    if (starts < 0 && hay.startsWith(needle)) starts = i;
-    if (contains < 0 && hay.includes(needle)) contains = i;
-  });
-  return exact >= 0 ? exact : (starts >= 0 ? starts : contains);
+  let best = -1;
+  let bestScore = Infinity;
+
+  for (let i = 0; i < values.length; i++) {
+    const hay = foldName(values[i]);
+    if (hay === needle) return i;
+    if (starts < 0 && (hay.startsWith(needle) || needle.startsWith(hay))) starts = i;
+    if (contains < 0 && (hay.includes(needle) || needle.includes(hay))) contains = i;
+
+    const score = editDistance(needle, hay);
+    if (score < bestScore) { bestScore = score; best = i; }
+  }
+
+  if (starts >= 0) return starts;
+  if (contains >= 0 && needle.length >= 4) return contains;
+
+  const tolerance = needle.length <= 5 ? 1 : 2;
+  return bestScore <= tolerance ? best : -1;
 }
 
 /* ---------------------------------------------------------------- runner --- */
@@ -336,22 +454,39 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
     );
   }
 
-  // Apply the requested window on top of the dashboard's other filters. An explicit
-  // month count wins over the preset, since "last 3 months" is more specific than
-  // anything the enum offers.
+  /*
+   * Window precedence, most specific first: explicit dates, then a month count,
+   * then a preset. Named dates used to have no slot at all, so "from 01-01-26 to
+   * 23-07-26" fell through to a preset and answered for the wrong period.
+   */
+  const { minDay, maxDay } = ds.meta.dateRange;
   let effective = filters;
   let window = null;
-  if (Number.isFinite(spec.lastMonths) && spec.lastMonths > 0) {
-    window = [monthsBackStart(ds.meta.dateRange.maxDay, spec.lastMonths), ds.meta.dateRange.maxDay];
+  let explicitDates = false;
+
+  const from = parseISODay(spec.fromDate);
+  const to = parseISODay(spec.toDate);
+  if (from != null || to != null) {
+    // A start with no end means "to date", which is the newest day in the export.
+    window = [from ?? minDay, to ?? maxDay];
+    explicitDates = true;
+  } else if (Number.isFinite(spec.lastMonths) && spec.lastMonths > 0) {
+    window = [monthsBackStart(maxDay, spec.lastMonths), maxDay];
   } else if (RANGES[spec.range]) {
     window = RANGES[spec.range](ds.meta.dateRange);
   }
+
   if (window) {
+    // Clamped, so a date before the contract started reports the contract's own
+    // start rather than a period the data cannot speak to.
     effective = {
       ...filters,
-      dayFrom: Math.max(window[0], ds.meta.dateRange.minDay),
-      dayTo: window[1],
+      dayFrom: Math.min(Math.max(window[0], minDay), maxDay),
+      dayTo: Math.max(Math.min(window[1], maxDay), minDay),
     };
+    if (effective.dayFrom > effective.dayTo) {
+      throw new Error('That start date is after the end date.');
+    }
   }
 
   // An explicit filter from the question narrows it further.
@@ -385,7 +520,12 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
     rows = Array.from(rows).filter((i) => ds.cols[col][i] === id);
   }
 
-  const dimCol = DIMENSIONS[spec.dimension];
+  /*
+   * Breaking down by the very dimension being filtered leaves one group, and the
+   * sentence reads "Thiruvananthapuram has the highest open calls in
+   * Thiruvananthapuram". A single figure says the same thing properly.
+   */
+  const dimCol = DIMENSIONS[spec.dimension] === filterCol ? null : DIMENSIONS[spec.dimension];
   const summaryOfAll = summarize(ds, idx, referenceDay);
 
   // A single overall figure.
@@ -453,9 +593,9 @@ export function describeResult(ds, result) {
 
   // Name the window whenever it is not simply what the dashboard already shows, so
   // it is obvious the figure was recomputed for the period asked about.
-  const asked = Number.isFinite(spec.lastMonths) && spec.lastMonths > 0
-    ? true
-    : spec.range && spec.range !== 'current';
+  const asked = Boolean(spec.fromDate || spec.toDate)
+    || (Number.isFinite(spec.lastMonths) && spec.lastMonths > 0)
+    || (spec.range && spec.range !== 'current');
   const period = asked
     ? ` from ${formatDay(effective.dayFrom)} to ${formatDay(effective.dayTo)}`
     : '';

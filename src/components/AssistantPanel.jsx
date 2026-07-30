@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   QUERY_TOOL, CHAT_TOOL, datasetContext, runQuery, describeResult,
 } from '../data/assistant.js';
+import { formatDay } from '../data/store.js';
 import {
-  planQuery, translateSentence, probeServer, storedKey,
-  storedModel, DEFAULT_MODEL, synthesizeSpeech,
+  planQuery, probeServer, storedKey, storedModel, DEFAULT_MODEL,
 } from '../data/openai.js';
 import useSpeech, {
-  LANGUAGES, DEFAULT_LANGUAGE, speak, stopSpeaking, synthesisSupported,
-  hasNativeVoice, whenVoicesReady, playClip, micUnavailableReason,
+  LANGUAGES, DEFAULT_LANGUAGE, micUnavailableReason,
 } from '../hooks/useSpeech.js';
-import { spellNumbersForSpeech } from '../data/numberWords.js';
 import BarList from './BarList.jsx';
 
 /**
@@ -63,7 +61,7 @@ const SUGGESTIONS = [
  * be serialised, so history would break on reload. This keeps only what the answer
  * card actually draws.
  */
-function toView(result) {
+function toView(result, describeRange) {
   return {
     headline: result.headline ? { display: result.headline.display } : null,
     items: result.items.map((it) => ({
@@ -72,13 +70,16 @@ function toView(result) {
     measureLabel: result.measure.label,
     colour: result.measure.kind === 'sum' ? 'var(--status-critical)' : 'var(--series-1)',
     dimension: result.spec.dimension,
-    range: result.spec.range,
+    // The actual window, not the preset name. A question answered for explicit
+    // dates used to still read "current filters" in the footer, contradicting the
+    // sentence right above it.
+    range: describeRange,
     filterLabel: result.appliedFilter?.label ?? null,
   };
 }
 
-/** One answered question: the spoken/typed prompt plus its rendered result. */
-function Answer({ entry, onReplay }) {
+/** One answered question: the spoken or typed prompt, plus its rendered result. */
+function Answer({ entry }) {
   if (entry.error) {
     return <div className="chat-error">{entry.error}</div>;
   }
@@ -88,7 +89,6 @@ function Answer({ entry, onReplay }) {
     return (
       <div className="chat-answer chat-reply">
         <p className="answer-text">{entry.translated || entry.reply}</p>
-        {entry.translated && <p className="answer-original">{entry.reply}</p>}
       </div>
     );
   }
@@ -105,7 +105,6 @@ function Answer({ entry, onReplay }) {
       )}
 
       <p className="answer-text">{translated || sentence}</p>
-      {translated && <p className="answer-original">{sentence}</p>}
 
       {view.items.length > 0 && (
         <div className="answer-chart">
@@ -118,20 +117,8 @@ function Answer({ entry, onReplay }) {
           {view.measureLabel}
           {view.dimension !== 'none' && ` by ${view.dimension}`}
           {view.filterLabel && ` · ${view.filterLabel}`}
-          {` · ${view.range === 'current' ? 'current filters' : view.range}`}
+          {view.range && ` · ${view.range}`}
         </span>
-        <button
-          type="button" className="replay"
-          onClick={() => onReplay(translated || sentence)}
-          aria-label="Read this answer aloud"
-        >
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 5 6 9H2v6h4l5 4V5Z" />
-            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-          </svg>
-          Replay
-        </button>
       </div>
     </div>
   );
@@ -143,8 +130,6 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   const [question, setQuestion] = useState('');
   const [entries, setEntries] = useState(() => loadHistory(ds.meta.id));
   const [busy, setBusy] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const [voicesReady, setVoicesReady] = useState(false);
   const [micNote, setMicNote] = useState(null);
   const micReason = micUnavailableReason();
   const logRef = useRef(null);
@@ -159,49 +144,9 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
     probeServer().then((r) => setSession((s) => ({
       ...s,
       mode: r.mode,
-      tts: r.tts,
       model: r.model || s.model || DEFAULT_MODEL,
     })));
-    whenVoicesReady().then(() => setVoicesReady(true));
   }, []);
-
-  // Stop any audio when the panel closes, or it keeps talking to an empty room.
-  useEffect(() => () => stopSpeaking(), []);
-
-  /**
-   * Prefers the multilingual model, falling back to the browser engine. Without
-   * this the browser reads Malayalam or Telugu with an English voice, because it
-   * has no voice installed for those languages.
-   */
-  async function say(text, englishFallback) {
-    stopSpeaking();
-    setSpeaking(true);
-    const done = () => setSpeaking(false);
-
-    const languageName = LANGUAGES.find((l) => l.code === language)?.name;
-    // Figures go to the voice as English words. Left as digits they get read in
-    // whatever language the sentence is set to, so the number heard would not
-    // match the number on screen.
-    const spoken = spellNumbersForSpeech(text);
-    try {
-      const url = await synthesizeSpeech({ text: spoken, session, language: languageName });
-      if (url) { playClip(url, { onEnd: done }); return; }
-    } catch { /* fall through to the browser voice */ }
-
-    // No multilingual voice available. Reading Malayalam text with an English
-    // voice produces noise, so speak the English original instead — losing the
-    // translation is better than losing the sentence.
-    if (!language.startsWith('en') && !hasNativeVoice(language) && englishFallback) {
-      speak(spellNumbersForSpeech(englishFallback), 'en-IN', { onEnd: done });
-      return;
-    }
-    speak(spoken, language, { onEnd: done });
-  }
-
-  function halt() {
-    stopSpeaking();
-    setSpeaking(false);
-  }
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
@@ -218,7 +163,6 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
 
     setQuestion('');
     setBusy(true);
-    halt();
 
     try {
       // Recent turns give the model enough thread to handle "and for Palakkad?"
@@ -236,28 +180,30 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
         history,
       });
 
-      const languageName = LANGUAGES.find((l) => l.code === language)?.name;
-      const translate = (text) => (language.startsWith('en')
-        ? Promise.resolve(null)
-        : translateSentence({ text, language: languageName, session }));
-
+      /*
+       * Answers are always written in English, whatever language the question was
+       * asked in. The dashboard's own labels are English, so an English answer
+       * matches the tiles beside it — and the figures never pass through a
+       * translation step that could reformat them.
+       */
       if (plan.kind === 'chat') {
-        const translated = await translate(plan.reply);
         setEntries((prev) => [...prev, {
-          question: trimmed, reply: plan.reply, translated, at: Date.now(),
+          question: trimmed, reply: plan.reply, at: Date.now(),
         }].slice(-HISTORY_LIMIT));
-        say(translated || plan.reply, plan.reply);
         return;
       }
 
       const result = runQuery(ds, filters, referenceDay, plan.spec);
       const sentence = `${opener()} ${describeResult(ds, result)}`;
-      const translated = await translate(sentence);
+      const movedWindow = result.effective.dayFrom !== filters.dayFrom
+        || result.effective.dayTo !== filters.dayTo;
+      const rangeLabel = movedWindow
+        ? `${formatDay(result.effective.dayFrom)} – ${formatDay(result.effective.dayTo)}`
+        : 'current filters';
 
       setEntries((prev) => [...prev, {
-        question: trimmed, view: toView(result), sentence, translated, at: Date.now(),
+        question: trimmed, view: toView(result, rangeLabel), sentence, at: Date.now(),
       }].slice(-HISTORY_LIMIT));
-      say(translated || sentence, sentence);
     } catch (err) {
       setEntries((prev) => [...prev, {
         question: trimmed, error: err.message, at: Date.now(),
@@ -283,11 +229,14 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
             <h2>Ask the data</h2>
           </div>
           <div className="drawer-head-right">
+            {/* Sets the speech-recognition language only. Answers are always
+                written in English, to match the dashboard's own labels. */}
             <select
               className="lang-select"
+              title="Language you speak in. Answers are always in English."
+              aria-label="Voice input language"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              aria-label="Answer language"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>
@@ -296,7 +245,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
             {entries.length > 0 && (
               <button
                 type="button" className="icon-btn"
-                onClick={() => { halt(); setEntries([]); }}
+                onClick={() => setEntries([])}
                 aria-label="Clear chat history"
                 title="Clear chat history"
               >
@@ -329,8 +278,9 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
           {entries.length === 0 && (
             <div className="assistant-empty">
               <p>
-                Ask about {ds.meta.name} in plain language, or tap the mic. Answers are
-                computed here from the loaded data — the model only interprets the question.
+                Ask about {ds.meta.name} in plain language, or tap the mic and speak —
+                Malayalam and the other languages in the picker all work. Answers come
+                back in English, computed here from the loaded data.
               </p>
               <div className="suggestions">
                 {SUGGESTIONS.map((s) => (
@@ -345,7 +295,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
           {entries.map((entry, i) => (
             <div className="chat-turn" key={i}>
               <div className="chat-question">{entry.question}</div>
-              <Answer entry={entry} onReplay={say} />
+              <Answer entry={entry} />
             </div>
           ))}
 
@@ -382,33 +332,13 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
               : (needsKey ? 'Add an OpenAI key to begin' : 'Ask about this contract…')}
             disabled={busy || speech.listening || needsKey}
           />
-          {speaking ? (
-            <button type="button" className="ask stop" onClick={halt}>
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-              Stop
-            </button>
-          ) : (
-            <button type="submit" className="ask" disabled={busy || !question.trim() || needsKey}>
-              Ask
-            </button>
-          )}
+          <button type="submit" className="ask" disabled={busy || !question.trim() || needsKey}>
+            Ask
+          </button>
         </form>
 
         {micNote && <div className="assistant-note">{micNote}</div>}
         {speech.error && <div className="assistant-note">{speech.error}</div>}
-        {voicesReady && !language.startsWith('en') && !hasNativeVoice(language)
-          && session.mode === 'byok' && !session.apiKey && (
-          <div className="assistant-note">
-            This device has no {LANGUAGES.find((l) => l.code === language)?.name} voice
-            installed, so answers would be read with an English accent. Adding a key
-            switches to the multilingual voice.
-          </div>
-        )}
-        {!synthesisSupported && (
-          <div className="assistant-note">This browser cannot read answers aloud.</div>
-        )}
       </aside>
     </>
   );
