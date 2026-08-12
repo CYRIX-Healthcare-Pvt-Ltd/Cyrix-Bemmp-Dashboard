@@ -339,6 +339,17 @@ and the request travels to it.
 
 ## UI conventions
 
+**Tabs**: `Dashboard` carries the KPI grid, the chart and the breakdowns — everything that
+answers "how is the contract doing". The rest are working surfaces and deliberately do not
+repeat the tiles above themselves.
+
+`Open calls` holds three sub-tabs over the same backlog: `Open`, `Unresolved`, and
+`Ticket tracker`. The tracker is the daily penalty meeting — the same open rows, in the
+form the meeting works through them — which is why it is a sub-tab rather than a tab of its
+own. `callView` is either a bucket id or the `TRACKER` string, and `TRACKER` is a string
+precisely so it can never collide with a bucket. The tracker only appears for accounts that
+may edit it, and the global filter bar applies to it exactly as to every other view.
+
 **Drill-down** is one component, `DrillExplorer`, used by the open, penalty and repeat
 tabs. It takes a row set and a mode (`tickets` or `repeats`), and every breakdown bar
 pushes onto a drill path. The dimension order is district → facility → equipment →

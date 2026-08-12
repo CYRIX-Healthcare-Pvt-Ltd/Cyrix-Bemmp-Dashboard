@@ -71,7 +71,7 @@ const GRANULARITIES = [
 ];
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'dashboard', label: 'Dashboard' },
   { id: 'calls', label: 'Open calls' },
   { id: 'penalty', label: 'Penalty calls' },
   { id: 'repeats', label: 'Repeat calls' },
@@ -155,6 +155,9 @@ const PERFORMANCE = [
 
 const STATE_KEY = 'bemmp-state';
 
+/** Sub-tab id for the tracker. A string, so it can never collide with a bucket. */
+const TRACKER = 'tracker';
+
 const ordinal = (n) => {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
@@ -202,7 +205,9 @@ export default function App() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState(null);
   const [tab, setTab] = useState('overview');
-  const [callBucket, setCallBucket] = useState(BUCKET.OPEN);
+  /* Which view of the open backlog is showing. Either a bucket, or the
+     tracker — the same rows in the form the daily meeting works through. */
+  const [callView, setCallView] = useState(BUCKET.OPEN);
   const [drawerRow, setDrawerRow] = useState(null);
   const [metricId, setMetricId] = useState('volume');
   const [perfId, setPerfId] = useState('ftfr');
@@ -360,8 +365,8 @@ export default function App() {
   }, [series, metric, ds, referenceDay]);
 
   const bucketRows = useMemo(
-    () => (idx ? rowsInBucket(ds, idx, callBucket) : []),
-    [ds, idx, callBucket],
+    () => (idx && callView !== TRACKER ? rowsInBucket(ds, idx, callView) : []),
+    [ds, idx, callView],
   );
   const penalties = useMemo(
     () => (idx ? penaltyRows(ds, idx, referenceDay) : []),
@@ -444,7 +449,7 @@ export default function App() {
   }, [ds, idx]);
 
   const openBucket = useCallback((bucket) => {
-    setCallBucket(bucket);
+    setCallView(bucket);
     setTab('calls');
   }, []);
 
@@ -455,17 +460,14 @@ export default function App() {
    * and it refuses a director's write whether or not they can see this.
    */
   const showMeeting = isConfigured() && canEditMeeting(profile);
-  const visibleTabs = useMemo(
-    () => (showMeeting
-      ? [TABS[0], { id: 'meeting', label: 'Daily penalty' }, ...TABS.slice(1)]
-      : TABS),
-    [showMeeting],
-  );
+  // The tracker lost its own top-level tab and became a sub-tab of Open calls,
+  // so nothing in the strip depends on the role any more.
+  const visibleTabs = TABS;
 
-  // A tab that disappears when the profile loads must not leave the app on it.
+  // Losing the tracker on sign-out must not leave the app looking at it.
   useEffect(() => {
-    if (!visibleTabs.some((t) => t.id === tab)) setTab('overview');
-  }, [visibleTabs, tab]);
+    if (callView === TRACKER && !showMeeting) setCallView(BUCKET.OPEN);
+  }, [callView, showMeeting]);
 
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
@@ -616,18 +618,6 @@ export default function App() {
           setFilters={setFilters}
         />
 
-        <KpiTiles
-          summary={summary}
-          repeats={repeats}
-          penaltyDays={meta.penaltyDays}
-          money={moneySummary}
-          onOpenBucket={openBucket}
-          onOpenPenalty={() => setTab('penalty')}
-          onOpenRepeats={() => setTab('repeats')}
-          onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
-          onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
-        />
-
         <div className="tabs" role="tablist">
           {visibleTabs.map((t) => (
             <button
@@ -639,8 +629,19 @@ export default function App() {
           ))}
         </div>
 
-        {tab === 'overview' && (
+        {tab === 'dashboard' && (
           <div className="grid" style={{ gap: 16 }}>
+            <KpiTiles
+              summary={summary}
+              repeats={repeats}
+              penaltyDays={meta.penaltyDays}
+              money={moneySummary}
+              onOpenBucket={openBucket}
+              onOpenPenalty={() => setTab('penalty')}
+              onOpenRepeats={() => setTab('repeats')}
+              onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
+              onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
+            />
             <div className="panel chart-panel" style={{ '--i': 0 }}>
               <div className="chart-head">
                 <div className="chart-tabs" role="tablist" aria-label="Metric">
@@ -743,46 +744,59 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'meeting' && (
-          <MeetingTab
-            key={`meeting-${stateId}`}
-            ds={ds}
-            rows={rowsInBucket(ds, idx, BUCKET.OPEN)}
-            referenceDay={referenceDay}
-            canEdit={canEditMeeting(profile)}
-            onSelectRow={setDrawerRow}
-          />
-        )}
-
         {tab === 'calls' && (
           <>
             <div className="segmented-row">
-              <div className="segmented" role="tablist" aria-label="Backlog type">
+              <div className="segmented" role="tablist" aria-label="Backlog view">
                 {[BUCKET.OPEN, BUCKET.PARKED].map((b) => (
                   <button
                     key={b} type="button" role="tab"
-                    aria-selected={callBucket === b}
-                    onClick={() => setCallBucket(b)}
+                    aria-selected={callView === b}
+                    onClick={() => setCallView(b)}
                   >
                     {BUCKET_LABEL[b]}
                   </button>
                 ))}
+                {/* The tracker is the same open backlog, in the form the meeting
+                    works through it — so it belongs beside the buckets rather
+                    than in a tab of its own. */}
+                {showMeeting && (
+                  <button
+                    type="button" role="tab"
+                    aria-selected={callView === TRACKER}
+                    onClick={() => setCallView(TRACKER)}
+                  >
+                    Ticket tracker
+                  </button>
+                )}
               </div>
             </div>
-            <DrillExplorer
-              key={`calls-${stateId}-${callBucket}`}
-              ds={ds}
-              rows={bucketRows}
-              referenceDay={referenceDay}
-              onSelectRow={setDrawerRow}
-              showAgeing
-              // Only the parked bucket has remarks to explain; on the open
-              // bucket the panel would be empty by definition.
-              showParkedReasons={callBucket === BUCKET.PARKED}
-              intro={(n) => (callBucket === BUCKET.OPEN
-                ? `${n.toLocaleString()} open calls — Resolved Date blank and no Ticket Remark. This is the live, actionable backlog.`
-                : `${n.toLocaleString()} unresolved calls — no Resolved Date, but out of service scope, with the reason held in Ticket Remark.`)}
-            />
+
+            {callView === TRACKER ? (
+              <MeetingTab
+                key={`tracker-${stateId}`}
+                ds={ds}
+                rows={rowsInBucket(ds, idx, BUCKET.OPEN)}
+                referenceDay={referenceDay}
+                canEdit={canEditMeeting(profile)}
+                onSelectRow={setDrawerRow}
+              />
+            ) : (
+              <DrillExplorer
+                key={`calls-${stateId}-${callView}`}
+                ds={ds}
+                rows={bucketRows}
+                referenceDay={referenceDay}
+                onSelectRow={setDrawerRow}
+                showAgeing
+                // Only the parked bucket has remarks to explain; on the open
+                // bucket the panel would be empty by definition.
+                showParkedReasons={callView === BUCKET.PARKED}
+                intro={(n) => (callView === BUCKET.OPEN
+                  ? `${n.toLocaleString()} open calls — Resolved Date blank and no Ticket Remark. This is the live, actionable backlog.`
+                  : `${n.toLocaleString()} unresolved calls — no Resolved Date, but out of service scope, with the reason held in Ticket Remark.`)}
+              />
+            )}
           </>
         )}
 
