@@ -642,6 +642,7 @@ export default function App() {
           <UploadPanel
             contracts={scoped}
             serverStates={states}
+            shared={shared}
             onLoaded={onUploaded}
             onPublished={reloadShared}
             landing
@@ -732,7 +733,9 @@ export default function App() {
 
         {showUpload && (
           <UploadPanel
+            contracts={scoped}
             serverStates={states}
+            shared={shared}
             onLoaded={onUploaded}
             onPublished={reloadShared}
             onClose={() => setShowUpload(false)}

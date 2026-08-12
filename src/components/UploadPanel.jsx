@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { STATES, detectState } from '../../shared/schema.mjs';
-import { deleteUpload, listUploads, putUpload } from '../data/uploads.js';
+import { deleteUpload, getUpload, listUploads, putUpload } from '../data/uploads.js';
 import { publishDataset } from '../data/datasets.js';
-import { isConfigured } from '../data/supabase.js';
+import { isConfigured, supabase } from '../data/supabase.js';
 
 /** Runs one workbook through the parser worker, reporting progress. */
 function parseInWorker(file, stateId, onProgress) {
@@ -41,6 +41,7 @@ function ago(iso) {
  */
 export default function UploadPanel({
   serverStates, onLoaded, onClose, onPublished, landing = false, contracts = STATES,
+  shared = {},
 }) {
   const [stored, setStored] = useState({});
   const [busy, setBusy] = useState(null); // { stateId, phase, pct, detail }
@@ -86,6 +87,11 @@ export default function UploadPanel({
        * takes a while and there is no reason to make this person watch it — their
        * figures are already on screen. A failure here is reported but does not
        * undo the local load, because a dataset only they can see still beats none.
+       *
+       * It used to be silent when `isConfigured()` was false — the whole block
+       * was skipped and the uploader was left believing the team had the file.
+       * That is how a Kerala export sat in one browser for a day while everyone
+       * else saw an empty dashboard, so a skip now says so as loudly as a failure.
        */
       if (isConfigured()) {
         setBusy({ stateId: state.id, phase: 'Sharing with the team', pct: 100 });
@@ -93,8 +99,14 @@ export default function UploadPanel({
           await publishDataset(state.id, { meta, buffer, filename: file.name });
           onPublished?.();
         } catch (e) {
-          setError(`Loaded here, but could not share it: ${e.message}`);
+          setError(`Loaded here, but not shared with the team: ${e.message}`
+            + ' Use Share below to try again — the workbook does not need re-reading.');
         }
+      } else {
+        setError(
+          'Loaded on this device only — this build has no Supabase connection, so it '
+          + 'could not be shared with the team.',
+        );
       }
     } catch (e) {
       setError(e.message);
@@ -102,6 +114,31 @@ export default function UploadPanel({
       setBusy(null);
     }
   }, [onLoaded, reload]);
+
+  /**
+   * Publishes a workbook that was already parsed in this browser.
+   *
+   * The artifact is in IndexedDB, so this costs an upload and nothing else — no
+   * re-reading 46 MB of XML. Without it the only way to recover a failed or
+   * skipped share was to find the workbook and do the whole thing again, which
+   * is why a contract can end up loaded for one person and missing for everyone.
+   */
+  const share = useCallback(async (stateId) => {
+    setError(null);
+    setBusy({ stateId, phase: 'Sharing with the team', pct: 100 });
+    try {
+      const stored = await getUpload(stateId);
+      if (!stored) throw new Error('That upload is no longer on this device.');
+      await publishDataset(stateId, {
+        meta: stored.meta, buffer: stored.buffer, filename: stored.filename,
+      });
+      onPublished?.();
+    } catch (e) {
+      setError(`Could not share it: ${e.message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [onPublished]);
 
   const pick = (stateId) => {
     pendingState.current = stateId;
@@ -170,8 +207,19 @@ export default function UploadPanel({
         <div className="upload-list">
           {contracts.map((s) => {
             const up = stored[s.id];
+            const pub = shared[s.id];
             const server = serverStates?.find((x) => x.id === s.id);
             const running = busy?.stateId === s.id;
+
+            /*
+             * Whether the team has this, and whether they have *this* copy.
+             * Three states worth telling apart: nothing published, published but
+             * older than what is on this device, and up to date. The middle one
+             * is the case that was invisible before — a local upload that never
+             * made it up looks identical to a shared one from the dashboard.
+             */
+            const behind = up && pub && new Date(up.uploadedAt) > new Date(pub.uploaded_at);
+            const canShare = isConfigured() && Boolean(supabase) && up && (!pub || behind);
 
             return (
               <div className="upload-row" key={s.id}>
@@ -186,16 +234,39 @@ export default function UploadPanel({
                       <span>{busy.phase}{busy.detail ? ` · ${busy.detail}` : ''}</span>
                     </div>
                   ) : (
-                    <div className="upload-sub">
-                      {up
-                        ? `${up.rows.toLocaleString()} tickets · ${up.filename} · ${ago(up.uploadedAt)}`
-                        : (server
-                          ? `${server.rows.toLocaleString()} tickets · built on the server`
-                          : `Expects ${s.file}`)}
-                    </div>
+                    <>
+                      <div className="upload-sub">
+                        {up
+                          ? `${up.rows.toLocaleString()} tickets · ${up.filename} · ${ago(up.uploadedAt)}`
+                          : (pub
+                            ? `${pub.rows.toLocaleString()} tickets · ${pub.filename ?? 'shared export'} · ${ago(pub.uploaded_at)}`
+                            : (server
+                              ? `${server.rows.toLocaleString()} tickets · built on the server`
+                              : `Expects ${s.file}`))}
+                      </div>
+                      {isConfigured() && (up || pub) && (
+                        <div className={`share-state${canShare ? ' is-local' : ''}`}>
+                          {canShare
+                            ? (pub
+                              ? 'The team has an older copy — share this one'
+                              : 'On this device only — the team cannot see it')
+                            : `Shared with the team · ${ago(pub?.uploaded_at)}`}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="upload-actions">
+                  {canShare && !running && (
+                    <button
+                      type="button"
+                      className="upload-btn"
+                      disabled={!!busy}
+                      onClick={() => share(s.id)}
+                    >
+                      Share
+                    </button>
+                  )}
                   {up && !running && (
                     <button
                       type="button"

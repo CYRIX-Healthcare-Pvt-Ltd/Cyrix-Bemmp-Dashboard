@@ -425,6 +425,15 @@ workbook themselves. The *built artifact* travels, not the workbook: parsing alr
 happened in the uploader's browser and nobody else pays for it again. Kerala's is 27 MB, so
 both objects are gzipped with `CompressionStream` first.
 
+**Publishing must never fail quietly.** It once did: the whole block was wrapped in
+`if (isConfigured())`, so a build with no Supabase connection skipped it without a word and
+the uploader was left believing the team had the file. A Kerala export sat in one browser
+for a day that way while everyone else saw the upload prompt — and from the dashboard the
+two are indistinguishable, because the figures are on screen either way. A skip now reports
+itself as loudly as a failure, each contract shows whether the team actually has it, and
+**Share** publishes an artifact already sitting in IndexedDB. That last part matters:
+without it the only way to recover was to find the 46 MB workbook and parse it again.
+
 **Whichever export is newer wins**, not whichever is closest. The local upload used to take
 precedence unconditionally, which quietly broke the thing publishing exists for: somebody
 who uploaded on Monday saw Monday's figures all week while the team had Thursday's, and
