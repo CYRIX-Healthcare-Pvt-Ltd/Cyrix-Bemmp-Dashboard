@@ -391,6 +391,12 @@ Vercel therefore needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (no `VITE_` pre
 prefix is what puts a variable in the bundle) alongside the two `VITE_SUPABASE_*` ones the
 browser uses.
 
+`vercel.json`'s rewrite is `/((?!api/).*)` rather than `/(.*)`: Vercel does check the
+filesystem before rewrites, so functions resolve either way, but the exclusion means a
+later rewrite rule cannot quietly swallow them. That file is validated against a schema
+permitting **no unknown properties** — a `"//"` comment key fails the deployment before the
+build starts, which is why the reasoning lives here instead.
+
 **The admin role.** `admin` joins the four business roles rather than outranking them: a
 director is a read-only audience for the figures, an admin manages accounts and has no
 special claim on the data. Their `scope` column is left **empty** and `in_scope()` grants

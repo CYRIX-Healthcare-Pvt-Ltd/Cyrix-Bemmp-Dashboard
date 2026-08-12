@@ -73,9 +73,22 @@ export async function signOut() {
  */
 export async function loadProfile() {
   if (!supabase) return null;
+  const { data: auth } = await supabase.auth.getUser();
+  const id = auth?.user?.id;
+  if (!id) return null;
+
+  /*
+   * Filtered by id rather than left to row-level security to return one row.
+   *
+   * It used to rely on the policy, which was true while every account could see
+   * exactly its own profile. An administrator can now see all of them, so the
+   * unfiltered query returns nine and `maybeSingle` fails on it — the admin
+   * would be the one account unable to load its own profile.
+   */
   const { data, error } = await supabase
     .from('profile')
     .select('id, code, full_name, role, scope')
+    .eq('id', id)
     .maybeSingle();
   if (error) throw error;
   return data;
