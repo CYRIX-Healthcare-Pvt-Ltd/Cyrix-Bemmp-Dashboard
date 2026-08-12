@@ -89,6 +89,12 @@ Column letters differ between the two, which is the main reason the config is pe
 | Down days | `AI` | `AB` (plus `AC` penalty days, `AD` penalty amount) |
 | Zone, New Status Column | `D`, `AG` | absent |
 
+Kerala's `D Zone` is North/South and is **complete** — 0 of 265,769 rows blank — and maps
+one-to-one onto district, so it needs no lookup table of its own. Andhra has no such column,
+which is why zone is present or absent by contract everywhere it appears: the drill
+dimension, the filter, and the tracker and ticket-list columns all test the dictionary
+rather than the state id.
+
 Both worksheets run to hundreds of megabytes of XML uncompressed, so neither can be
 opened with a load-the-whole-workbook parser. `build-data.mjs` streams them — unzip and
 read the worksheet incrementally against `xl/sharedStrings.xml`. Follow the same approach
@@ -327,6 +333,19 @@ reads the script with English phonetics rather than failing. `hasNativeVoice()` 
 check that routes around it; the browser engine remains the fallback when no key is
 available. `stopSpeaking()` halts either engine.
 
+**Language is detected from the script, for typed questions only.** Each of the five
+languages owns a Unicode block, so `detectLanguage` is a lookup rather than a guess and a
+question typed in Malayalam sets the panel to Malayalam without anyone touching the picker.
+Latin text returns null — "hello" and "ente ticket evide" are both Latin, and telling those
+apart needs a model, not a range check; English is the default anyway.
+
+Speech **cannot** work this way. The Web Speech API is told which language to expect before
+it hears anything, so the picker has to be right before the mic is pressed; detecting from
+the transcript only helps the next question. Real voice auto-detect means uploading audio to
+Whisper, which would give up the "no audio leaves the browser" property above — a trade
+worth making deliberately, not by accident. The choice is remembered in `storedLanguage`,
+so somebody who works in Malayalam sets it once.
+
 **Keys.** The key lives behind a proxy — `serve.mjs` at `/api/assistant`, or the
 Cloudflare Worker in `serverless/` for static deployments, selected by
 `VITE_ASSISTANT_URL` at build time. Each user supplying their own key is only the
@@ -337,6 +356,60 @@ backend and holding it in the browser is equivalent to publishing it: it appears
 network tab and the endpoint serving it can be called by anyone. The key stays server-side
 and the request travels to it.
 
+## Accounts, and the server side
+
+Two things cannot happen in a browser: reading a bearer credential, and creating a login.
+Both need the Supabase **service key**, which bypasses row-level security entirely. So both
+live in `api/` — Vercel functions holding that key — and the rule for everything in that
+directory is that the key is used and never returned, logged, or echoed in an error.
+`scripts/serve.mjs` covers the same ground for the local and LAN builds.
+
+| Route | Does |
+|---|---|
+| `GET /api/assistant/health` | whether a key is configured. Unauthenticated, answers yes/no |
+| `POST /api/assistant` | one chat round trip |
+| `POST /api/assistant/speech` | text to speech, returns audio |
+| `/api/users` | list, create, patch, `?do=reset`, `?do=disable` |
+
+The assistant endpoints **require a signed-in session**, checked by handing the caller's
+token back to GoTrue. Without that the proxy is an open OpenAI relay on a public URL billed
+to Cyrix — the key being hidden from the browser is not the same as the endpoint being safe
+to leave open. The model is pinned server-side for the same reason.
+
+`/api/users` re-checks `role = 'admin'` against the database on every request. The hidden
+tab is a courtesy; `profile_admin_write` is the control.
+
+**The OpenAI key lives in `app_secret`**, not in a deploy variable. That table has RLS on
+and **no policy at all**, which is the whole design: with none, anon and authenticated match
+no row and it is invisible to every browser however the request is shaped. Only the service
+key can read it. Keeping it there rather than in an environment variable means rotating it
+is an update with no redeploy — which matters, because rotating it is the response to it
+leaking. `node scripts/set-secret.mjs openai_api_key OPENAI_API_KEY` reads the value from
+`.env.local` and never takes it on the command line.
+
+Vercel therefore needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (no `VITE_` prefix — that
+prefix is what puts a variable in the bundle) alongside the two `VITE_SUPABASE_*` ones the
+browser uses.
+
+**The admin role.** `admin` joins the four business roles rather than outranking them: a
+director is a read-only audience for the figures, an admin manages accounts and has no
+special claim on the data. Their `scope` column is left **empty** and `in_scope()` grants
+every contract from the role — writing `{'kl','ap'}` there would be a copy that goes stale
+the day a third contract is added. `canSeeState` makes the same test on the client.
+
+**The default password is the employee code.** There is an asymmetry in GoTrue worth knowing
+before changing any of this: creating a user with the admin key *bypasses* the password
+policy, while updating one *enforces* it. So a code shorter than the minimum can be given
+that password once, at creation, and never again — which is why `create` cannot fail on it
+and `reset` can. The form says so before it happens. Recreating the account would get around
+it, but it issues a new user id and `meeting_note.updated_by` points at the old one, so
+every entry that person made would lose its author; that is not a trade to make on the
+admin's behalf. For the same reason accounts are **disabled, not deleted**.
+
+`scripts/seed-users.mjs` takes `--only CODE`. A bare re-run is less harmless than
+"idempotent" suggests — refreshing a short-password account takes that delete-and-recreate
+path — so adding one account should not touch the other seven.
+
 ## UI conventions
 
 **Shared datasets**: a TM export uploaded in the browser is published to Supabase Storage
@@ -346,11 +419,19 @@ workbook themselves. The *built artifact* travels, not the workbook: parsing alr
 happened in the uploader's browser and nobody else pays for it again. Kerala's is 27 MB, so
 both objects are gzipped with `CompressionStream` first.
 
-Load order is this browser's own upload, then the team's published artifact, then whatever
-the server build shipped. Publishing outranks the bundled copy because it is a deliberate
-act — somebody put today's export there, and the bundled one is only ever as fresh as the
-last deploy. Only the provenance lives in Postgres; 265k rows in a table would throw away
-the whole reason the columnar format exists.
+**Whichever export is newer wins**, not whichever is closest. The local upload used to take
+precedence unconditionally, which quietly broke the thing publishing exists for: somebody
+who uploaded on Monday saw Monday's figures all week while the team had Thursday's, and
+nobody would notice, because numbers look like numbers. A tie goes to the local copy — a
+tie means it is the same export and that one is already on disk. Below both is whatever the
+server build shipped, which is only ever as fresh as the last deploy.
+
+`dataset.uploaded_at` is re-read on focus, on `visibilitychange` and on a five-minute
+timer, so a page already open in another office picks up a publish without a reload.
+`reloadShared` compares the timestamps and keeps the previous object when nothing changed —
+the loader depends on that object's identity, so setting it unconditionally would
+re-download 27 MB on every poll. Only the provenance lives in Postgres; 265k rows in a
+table would throw away the whole reason the columnar format exists.
 
 **Layout**: the masthead spans the full width; below it a collapsible rail carries the
 sections and the working column takes the rest. The tabs were a horizontal strip, but six
@@ -359,6 +440,12 @@ first screen on every tab. Collapsed, the rail is 60px of icons and hands 148px 
 content; the state is remembered, because it is a working preference rather than a
 per-visit choice. Below 860px the rail becomes a scrolling strip along the top — a sidebar
 on a phone is either most of the screen or a hamburger nobody opens.
+
+Below 1180px an expanded rail is borrowing space rather than owning it, so it puts itself
+away once used: picking a section closes it, and so does a press anywhere outside it. Above
+that width it stays where it was put, because a nav that keeps undoing what you asked for is
+worse than one column of chrome. `AUTO_COLLAPSE_BELOW` in `SideNav.jsx` is the one place
+that decides.
 
 The filter panel is a right-hand drawer over the content rather than a band across it, so
 it costs nothing when closed, which is most of the time.
@@ -374,11 +461,26 @@ own. `callView` is either a bucket id or the `TRACKER` string, and `TRACKER` is 
 precisely so it can never collide with a bucket. The tracker only appears for accounts that
 may edit it, and the global filter bar applies to it exactly as to every other view.
 
+The tracker carries its own **search and sort** on top of that bar, because the two answer
+different questions: the bar decides which calls reach the tab, the search finds the one
+somebody just said out loud. Every word must match, so "kannur dialysis" narrows. Sorting
+cycles asc → desc → off, and blank entries in a note column sort last in both directions —
+they are the rows with nothing decided yet, and floating them to the top of a descending
+sort buries the ones that carry an answer. The row count beside the box appears only when
+it differs from the caption above it.
+
+The twenty-one purchasing fields open in a **dialog**, not an expanded row. As a `colSpan`
+cell they were a form wearing a table's clothes: contents lining up with nothing above them,
+every following row shoved down the page, and the ticket they belonged to scrolled out of
+sight.
+
 **Drill-down** is one component, `DrillExplorer`, used by the open, penalty and repeat
 tabs. It takes a row set and a mode (`tickets` or `repeats`), and every breakdown bar
-pushes onto a drill path. The dimension order is district → facility → equipment →
+pushes onto a drill path. The dimension order is zone → district → facility → equipment →
 manufacturer → engineer → department → facility type, matching how a service manager
-narrows down. In `repeats` mode the repeat analysis re-runs at each level, so "repeat"
+narrows down. `dimensionsFor` drops any dimension whose dictionary is empty, which is what
+keeps zone off Andhra — every state's export has a different schema, and a column a state
+does not supply would otherwise draw a titled panel with one "—" bar in it. In `repeats` mode the repeat analysis re-runs at each level, so "repeat"
 keeps meaning ">1 call on the same asset" inside whatever has been drilled into rather
 than filtering a precomputed all-time list.
 
@@ -473,6 +575,23 @@ third of the first screen open by default, and most sessions never touch it beca
 default range is the one people want. Collapsed, the row carries a one-line summary of
 what is selected — without it the figures below would have no visible provenance — and a
 reset that appears only once something is applied.
+
+It narrows by **zone, district, facility and equipment**, declared once as `FILTER_DIMS` in
+`query.js`. Facility type and criticality are deliberately not offered: neither is how
+anyone asks a question of this data, and criticality reads as a business control when it is
+really an input to the penalty window, which the SLA applies whatever is selected. They are
+still *filterable* — `FILTERABLE` is the wider list the engine honours, because the
+assistant sets those keys straight from a question.
+
+Facility and equipment are 1,572 and 556 entries, so they are type-ahead over a native
+`datalist` rather than a select — the browser's own list filters as you type and opens the
+picker a phone user already knows. Render the **whole** dictionary into it: a cap does not
+shorten what the person sees, since the browser already filters that, it just silently
+removes the tail, and a facility late in the alphabet then suggests nothing.
+
+Controls whose values are short — the two dates, zone and district — pair onto one row via
+`.field-pair`; `auto-fit` means a contract supplying only one of them fills the row instead
+of sitting in half of it.
 
 **Mobile**: the filter bar collapses behind a toggle below 860px (the `[hidden]` attribute
 needs the `!important` reset in `styles.css` — a class rule like `.filters { display: flex }`

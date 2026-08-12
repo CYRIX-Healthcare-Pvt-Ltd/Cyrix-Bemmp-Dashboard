@@ -14,6 +14,24 @@
  */
 
 import { applyPolarity } from './assistant.js';
+import { supabase } from './supabase.js';
+
+/**
+ * The caller's own session, sent with every proxied request.
+ *
+ * The proxy holds the company's OpenAI key, so without this it is an open relay
+ * on a public URL billed to Cyrix. The key stays hidden either way — that is not
+ * the same as the endpoint being safe to leave unauthenticated.
+ *
+ * Empty on a build with no Supabase, which is the offline case: there the proxy
+ * is `serve.mjs` on the LAN and there is no session to send.
+ */
+async function authHeader() {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 const KEY_STORAGE = 'bemmp-openai-key';
 const MODEL_STORAGE = 'bemmp-openai-model';
@@ -60,7 +78,7 @@ async function chat(body, { mode, apiKey }) {
   if (mode === 'server') {
     const r = await fetch(BASE, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(await readError(r));
@@ -262,7 +280,7 @@ export async function synthesizeSpeech({ text, session, language, voice = 'nova'
     if (session.tts === false) return null;
     response = await fetch(`${BASE}/speech`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
       body: JSON.stringify(body),
     });
   } else {

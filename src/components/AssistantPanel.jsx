@@ -7,7 +7,7 @@ import {
   planQuery, probeServer, storedKey, storedModel, DEFAULT_MODEL,
 } from '../data/openai.js';
 import useSpeech, {
-  LANGUAGES, DEFAULT_LANGUAGE, micUnavailableReason,
+  LANGUAGES, micUnavailableReason, detectLanguage, storedLanguage, storeLanguage,
 } from '../hooks/useSpeech.js';
 import BarList from './BarList.jsx';
 
@@ -126,7 +126,7 @@ function Answer({ entry }) {
 
 export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   const [session, setSession] = useState({ mode: null, apiKey: storedKey(), model: storedModel() });
-  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
+  const [language, setLanguage] = useState(storedLanguage);
   const [question, setQuestion] = useState('');
   const [entries, setEntries] = useState(() => loadHistory(ds.meta.id));
   const [busy, setBusy] = useState(false);
@@ -160,6 +160,24 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   async function ask(text) {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
+
+    /*
+     * A question typed in Malayalam sets the panel to Malayalam, without anyone
+     * touching the picker.
+     *
+     * This is the half of "detect the language automatically" that can be done
+     * for free and for certain: each of these languages owns its Unicode block,
+     * so the script *is* the answer. Speech is the other half and cannot work
+     * this way — the Web Speech API is told which language to listen for before
+     * it hears anything, so the picker still has to be right before the mic is
+     * pressed. Detecting from the transcript is what makes it right for the
+     * next question rather than this one.
+     */
+    const detected = detectLanguage(trimmed);
+    if (detected && detected !== language) {
+      setLanguage(detected);
+      storeLanguage(detected);
+    }
 
     setQuestion('');
     setBusy(true);
@@ -229,14 +247,16 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
             <h2>Ask the data</h2>
           </div>
           <div className="drawer-head-right">
-            {/* Sets the speech-recognition language only. Answers are always
-                written in English, to match the dashboard's own labels. */}
+            {/* Sets the speech-recognition language only — the engine has to be
+                told before it listens, so this cannot be inferred for voice the
+                way it is for a typed question. Answers are always written in
+                English, to match the dashboard's own labels. */}
             <select
               className="lang-select"
-              title="Language you speak in. Answers are always in English."
+              title="Language you speak in. A typed question sets this by itself. Answers are always in English."
               aria-label="Voice input language"
               value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              onChange={(e) => { setLanguage(e.target.value); storeLanguage(e.target.value); }}
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>

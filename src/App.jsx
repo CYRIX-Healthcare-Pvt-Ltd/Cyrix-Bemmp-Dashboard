@@ -10,14 +10,15 @@ import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
   accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
-  maxResolvedDay,
+  maxResolvedDay, FILTER_DIMS,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import SideNav from './components/SideNav.jsx';
+import AdminTab from './components/AdminTab.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
 import {
-  supabase, isConfigured, loadProfile, signOut, canEditMeeting,
+  supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin,
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
@@ -192,9 +193,9 @@ function blankFilters(meta) {
     preset: 'month',
     dayFrom: monthStart(meta.dateRange.maxDay),
     dayTo: meta.dateRange.maxDay,
-    district: new Set(),
-    facilityType: new Set(),
-    equipmentType: new Set(),
+    // One empty Set per filterable dimension. `filterRows` skips empty ones, so
+    // the shape is about the panel having something to read back, not the engine.
+    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
     bucket: new Set(),
   };
 }
@@ -257,9 +258,45 @@ export default function App() {
      everyone's data — without it a deployment with no server artifact is empty
      until each person goes and finds the workbook themselves. */
   const reloadShared = useCallback(() => {
-    listSharedDatasets().then(setShared).catch(() => setShared({}));
+    listSharedDatasets().then((next) => {
+      /*
+       * Replace the state only when something actually changed.
+       *
+       * The dataset loader depends on this object, and `listSharedDatasets`
+       * hands back a fresh one every call — so setting it unconditionally would
+       * make every poll re-download 27 MB and rebuild every typed array.
+       * Comparing on the publish timestamps is enough: that is the only field
+       * that decides whether the artifact behind them is a different one.
+       */
+      const sig = (m) => Object.entries(m)
+        .map(([id, d]) => `${id}:${d.uploaded_at}`).sort().join('|');
+      setShared((prev) => (sig(prev) === sig(next) ? prev : next));
+    }).catch(() => { /* keep whatever we had; the dashboard still works */ });
   }, []);
-  useEffect(() => { if (session) reloadShared(); }, [session, reloadShared]);
+
+  /*
+   * The site is hosted, so an export somebody publishes in one office has to
+   * reach a page already open in another. Checking on sign-in alone only covers
+   * the person who reloads.
+   *
+   * Two triggers, both cheap — a single row per contract:
+   *   focus/visibility, for the ordinary case of coming back to the tab, and
+   *   a slow poll, for a screen left open all day on a wall.
+   */
+  useEffect(() => {
+    if (!session) return undefined;
+    reloadShared();
+
+    const check = () => { if (document.visibilityState === 'visible') reloadShared(); };
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    const timer = setInterval(check, 5 * 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+      clearInterval(timer);
+    };
+  }, [session, reloadShared]);
 
   // Depend on readiness rather than the array identity: a refresh refetches
   // states.json, and keying off the new array would load the dataset a second time.
@@ -295,9 +332,19 @@ export default function App() {
      * accounts and therefore no scope to enforce.
      */
     if (!profile) return built;
-    const allowed = built.filter((s) => profile.scope?.includes(s.id));
-    return allowed.length ? allowed : built.slice(0, 0);
+    return built.filter((s) => profile.scope?.includes(s.id));
   }, [ready, states, uploads, shared, profile]);
+
+  /**
+   * The contracts this account is entitled to, whether or not any data has
+   * arrived for them. `available` is the intersection with what is loaded; this
+   * is the other half, and the two answer different questions — "you have no
+   * contract" versus "your contract has no export yet".
+   */
+  const scoped = useMemo(
+    () => (profile ? STATES.filter((s) => profile.scope?.includes(s.id)) : STATES),
+    [profile],
+  );
 
   // Dictionaries are per state, so the dataset and every filter reload together.
   useEffect(() => {
@@ -310,12 +357,32 @@ export default function App() {
     setDrawerRow(null);
 
     const load = (async () => {
-      if (uploads[target]) {
-        const u = await getUpload(target);
-        return datasetFrom(u.meta, u.buffer, 'upload');
+      /*
+       * Whichever export is newer wins, not whichever is closer.
+       *
+       * This browser's own upload used to take precedence unconditionally, which
+       * quietly broke the thing publishing exists for: somebody who uploaded on
+       * Monday went on seeing Monday's figures all week while the rest of the
+       * team had Thursday's. Nobody would notice — the numbers look like numbers.
+       *
+       * A tie goes to the local copy, because a tie means it is the same export
+       * and the local one is already on the disk.
+       */
+      const mine = uploads[target];
+      const theirs = shared[target];
+      const preferShared = theirs
+        && (!mine || new Date(theirs.uploaded_at) > new Date(mine.uploadedAt));
+
+      if (preferShared) {
+        const s = await fetchSharedDataset(target, theirs.encoding);
+        if (s) return datasetFrom(s.meta, s.buffer, 'shared');
       }
-      if (shared[target]) {
-        const s = await fetchSharedDataset(target, shared[target].encoding);
+      if (mine) {
+        const u = await getUpload(target);
+        if (u) return datasetFrom(u.meta, u.buffer, 'upload');
+      }
+      if (theirs && !preferShared) {
+        const s = await fetchSharedDataset(target, theirs.encoding);
         if (s) return datasetFrom(s.meta, s.buffer, 'shared');
       }
       return loadDataset(target, dataVersion);
@@ -463,6 +530,9 @@ export default function App() {
     const { dict } = ds;
     return {
       // Full rankings; BarList shows TOP_N of each and expands on demand.
+      // Empty for a contract whose export has no zone column, which is what the
+      // panel checks before rendering rather than drawing an empty heading.
+      zone: topN(countBy(ds, idx, 'zone'), dict.zone, Infinity),
       district: topN(countBy(ds, idx, 'district'), dict.district, Infinity),
       facility: topN(countBy(ds, idx, 'facilityName'), dict.facilityName, Infinity),
       equipment: topN(countBy(ds, idx, 'equipment'), dict.equipment, Infinity),
@@ -485,9 +555,18 @@ export default function App() {
    * and it refuses a director's write whether or not they can see this.
    */
   const showMeeting = isConfigured() && canEditMeeting(profile);
-  // The tracker lost its own top-level tab and became a sub-tab of Open calls,
-  // so nothing in the strip depends on the role any more.
-  const visibleTabs = TABS;
+
+  /*
+   * Accounts is the one section that is not about the contract, so it sits at
+   * the end of the rail rather than among the measures — and only for an admin.
+   * As always the rail is a courtesy: `/api/users` re-checks the role against
+   * the database on every request, and the profile policy is what actually
+   * refuses anyone else.
+   */
+  const visibleTabs = useMemo(
+    () => (isAdmin(profile) ? [...TABS, { id: 'accounts', label: 'Accounts' }] : TABS),
+    [profile],
+  );
 
   // Losing the tracker on sign-out must not leave the app looking at it.
   useEffect(() => {
@@ -517,10 +596,14 @@ export default function App() {
     );
   }
 
-  // Signed in, but the account's scope covers no contract that is loaded. That
-  // is a permissions answer, not a missing-file one, so it must not fall through
-  // to the upload panel and invite them to supply the data themselves.
-  if (ready && !available.length && profile) {
+  /*
+   * Signed in with no contract at all. Only a genuinely empty scope reaches this
+   * — the test used to be "nothing is loaded", which on the hosted build is the
+   * normal state before anyone has uploaded, so an account with Kerala assigned
+   * was told Kerala was not assigned to it and given a sign-out button as its
+   * only way forward.
+   */
+  if (ready && profile && !scoped.length) {
     return (
       <div className="status-msg">
         <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
@@ -549,9 +632,20 @@ export default function App() {
               <div className="toggle-group">
                 <ThemeToggle />
               </div>
+              {profile && (
+                <button type="button" className="reset" onClick={signOut}>Sign out</button>
+              )}
             </div>
           </header>
-          <UploadPanel serverStates={states} onLoaded={onUploaded} landing />
+          {/* Only this account's contracts: offering a Kerala coordinator the
+              Andhra slot invites an upload that scope would then hide. */}
+          <UploadPanel
+            contracts={scoped}
+            serverStates={states}
+            onLoaded={onUploaded}
+            onPublished={reloadShared}
+            landing
+          />
         </div>
       </>
     );
@@ -708,6 +802,17 @@ export default function App() {
             </div>
 
             <div className="grid grid-2">
+              {/* Only Kerala's export carries a zone, so this panel is present or
+                  absent by contract rather than showing a single empty bar. */}
+              {breakdowns.zone.length > 0 && (
+                <div className="panel" style={{ '--i': 1 }}>
+                  <h2>Zones</h2>
+                  <p className="caption">Calls by zone · each zone drills to its districts</p>
+                  <BarList
+                    items={breakdowns.zone} total={summary.total} color="var(--series-4)"
+                  />
+                </div>
+              )}
               <div className="panel" style={{ '--i': 1 }}>
                 <h2>Districts</h2>
                 <p className="caption">
@@ -939,6 +1044,8 @@ export default function App() {
             )}
           />
         )}
+
+        {tab === 'accounts' && isAdmin(profile) && <AdminTab profile={profile} />}
         </div>
         </div>
         </div>

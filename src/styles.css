@@ -45,6 +45,11 @@
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
+  /* The reddish-purple of the Okabe-Ito set, which the three above already
+     track. It is the fourth categorical hue that stays separable from blue for
+     the common colour-vision deficiencies — and zone sits directly beside
+     district, so blue is exactly the one it must not be confused with. */
+  --series-4: #b3568c;
 
   --status-good:     #0f9d58;
   --status-warning:  #d97706;
@@ -110,6 +115,7 @@
   --series-1: #4a94ea;
   --series-2: #f2814e;
   --series-3: #2ec4a0;
+  --series-4: #dd8ec2;
 
   --status-good:     #34d399;
   --status-warning:  #fbbf24;
@@ -643,6 +649,45 @@ th {
 .filters .field-presets { grid-column: 1 / -1; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field select, .field input[type='date'] { width: 100%; }
+
+/* Two short controls on one row. `auto-fit` rather than a fixed pair, so when a
+   contract supplies only one of them it takes the whole width instead of
+   sitting in half of it next to a gap. */
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+/* The type-ahead fields. Same pill as a select — they sit in the same column and
+   a bare UA input among them reads as something the restyle missed. */
+.field-search { position: relative; display: flex; }
+.field-search input {
+  width: 100%; font: inherit; font-size: 14px;
+  padding: 8px 32px 8px 14px; border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-primary);
+  transition: border-color 0.2s, background 0.2s;
+}
+.field-search input::placeholder { color: var(--text-muted); }
+.field-search input:hover,
+.field-search input:focus {
+  border-color: color-mix(in srgb, var(--series-1) 55%, transparent);
+  outline: none;
+}
+/* Safari draws its own inner controls on search inputs, which land on top of
+   the clear button. */
+.field-search input::-webkit-search-decoration,
+.field-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.field-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center;
+  width: 22px; height: 22px; padding: 0; cursor: pointer;
+  border: none; border-radius: 50%;
+  background: var(--track-bg); color: var(--text-secondary);
+}
+.field-clear:hover { color: var(--text-primary); }
 .field > label {
   font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-muted);
@@ -1359,6 +1404,13 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
  * rather than a working surface — inverting it in dark mode turned the ink
  * panel white and the form black, which is a different design, not this one.
  */
+/*
+ * These four are the whole palette of this screen, and every rule below must
+ * take its colour from them rather than from the app's theme tokens. That is not
+ * tidiness: the panel is pinned white while `--text-primary` follows the phone's
+ * dark mode, so a field styled with the app token rendered white text on the
+ * white panel and nobody could see what they were typing.
+ */
 .login {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1366,6 +1418,8 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   min-height: 100dvh;
   --login-ink: #000000;
   --login-paper: #ffffff;
+  --login-quiet: #8b8b8b;
+  --login-line: #d8d8d8;
   background: var(--login-paper);
   color: #0a0a0a;
 }
@@ -1435,21 +1489,34 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .login-field { display: block; margin-bottom: 28px; }
 .login-field .eyebrow { display: block; margin-bottom: 8px; }
 .login-field input {
-  width: 100%; font: inherit; font-size: 16px;
-  padding: 8px 2px; color: var(--text-primary);
+  width: 100%; font: inherit;
+  /* 16px exactly. Any smaller and iOS Safari zooms the page on focus, which
+     leaves the form scrolled off-centre behind the keyboard. */
+  font-size: 16px;
+  padding: 8px 2px; color: var(--login-ink);
   background: none; border: none;
-  border-bottom: 1px solid var(--baseline);
+  border-bottom: 1px solid var(--login-line);
   border-radius: 0;
   transition: border-color 0.18s;
 }
-.login-field input::placeholder { color: var(--text-muted); }
+.login-field input::placeholder { color: var(--login-quiet); }
 .login-field input:focus { outline: none; border-bottom-color: var(--login-ink); }
+
+/* Autofill is a separate paint on WebKit: it ignores `color` and draws its own
+   text and a pale-yellow block behind it. Only `-webkit-text-fill-color` reaches
+   the glyphs, and only a long inset shadow covers the block. */
+.login-field input:-webkit-autofill,
+.login-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--login-ink);
+  box-shadow: inset 0 0 0 100px var(--login-paper);
+  caret-color: var(--login-ink);
+}
 
 /* Right-aligned under the password, where the eye lands after typing it. */
 .login-forgot {
   align-self: flex-end;
   margin: -12px 0 0; padding: 4px 0; cursor: pointer;
-  border: none; background: none; color: var(--text-muted);
+  border: none; background: none; color: var(--login-quiet);
   font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
 }
 .login-forgot:hover { color: var(--login-ink); }
@@ -1458,7 +1525,9 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
    failure appears under the fields. */
 .login-error {
   margin: 0 0 18px; min-height: 18px;
-  font-size: 12.5px; color: var(--status-critical);
+  /* A literal red, not the status token: that one is lightened for dark
+     backgrounds and washes out to nothing on this white panel. */
+  font-size: 12.5px; color: #c0332f;
 }
 
 /* A square slab, not a pill. It is the only filled shape on the page and the
@@ -1474,28 +1543,41 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .login-submit:disabled { opacity: 0.5; cursor: progress; }
 
 .login-help {
-  margin: 16px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--text-muted);
+  margin: 16px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--login-quiet);
 }
 
 .login-foot {
   display: flex; justify-content: space-between; gap: 16px;
-  padding-top: 24px; border-top: 1px solid var(--gridline);
+  padding-top: 24px; border-top: 1px solid var(--login-line);
   font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
-  text-transform: uppercase; color: var(--text-muted);
+  text-transform: uppercase; color: var(--login-quiet);
 }
 
-/* Below the split, the ink half becomes a band: enough to place the product,
-   not enough to push the form off the first screen. */
+/*
+ * On a phone there is no split to hold, so there is no ink half either — the
+ * whole page is paper and the wordmark carries the brand in ink. Kept as a black
+ * band it was a slab of nothing above the only two fields that matter, and on a
+ * short screen it pushed them under the keyboard.
+ */
 @media (max-width: 860px) {
-  .login { grid-template-columns: 1fr; min-height: 0; }
-  .login-brand { gap: 26px; padding: 26px 22px 30px; }
-  .login-brand-mid { display: flex; flex-direction: column; }
-  .login-wordmark { margin: 10px 0 12px; font-size: 34px; }
-  .login-strap { font-size: 14px; }
-  .login-brand-foot, .login-meta { display: none; }
-  .login-form-wrap { padding: 32px 22px 24px; min-height: 60vh; }
+  .login { grid-template-columns: 1fr; min-height: 100dvh; }
+
+  /* The ink half stops being a half and becomes the logo, on paper. Everything
+     it carried on the desktop split — wordmark, strapline, the three-item list —
+     is scene-setting, and on a phone the only thing wanted here is the form. */
+  .login-brand {
+    gap: 0; padding: 26px 22px 0;
+    background: var(--login-paper);
+    color: #0a0a0a;
+  }
+  .login-brand .logo { color: var(--login-ink); }
+  .login-brand-mid, .login-brand-foot { display: none; }
+
+  .login-form-wrap { padding: 34px 22px 24px; justify-content: flex-start; }
   .login-form { margin: 0; width: 100%; }
-  .login-form h2 { margin-bottom: 26px; }
+  .login-form h2 { margin-bottom: 26px; font-size: 26px; }
+  .login-field { margin-bottom: 24px; }
+  .login-foot { margin-top: 40px; }
 }
 
 /* ================================================================= meeting == */
@@ -1552,18 +1634,62 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .linkish { border-color: transparent; background: none; color: var(--series-1); padding: 0; }
 .row-more:hover, .linkish:hover { color: var(--text-primary); }
 
-.meeting-table tr.is-expanded td { background: var(--hover-wash); }
-.meeting-detail td { padding: 0 12px 16px; background: var(--hover-wash); }
-.meeting-detail-grid {
-  display: grid; gap: 12px 16px;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  padding-top: 4px;
-}
-.meeting-detail-grid .field span {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
-  text-transform: uppercase; color: var(--text-muted);
-}
 .meeting-legacy { margin: 12px 0 0 !important; font-style: italic; }
+
+/* -------------------------------------------------- search and sort ------ */
+
+/*
+ * The global filter bar decides which calls reach this tab; these two decide
+ * what is in front of you inside it. During the meeting somebody says a ticket
+ * number or a hospital name, and it has to be found without touching a drawer.
+ */
+.meeting-tools {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px;
+}
+.meeting-search {
+  position: relative; display: flex; align-items: center;
+  flex: 1 1 300px; min-width: 0;
+}
+.meeting-search > svg {
+  position: absolute; left: 12px; color: var(--text-muted); pointer-events: none;
+}
+.meeting-search input {
+  width: 100%; font: inherit; font-size: 13.5px;
+  padding: 9px 32px 9px 34px; border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.meeting-search input::placeholder { color: var(--text-muted); }
+.meeting-search input:focus {
+  outline: none; border-color: color-mix(in srgb, var(--series-1) 55%, transparent);
+}
+.meeting-search input::-webkit-search-decoration,
+.meeting-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.meeting-count {
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The whole header is the control, so the hit area is the cell rather than a
+   caret a few pixels wide. */
+.meeting-table.is-sortable th { padding: 0; }
+.th-sort {
+  display: flex; align-items: center; gap: 5px;
+  width: 100%; padding: 9px 10px; cursor: pointer;
+  border: none; background: none; color: inherit;
+  font: inherit; text-align: left;
+}
+.meeting-table th.num .th-sort { justify-content: flex-end; }
+.th-sort:hover { color: var(--text-primary); }
+/* Reserved whether or not this column is the sorted one, so the headers do not
+   shuffle sideways as the sort moves between them. */
+.sort-mark {
+  display: inline-block; min-width: 8px; font-size: 8px; line-height: 1;
+  color: var(--series-1);
+}
+.sort-mark.is-active { opacity: 1; }
 
 /* The grid is wider than any screen, so the one column that identifies the row
    stays put while the rest scrolls under it. Without this you lose track of
@@ -1577,7 +1703,131 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   border-right: 1px solid var(--gridline);
 }
 .meeting-table thead th:first-child { z-index: 3; }
-.meeting-table tr.is-expanded td:first-child { background: var(--page-deep); }
+
+/* ---------------------------------------------------------- modal -------- */
+
+/*
+ * The purchasing fields, over the grid rather than inside it.
+ *
+ * As an expanded table row they were a form wearing a table's clothes — a
+ * `colSpan` cell whose contents lined up with nothing above them, shoving every
+ * following row down the page and scrolling the ticket they belonged to out of
+ * sight. A dialog leaves the grid exactly where it was.
+ */
+.modal-scrim {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+  animation: fadeIn var(--dur) var(--ease-out) both;
+}
+.modal {
+  display: flex; flex-direction: column;
+  width: min(880px, 100%); max-height: min(86vh, 780px);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: modalIn var(--dur) var(--ease-out) both;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.modal-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--gridline);
+}
+.modal-head h2 { margin: 4px 0 0; font-size: 17px; }
+.modal-head .caption { margin: 4px 0 0; }
+.modal-body { padding: 18px 20px; overflow-y: auto; }
+.modal-grid {
+  display: grid; gap: 14px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.modal-grid .field span {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.modal-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 20px; border-top: 1px solid var(--gridline);
+}
+.modal-foot .caption { margin: 0; }
+.modal-done {
+  padding: 9px 20px; cursor: pointer;
+  border: 1px solid var(--control-border); border-radius: var(--radius-pill);
+  background: var(--ink); color: var(--surface);
+  font-size: 13px; font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .modal-scrim { padding: 0; place-items: end stretch; }
+  .modal { max-height: 92dvh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+}
+
+/* ================================================================ accounts == */
+
+/*
+ * The admin screen. Every row here changes what somebody else can do, so the
+ * consequences are on the page rather than in someone's head — what a role
+ * means sits under the picker, and the password rule is stated on the form.
+ */
+.admin-table { font-size: 13px; }
+.admin-table td { vertical-align: middle; }
+.admin-table tr.is-disabled td { opacity: 0.5; }
+.admin-when { color: var(--text-muted); white-space: nowrap; }
+.admin-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.admin-you, .admin-off {
+  margin-left: 7px; padding: 1px 7px; border-radius: var(--radius-pill);
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+}
+.admin-you { background: color-mix(in srgb, var(--series-1) 16%, transparent); color: var(--series-1); }
+.admin-off { background: color-mix(in srgb, var(--status-critical) 16%, transparent); color: var(--status-critical); }
+
+.admin-form-grid {
+  display: grid; gap: 14px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-top: 4px;
+}
+.admin-form-grid .field span,
+.admin-form .field > span {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.admin-form-grid input, .admin-form-grid select {
+  font: inherit; font-size: 14px; padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-primary);
+}
+.admin-form-actions {
+  display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;
+}
+.admin-role-hint { margin: 12px 0 0 !important; }
+.admin-notice { margin: 10px 0 0 !important; color: var(--status-good); }
+.admin-warn { margin: 12px 0 0 !important; color: var(--status-warning); }
+
+/* Contract chips. A checkbox list rather than a multi-select, because two
+   contracts is a pair of buttons and a multi-select is a control people have to
+   be taught to use. */
+.scope-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.scope-chip {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  padding: 5px 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-secondary); font-size: 12px; font-weight: 600;
+}
+.scope-chip input { accent-color: var(--series-1); margin: 0; }
+.scope-chip.is-on {
+  border-color: color-mix(in srgb, var(--series-1) 70%, transparent);
+  background: color-mix(in srgb, var(--series-1) 14%, transparent);
+  color: var(--series-1);
+}
+.scope-all { font-size: 12px; color: var(--text-muted); font-style: italic; }
 
 /* ================================================================== shell == */
 
@@ -1714,6 +1964,9 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
      leaving the company. Both being red is correct — they are the same problem
      counted two ways, and the icon shape is what tells them apart. */
   --nav-money:       var(--status-critical);
+  /* Accounts is the one section that is not a measure, so it takes the one hue
+     that encodes no data anywhere else on the page. */
+  --nav-accounts:    var(--text-muted);
 }
 
 /*

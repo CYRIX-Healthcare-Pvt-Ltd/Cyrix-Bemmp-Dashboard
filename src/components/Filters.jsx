@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { serialToISO, dateToSerial, monthStart, formatDay, BUCKET_LABEL } from '../data/store.js';
+import { FILTER_DIMS } from '../data/query.js';
 
 /** Presets are anchored to the latest logged date in the data, not today —
  *  the export lags reality and "last 30 days" from today can be empty. */
@@ -10,6 +11,21 @@ const PRESETS = [
   { id: '365', label: 'Last 12 months', range: (r) => [r.maxDay - 364, r.maxDay] },
   { id: 'all', label: 'All time', range: (r) => [r.minDay, r.maxDay] },
 ];
+
+/**
+ * What each filterable column is called on screen, and how it is chosen.
+ *
+ * `search` is not a style preference: Kerala has 1,572 facilities and 556
+ * equipment names, and a select that long is a scroll nobody finishes. Zone and
+ * district are closed sets of two and fourteen, where a dropdown is faster than
+ * typing.
+ */
+const FIELDS = {
+  zone: { label: 'Zone', all: 'All zones' },
+  district: { label: 'District', all: 'All districts' },
+  facilityName: { label: 'Facility', all: 'All facilities', search: true },
+  equipment: { label: 'Equipment', all: 'All equipment', search: true },
+};
 
 function Dropdown({ label, dict, value, onChange, allLabel }) {
   const options = useMemo(
@@ -31,6 +47,79 @@ function Dropdown({ label, dict, value, onChange, allLabel }) {
   );
 }
 
+/**
+ * Type-ahead over a long dictionary, on a native `datalist`.
+ *
+ * Deliberately not a custom popup: the browser's own list filters as you type,
+ * scrolls with the keyboard, and on a phone opens the picker the person already
+ * knows. A hand-rolled combobox over 1,572 rows would be more code and worse.
+ *
+ * The control's value is a name while the filter's value is a dictionary id, so
+ * a name that matches nothing simply selects nothing — which is the right
+ * behaviour for a half-typed word.
+ */
+function Search({ label, dict, value, onChange, allLabel }) {
+  const listId = useId();
+  const [text, setText] = useState('');
+
+  // Reverse map built once per dictionary. Case-folded, because the person
+  // typing has no reason to reproduce the export's capitalisation.
+  const byName = useMemo(() => {
+    const m = new Map();
+    dict.forEach((name, id) => m.set(name.toLowerCase(), id));
+    return m;
+  }, [dict]);
+
+  const sorted = useMemo(() => [...dict].sort((a, b) => a.localeCompare(b)), [dict]);
+
+  // Selected, the field shows the dictionary's own spelling; otherwise whatever
+  // is being typed.
+  const shown = value != null ? dict[value] : text;
+
+  const commit = (raw) => {
+    setText(raw);
+    const id = byName.get(raw.trim().toLowerCase());
+    onChange(id === undefined ? null : id);
+  };
+
+  return (
+    <div className="field">
+      <label htmlFor={`f-${label}`}>{label}</label>
+      <div className="field-search">
+        <input
+          id={`f-${label}`}
+          list={listId}
+          value={shown}
+          placeholder={allLabel}
+          autoComplete="off"
+          spellCheck="false"
+          onChange={(e) => commit(e.target.value)}
+        />
+        {value != null && (
+          <button
+            type="button"
+            className="field-clear"
+            aria-label={`Clear ${label.toLowerCase()}`}
+            onClick={() => { setText(''); onChange(null); }}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                 stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        )}
+        {/* The whole dictionary, uncapped. A cap here is invisible and worse than
+            it sounds: it does not shorten the list the person sees — the browser
+            already filters that to what they typed — it just silently removes the
+            tail, so a facility late in the alphabet suggests nothing at all. */}
+        <datalist id={listId}>
+          {sorted.map((name) => <option key={name} value={name} />)}
+        </datalist>
+      </div>
+    </div>
+  );
+}
+
 export default function Filters({ dict, dateRange, filters, setFilters }) {
   const set = (patch) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -39,14 +128,20 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
   // it, because the default range is the one people want.
   const [open, setOpen] = useState(false);
 
-  const activeCount = [
-    filters.district, filters.facilityType, filters.equipmentType, filters.bucket,
-  ].reduce((n, s) => n + (s.size ? 1 : 0), 0)
+  // A contract whose export has no such column has an empty dictionary, and a
+  // dropdown over nothing is a control that cannot do anything. Andhra has no
+  // zone, so Andhra gets no zone filter.
+  const dims = useMemo(
+    () => FILTER_DIMS.filter((k) => dict[k]?.length > 0),
+    [dict],
+  );
+
+  const activeCount = dims.reduce((n, k) => n + (filters[k].size ? 1 : 0), 0)
+    + (filters.bucket.size ? 1 : 0)
     // 'month' is the default range, so it does not count as a filter being applied.
     + (filters.preset === 'month' ? 0 : 1);
 
   const firstOf = (s) => (s.size ? [...s][0] : null);
-  const named = (s, d) => (s.size ? d[firstOf(s)] : null);
 
   /**
    * What is selected, in one line. The bar is collapsed by default, so without
@@ -59,12 +154,10 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
       : `${formatDay(filters.dayFrom)} – ${formatDay(filters.dayTo)}`;
     return [
       range,
-      named(filters.district, dict.district),
-      named(filters.facilityType, dict.facilityType),
-      named(filters.equipmentType, dict.equipmentType),
+      ...dims.map((k) => (filters[k].size ? dict[k][firstOf(filters[k])] : null)),
       filters.bucket.size ? BUCKET_LABEL[firstOf(filters.bucket)] : null,
     ].filter(Boolean).join(' · ');
-  }, [filters, dict]);
+  }, [filters, dict, dims]);
 
   const applyPreset = (p) => {
     const [from, to] = p.range(dateRange);
@@ -77,9 +170,7 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
     preset: 'month',
     dayFrom: monthStart(dateRange.maxDay),
     dayTo: dateRange.maxDay,
-    district: new Set(),
-    facilityType: new Set(),
-    equipmentType: new Set(),
+    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
     bucket: new Set(),
   });
 
@@ -162,42 +253,62 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
           </div>
         </div>
 
-        <div className="field">
-          <label htmlFor="f-from">From</label>
-          <input
-            id="f-from" type="date"
-            min={serialToISO(dateRange.minDay)} max={serialToISO(dateRange.maxDay)}
-            value={serialToISO(filters.dayFrom)}
-            onChange={(e) => e.target.value && set({
-              preset: 'custom', dayFrom: dateToSerial(new Date(`${e.target.value}T00:00:00Z`)),
-            })}
-          />
+        {/* Paired, because a date is four characters wide and two of them on
+            their own rows pushed everything below off a phone's first screen.
+            Only controls whose values are genuinely short go side by side —
+            a facility name would be clipped to uselessness in half a drawer. */}
+        <div className="field-pair">
+          <div className="field">
+            <label htmlFor="f-from">From</label>
+            <input
+              id="f-from" type="date"
+              min={serialToISO(dateRange.minDay)} max={serialToISO(dateRange.maxDay)}
+              value={serialToISO(filters.dayFrom)}
+              onChange={(e) => e.target.value && set({
+                preset: 'custom', dayFrom: dateToSerial(new Date(`${e.target.value}T00:00:00Z`)),
+              })}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="f-to">To</label>
+            <input
+              id="f-to" type="date"
+              min={serialToISO(dateRange.minDay)} max={serialToISO(dateRange.maxDay)}
+              value={serialToISO(filters.dayTo)}
+              onChange={(e) => e.target.value && set({
+                preset: 'custom', dayTo: dateToSerial(new Date(`${e.target.value}T00:00:00Z`)),
+              })}
+            />
+          </div>
         </div>
 
-        <div className="field">
-          <label htmlFor="f-to">To</label>
-          <input
-            id="f-to" type="date"
-            min={serialToISO(dateRange.minDay)} max={serialToISO(dateRange.maxDay)}
-            value={serialToISO(filters.dayTo)}
-            onChange={(e) => e.target.value && set({
-              preset: 'custom', dayTo: dateToSerial(new Date(`${e.target.value}T00:00:00Z`)),
-            })}
-          />
+        {/* Zone and district are two values and fourteen, so they pair too. On a
+            contract with no zone the pair holds one control and it fills the row
+            rather than sitting in half of it. */}
+        <div className="field-pair">
+          {dims.filter((k) => !FIELDS[k].search).map((key) => (
+            <Dropdown
+              key={key}
+              label={FIELDS[key].label}
+              dict={dict[key]}
+              allLabel={FIELDS[key].all}
+              value={firstOf(filters[key])}
+              onChange={single(key)}
+            />
+          ))}
         </div>
 
-        <Dropdown
-          label="District" dict={dict.district} allLabel="All districts"
-          value={firstOf(filters.district)} onChange={single('district')}
-        />
-        <Dropdown
-          label="Facility type" dict={dict.facilityType} allLabel="All facility types"
-          value={firstOf(filters.facilityType)} onChange={single('facilityType')}
-        />
-        <Dropdown
-          label="Criticality" dict={dict.equipmentType} allLabel="All equipment"
-          value={firstOf(filters.equipmentType)} onChange={single('equipmentType')}
-        />
+        {dims.filter((k) => FIELDS[k].search).map((key) => (
+          <Search
+            key={key}
+            label={FIELDS[key].label}
+            dict={dict[key]}
+            allLabel={FIELDS[key].all}
+            value={firstOf(filters[key])}
+            onChange={single(key)}
+          />
+        ))}
 
         <div className="field">
           <label htmlFor="f-status">Status</label>

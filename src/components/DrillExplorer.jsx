@@ -15,10 +15,14 @@ const BUCKET_DOT = ['open', 'parked', 'resolved'];
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 /**
- * Drill order. District first, then facility, equipment, manufacturer — the way a
+ * Drill order. Zone, then district, facility, equipment, manufacturer — the way a
  * service manager narrows down — with engineer and department available at any level.
  */
 export const DIMENSIONS = [
+  // Two values in Kerala and none at all in Andhra, whose export has no zone
+  // column. An empty dictionary drops the panel rather than drawing a heading
+  // over nothing, which is why `dimensionsFor` exists.
+  { key: 'zone', label: 'Zones', noun: 'zone', color: 'var(--series-4)', all: true },
   // Districts are a closed set — 14 in Kerala, 28 in Andhra — so the whole list
   // renders and the tail is a scroll away. An expander over a list that short
   // is a click asking permission for something it should just do.
@@ -36,6 +40,16 @@ export const DIMENSIONS = [
 export const TOP_N = 10;
 
 const DIM_BY_KEY = Object.fromEntries(DIMENSIONS.map((d) => [d.key, d]));
+
+/**
+ * The dimensions this contract actually has values for.
+ *
+ * Every state's export has a different schema, and a column a state does not
+ * supply sits at the sentinel for every row — so its dictionary is empty and a
+ * breakdown over it would be a titled panel with one "—" bar in it. Andhra's
+ * zone is the case that forced this.
+ */
+export const dimensionsFor = (ds) => DIMENSIONS.filter((d) => ds.dict[d.key]?.length > 0);
 
 /**
  * Two things drill that are not dimensions, so they never get a breakdown panel
@@ -104,6 +118,9 @@ export default function DrillExplorer({
   // srcPenalty* columns instead.
   const hasRateCard = Boolean(ds.meta.penaltyRates);
 
+  // Same reasoning for zone, which only Kerala's export carries.
+  const hasZone = ds.dict.zone.length > 0;
+
   const scoped = useMemo(() => {
     let cur = rows;
     for (const step of path) {
@@ -123,8 +140,8 @@ export default function DrillExplorer({
   const counted = mode === 'repeats' ? repeats.rows : scoped;
 
   const remaining = useMemo(
-    () => DIMENSIONS.filter((d) => !path.some((p) => p.key === d.key)),
-    [path],
+    () => dimensionsFor(ds).filter((d) => !path.some((p) => p.key === d.key)),
+    [ds, path],
   );
 
   const breakdowns = useMemo(() => remaining.map((dim) => {
@@ -344,7 +361,9 @@ export default function DrillExplorer({
                   <thead>
                     <tr>
                       <th>Barcode</th><th className="num">Calls</th><th>Equipment</th>
-                      <th>Model</th><th>Facility</th><th>District</th><th>Manufacturer</th>
+                      <th>Model</th><th>Facility</th>
+                      {hasZone && <th>Zone</th>}
+                      <th>District</th><th>Manufacturer</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -360,6 +379,7 @@ export default function DrillExplorer({
                         <td>{label(dict.equipment, cols.equipment[a.row])}</td>
                         <td>{label(dict.model, cols.model[a.row])}</td>
                         <td>{label(dict.facilityName, cols.facilityName[a.row])}</td>
+                        {hasZone && <td>{label(dict.zone, cols.zone[a.row])}</td>}
                         <td>{label(dict.district, cols.district[a.row])}</td>
                         <td>{label(dict.manufacturer, cols.manufacturer[a.row])}</td>
                       </tr>
@@ -383,7 +403,9 @@ export default function DrillExplorer({
                   <thead>
                     <tr>
                       <th>Ticket</th><th className="num">Age</th><th>Logged</th>
-                      <th>Equipment</th><th>Facility</th><th>District</th>
+                      <th>Equipment</th><th>Facility</th>
+                      {hasZone && <th>Zone</th>}
+                      <th>District</th>
                       <th>Engineer</th>
                       {showResolutionColumn && <th className="num">Resolution</th>}
                       {showPenaltyColumn && <th className="num">Over SLA</th>}
@@ -404,6 +426,7 @@ export default function DrillExplorer({
                           <td>{formatDay(cols.loggedDay[i])}</td>
                           <td>{label(dict.equipment, cols.equipment[i])}</td>
                           <td>{label(dict.facilityName, cols.facilityName[i])}</td>
+                          {hasZone && <td>{label(dict.zone, cols.zone[i])}</td>}
                           <td>{label(dict.district, cols.district[i])}</td>
                           <td>{parseEngineer(label(dict.engineer, cols.engineer[i]))?.name ?? '—'}</td>
                           {showResolutionColumn && (

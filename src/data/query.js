@@ -140,15 +140,55 @@ export function isPenalty(ds, windows, referenceDay, row) {
 }
 
 /**
+ * Every dictionary column a filter Set may narrow by.
+ *
+ * Wider than what the panel offers on purpose. The assistant sets these keys
+ * directly from a question — "how many calls in Ernakulam" arrives as a district
+ * Set — so the engine has to honour more than the bar exposes, and a key with an
+ * empty Set costs nothing.
+ */
+const FILTERABLE = [
+  'zone', 'district', 'facilityName', 'facilityType', 'equipment', 'equipmentType',
+  'manufacturer', 'engineer', 'department', 'parkedReason',
+];
+
+/**
+ * The dictionary columns the filter bar shows, in the order they appear.
+ *
+ * Zone before district because that is how the geography nests, and facility and
+ * equipment after them because those are the two things a manager names when
+ * they already know where they are looking.
+ *
+ * Facility *type* and equipment *criticality* are deliberately not offered:
+ * neither is how anyone asks a question of this data, and criticality in
+ * particular reads as a business control when it is really an input to the
+ * penalty window — which the SLA applies whatever is selected here.
+ */
+export const FILTER_DIMS = ['zone', 'district', 'facilityName', 'equipment'];
+
+/**
  * Applies the active filters and returns the matching row indices.
  * `filters.district` etc. are Sets of dictionary ids; an empty Set means "all".
  */
 export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
-  const { dayFrom, dayTo, district, facilityType, equipmentType, bucket } = filters;
+  const { dayFrom, dayTo, bucket } = filters;
   // dateField null means "every date" — used by the accrual view, where a ticket
   // logged long before the period is still running up penalty inside it.
   const dateCol = dateField ? cols[dateField] : null;
+
+  /*
+   * Resolved once, not per row. This runs over 265k rows on every filter change,
+   * so the per-row body must be a typed-array read and a Set probe — walking the
+   * dimension names inside the loop would put a string hash on every row of
+   * every column.
+   */
+  const active = [];
+  for (const key of FILTERABLE) {
+    const set = filters[key];
+    if (set?.size) active.push([cols[key], set]);
+  }
+  const nActive = active.length;
 
   const out = new Int32Array(rows);
   let n = 0;
@@ -161,9 +201,11 @@ export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
       if (dayFrom != null && day < dayFrom) continue;
       if (dayTo != null && day > dayTo) continue;
     }
-    if (district.size && !district.has(cols.district[i])) continue;
-    if (facilityType.size && !facilityType.has(cols.facilityType[i])) continue;
-    if (equipmentType.size && !equipmentType.has(cols.equipmentType[i])) continue;
+    let keep = true;
+    for (let k = 0; k < nActive; k++) {
+      if (!active[k][1].has(active[k][0][i])) { keep = false; break; }
+    }
+    if (!keep) continue;
     if (bucket.size && !bucket.has(cols.bucket[i])) continue;
     out[n++] = i;
   }

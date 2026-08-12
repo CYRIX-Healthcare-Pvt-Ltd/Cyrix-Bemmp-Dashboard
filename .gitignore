@@ -19,3 +19,6 @@ BASELINE.md
 .env.local
 # Docker reads .env; .env.example is the committed template.
 .env
+
+.vercel
+.env*

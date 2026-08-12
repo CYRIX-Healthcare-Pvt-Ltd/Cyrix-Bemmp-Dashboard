@@ -84,4 +84,17 @@ export async function loadProfile() {
 /** Directors read every tab but the meeting: it is a working surface, not a report. */
 export const canEditMeeting = (profile) => Boolean(profile) && profile.role !== 'director';
 
-export const canSeeState = (profile, stateId) => Boolean(profile?.scope?.includes(stateId));
+export const isAdmin = (profile) => profile?.role === 'admin';
+
+/**
+ * An admin sees every contract without any being listed against them.
+ *
+ * Their `scope` column is deliberately empty: writing {'kl','ap'} into it would
+ * be a copy that goes stale the day a third contract is added, and the person
+ * who adds it is the same person who would have to remember. The database's
+ * `in_scope()` asks the role for exactly this reason; this is the same test on
+ * the client, and the database is still the one enforcing it.
+ */
+export const canSeeState = (profile, stateId) => (
+  isAdmin(profile) || Boolean(profile?.scope?.includes(stateId))
+);

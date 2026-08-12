@@ -24,6 +24,46 @@ export const LANGUAGES = [
  */
 export const DEFAULT_LANGUAGE = 'en-IN';
 
+/**
+ * The language of a piece of text, from the script it is written in.
+ *
+ * Each of these languages has a Unicode block to itself, so this is a lookup
+ * rather than a guess — no statistics, no library, no ambiguity. Hindi is the
+ * one that needs care: Devanagari carries Marathi and several others too, but
+ * Hindi is the only one in the picker, so within this app the mapping holds.
+ *
+ * Returns null for Latin text, which is the honest answer: "hello" and
+ * "ente ticket evide" are both Latin, and telling English from transliterated
+ * Malayalam needs a model rather than a range check. English is the default
+ * anyway, so null simply means "leave the picker alone".
+ */
+const SCRIPTS = [
+  { code: 'ml-IN', re: /[ഀ-ൿ]/ },
+  { code: 'ta-IN', re: /[஀-௿]/ },
+  { code: 'te-IN', re: /[ఀ-౿]/ },
+  { code: 'kn-IN', re: /[ಀ-೿]/ },
+  { code: 'hi-IN', re: /[ऀ-ॿ]/ },
+];
+
+export function detectLanguage(text) {
+  if (!text) return null;
+  return SCRIPTS.find((s) => s.re.test(text))?.code ?? null;
+}
+
+/**
+ * The last language actually used, remembered.
+ *
+ * Speech recognition has to be told which language to expect before it starts
+ * listening — the Web Speech API has no auto-detect — so somebody who works in
+ * Malayalam would otherwise reset the picker on every visit.
+ */
+const LANG_KEY = 'bemmp-assistant-language';
+export const storedLanguage = () => {
+  const saved = localStorage.getItem(LANG_KEY);
+  return LANGUAGES.some((l) => l.code === saved) ? saved : DEFAULT_LANGUAGE;
+};
+export const storeLanguage = (code) => localStorage.setItem(LANG_KEY, code);
+
 const Recognition = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
   : null;

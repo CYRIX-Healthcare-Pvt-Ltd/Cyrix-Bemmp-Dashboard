@@ -40,7 +40,7 @@ function ago(iso) {
  * never uploaded anywhere, which is what makes a static deployment safe.
  */
 export default function UploadPanel({
-  serverStates, onLoaded, onClose, onPublished, landing = false,
+  serverStates, onLoaded, onClose, onPublished, landing = false, contracts = STATES,
 }) {
   const [stored, setStored] = useState({});
   const [busy, setBusy] = useState(null); // { stateId, phase, pct, detail }
@@ -168,7 +168,7 @@ export default function UploadPanel({
         {error && <p className="upload-error">{error}</p>}
 
         <div className="upload-list">
-          {STATES.map((s) => {
+          {contracts.map((s) => {
             const up = stored[s.id];
             const server = serverStates?.find((x) => x.id === s.id);
             const running = busy?.stateId === s.id;

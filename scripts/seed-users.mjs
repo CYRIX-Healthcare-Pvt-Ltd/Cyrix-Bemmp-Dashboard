@@ -37,6 +37,15 @@ const DOMAIN = 'bemmp.cyrix.internal';
  * Andhra, so collapsing them into one field would lose that.
  */
 const ACCOUNTS = [
+  /*
+   * The administrator. Scope is empty on purpose — `in_scope()` grants an admin
+   * every contract from the role, so listing them here would be a copy that goes
+   * stale the day a third contract is added.
+   *
+   * From here on, accounts are made in the app rather than in this file. This
+   * one has to be seeded because there is nobody to make it.
+   */
+  { code: 'Admin', role: 'admin', scope: [], name: 'Administrator' },
   { code: 'DIR', role: 'director', scope: ['kl', 'ap'], name: 'Directors' },
   { code: 'KL', role: 'project_head', scope: ['kl'], name: 'Kerala project head' },
   { code: 'AP', role: 'director', scope: ['ap'], name: 'Andhra director' },
@@ -77,11 +86,21 @@ async function main() {
     process.exit(1);
   }
   const dry = process.argv.includes('--dry');
+  /*
+   * `--only CODE` exists because a bare re-run is not as harmless as "idempotent"
+   * suggests. Refreshing an account whose password is under the policy minimum
+   * takes the delete-and-recreate path below, which issues a new user id — and
+   * `meeting_note.updated_by` points at the old one, so every entry that person
+   * made loses its author. Adding one account should not touch the other seven.
+   */
+  const onlyAt = process.argv.indexOf('--only');
+  const only = onlyAt >= 0 ? process.argv[onlyAt + 1]?.toLowerCase() : null;
 
   const existing = await existingByEmail();
   console.log(`${existing.size} account(s) already present\n`);
 
   for (const acct of ACCOUNTS) {
+    if (only && acct.code.toLowerCase() !== only) continue;
     const email = `${acct.code.toLowerCase()}@${DOMAIN}`;
     const password = acct.code; // as specified — see the note at the top
     const known = existing.get(email);
