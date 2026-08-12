@@ -13,7 +13,10 @@ import {
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
-import { supabase, isConfigured, loadProfile, signOut } from './data/supabase.js';
+import MeetingTab from './components/MeetingTab.jsx';
+import {
+  supabase, isConfigured, loadProfile, signOut, canEditMeeting,
+} from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
 import RefreshButton from './components/RefreshButton.jsx';
@@ -258,8 +261,21 @@ export default function App() {
         rows: up.rows, source: 'upload',
       });
     }
-    return STATES.map((s) => byId.get(s.id)).filter(Boolean);
-  }, [ready, states, uploads]);
+    const built = STATES.map((s) => byId.get(s.id)).filter(Boolean);
+
+    /*
+     * Scope is the account's contract list from the login sheet — "Only KL",
+     * "Only AP", "All". Filtering here rather than in the switcher means a
+     * contract outside scope is not merely unclickable: it is never loaded, so
+     * its dictionaries and figures never reach the page at all.
+     *
+     * Only applied once a profile exists. A build with no Supabase has no
+     * accounts and therefore no scope to enforce.
+     */
+    if (!profile) return built;
+    const allowed = built.filter((s) => profile.scope?.includes(s.id));
+    return allowed.length ? allowed : built.slice(0, 0);
+  }, [ready, states, uploads, profile]);
 
   // Dictionaries are per state, so the dataset and every filter reload together.
   useEffect(() => {
@@ -432,6 +448,25 @@ export default function App() {
     setTab('calls');
   }, []);
 
+  /*
+   * The meeting is a working surface, not a report, so directors do not get the
+   * tab — and a build with no Supabase has nowhere to save, so it does not
+   * appear there either. Neither is the actual control: the row-level policy is,
+   * and it refuses a director's write whether or not they can see this.
+   */
+  const showMeeting = isConfigured() && canEditMeeting(profile);
+  const visibleTabs = useMemo(
+    () => (showMeeting
+      ? [TABS[0], { id: 'meeting', label: 'Daily penalty' }, ...TABS.slice(1)]
+      : TABS),
+    [showMeeting],
+  );
+
+  // A tab that disappears when the profile loads must not leave the app on it.
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === tab)) setTab('overview');
+  }, [visibleTabs, tab]);
+
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
   if (session === undefined) {
@@ -452,6 +487,19 @@ export default function App() {
           <p>Run <code>npm run build:data</code>, then reload.</p>
         </div>
       </>
+    );
+  }
+
+  // Signed in, but the account's scope covers no contract that is loaded. That
+  // is a permissions answer, not a missing-file one, so it must not fall through
+  // to the upload panel and invite them to supply the data themselves.
+  if (ready && !available.length && profile) {
+    return (
+      <div className="status-msg">
+        <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
+        <p>Ask your project head to add one, then sign in again.</p>
+        <button type="button" className="reset" onClick={signOut}>Sign out</button>
+      </div>
     );
   }
 
@@ -535,6 +583,20 @@ export default function App() {
                 <span className="toggle-label">Data</span>
               </button>
               <ThemeToggle />
+              {profile && (
+                <button
+                  type="button"
+                  className="icon-toggle"
+                  onClick={signOut}
+                  title={`Signed in as ${profile.code} — sign out`}
+                >
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 17l5-5-5-5M20 12H9M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+                  </svg>
+                  <span className="toggle-label">{profile.code}</span>
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -567,7 +629,7 @@ export default function App() {
         />
 
         <div className="tabs" role="tablist">
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t.id} type="button" role="tab" className="tab"
               aria-selected={tab === t.id} onClick={() => setTab(t.id)}
@@ -679,6 +741,17 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {tab === 'meeting' && (
+          <MeetingTab
+            key={`meeting-${stateId}`}
+            ds={ds}
+            rows={rowsInBucket(ds, idx, BUCKET.OPEN)}
+            referenceDay={referenceDay}
+            canEdit={canEditMeeting(profile)}
+            onSelectRow={setDrawerRow}
+          />
         )}
 
         {tab === 'calls' && (

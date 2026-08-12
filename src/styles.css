@@ -1474,3 +1474,84 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .login-form { margin: 0; width: 100%; }
   .login-form h2 { margin-bottom: 26px; }
 }
+
+/* ================================================================= meeting == */
+
+/*
+ * The grid people work in during the meeting. Two zones: the export on the left,
+ * which is read-only because it is rebuilt from the TM file every morning, and
+ * the entries on the right, which are not. The divider is a real border rather
+ * than a colour wash so it survives both themes and a printout.
+ */
+.meeting-scroll { max-height: 68vh; overflow: auto; }
+.meeting-table { font-size: 12.5px; }
+.meeting-table td { vertical-align: middle; }
+
+/* First edit column carries the divider. */
+.meeting-table th.meeting-edit:first-of-type,
+.meeting-table td.meeting-edit:first-of-type { border-left: 2px solid var(--border); }
+.meeting-table td.meeting-edit { padding: 4px 8px; }
+.meeting-table th.meeting-edit { min-width: 170px; }
+
+.cell {
+  width: 100%; min-width: 120px; font: inherit; font-size: 12.5px;
+  padding: 6px 9px; color: var(--text-primary);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cell:hover:not(:disabled) { border-color: var(--baseline); }
+.cell:focus { outline: none; border-color: var(--ink); }
+/* Disabled reads as text rather than as a broken input — a director is looking
+   at a record, not at a form they cannot use. */
+.cell:disabled {
+  background: none; border-color: transparent; color: var(--text-secondary);
+  padding-left: 0;
+}
+
+/* The save states. Deliberately quiet: a whole grid flashing green during a
+   meeting is worse than not knowing, and the value staying put is the real
+   confirmation. Failure is the one that has to be loud. */
+.cell-saving { border-color: var(--baseline); }
+.cell-saved  { border-color: color-mix(in srgb, var(--status-good) 60%, transparent); }
+.cell-error  {
+  border-color: var(--status-critical);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-critical) 16%, transparent);
+}
+
+.row-more, .linkish {
+  padding: 3px 9px; cursor: pointer; font-size: 11.5px; font-weight: 600;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-secondary);
+}
+.linkish { border-color: transparent; background: none; color: var(--series-1); padding: 0; }
+.row-more:hover, .linkish:hover { color: var(--text-primary); }
+
+.meeting-table tr.is-expanded td { background: var(--hover-wash); }
+.meeting-detail td { padding: 0 12px 16px; background: var(--hover-wash); }
+.meeting-detail-grid {
+  display: grid; gap: 12px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  padding-top: 4px;
+}
+.meeting-detail-grid .field span {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.meeting-legacy { margin: 12px 0 0 !important; font-style: italic; }
+
+/* The grid is wider than any screen, so the one column that identifies the row
+   stays put while the rest scrolls under it. Without this you lose track of
+   which ticket you are typing against the moment you reach the edit columns. */
+.meeting-table th:first-child,
+.meeting-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-right: 1px solid var(--gridline);
+}
+.meeting-table thead th:first-child { z-index: 3; }
+.meeting-table tr.is-expanded td:first-child { background: var(--page-deep); }
