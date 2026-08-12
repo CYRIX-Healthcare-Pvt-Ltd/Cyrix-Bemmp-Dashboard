@@ -3,6 +3,7 @@ import {
   loadDataset, loadStates, datasetFrom, formatDay, monthStart, BUCKET, BUCKET_LABEL,
 } from './data/store.js';
 import { listUploads, getUpload } from './data/uploads.js';
+import { listSharedDatasets, fetchSharedDataset } from './data/datasets.js';
 import { STATES } from '../shared/schema.mjs';
 import UploadPanel from './components/UploadPanel.jsx';
 import {
@@ -217,6 +218,7 @@ export default function App() {
   // Bumped after a refresh; busts the HTTP cache and re-runs the loader below.
   const [dataVersion, setDataVersion] = useState('');
   const [uploads, setUploads] = useState(null); // stateId -> summary
+  const [shared, setShared] = useState({}); // stateId -> row in `dataset`
   const [showUpload, setShowUpload] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
   // undefined while the stored session is being restored, null when signed out.
@@ -251,6 +253,14 @@ export default function App() {
 
   useEffect(() => { listUploads().then(setUploads); }, []);
 
+  /* What the team has already published. This is what makes one person's upload
+     everyone's data — without it a deployment with no server artifact is empty
+     until each person goes and finds the workbook themselves. */
+  const reloadShared = useCallback(() => {
+    listSharedDatasets().then(setShared).catch(() => setShared({}));
+  }, []);
+  useEffect(() => { if (session) reloadShared(); }, [session, reloadShared]);
+
   // Depend on readiness rather than the array identity: a refresh refetches
   // states.json, and keying off the new array would load the dataset a second time.
   const ready = states !== null && uploads !== null;
@@ -260,6 +270,12 @@ export default function App() {
     if (!ready) return [];
     const byId = new Map();
     for (const s of states) byId.set(s.id, { ...s, source: 'server' });
+    for (const [id, d] of Object.entries(shared)) {
+      const known = STATES.find((s) => s.id === id);
+      byId.set(id, {
+        id, short: known?.short, name: known?.name, rows: d.rows, source: 'shared',
+      });
+    }
     for (const [id, up] of Object.entries(uploads)) {
       const known = STATES.find((s) => s.id === id);
       byId.set(id, {
@@ -281,7 +297,7 @@ export default function App() {
     if (!profile) return built;
     const allowed = built.filter((s) => profile.scope?.includes(s.id));
     return allowed.length ? allowed : built.slice(0, 0);
-  }, [ready, states, uploads, profile]);
+  }, [ready, states, uploads, shared, profile]);
 
   // Dictionaries are per state, so the dataset and every filter reload together.
   useEffect(() => {
@@ -293,9 +309,17 @@ export default function App() {
     setBusy(true);
     setDrawerRow(null);
 
-    const load = uploads[target]
-      ? getUpload(target).then((u) => datasetFrom(u.meta, u.buffer, 'upload'))
-      : loadDataset(target, dataVersion);
+    const load = (async () => {
+      if (uploads[target]) {
+        const u = await getUpload(target);
+        return datasetFrom(u.meta, u.buffer, 'upload');
+      }
+      if (shared[target]) {
+        const s = await fetchSharedDataset(target, shared[target].encoding);
+        if (s) return datasetFrom(s.meta, s.buffer, 'shared');
+      }
+      return loadDataset(target, dataVersion);
+    })();
 
     load
       .then((data) => {
@@ -307,7 +331,7 @@ export default function App() {
       })
       .catch((e) => { if (!cancelled) { setError(e.message); setBusy(false); } });
     return () => { cancelled = true; };
-  }, [ready, available, stateId, dataVersion, uploads]);
+  }, [ready, available, stateId, dataVersion, uploads, shared]);
 
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
@@ -616,6 +640,7 @@ export default function App() {
           <UploadPanel
             serverStates={states}
             onLoaded={onUploaded}
+            onPublished={reloadShared}
             onClose={() => setShowUpload(false)}
           />
         )}
@@ -626,6 +651,8 @@ export default function App() {
           filters={filters}
           setFilters={setFilters}
         />
+
+        <div className="tabview" key={tab}>
 
         {tab === 'dashboard' && (
           <div className="grid" style={{ gap: 16 }}>
@@ -912,6 +939,7 @@ export default function App() {
             )}
           />
         )}
+        </div>
         </div>
         </div>
       </div>

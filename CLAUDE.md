@@ -339,6 +339,19 @@ and the request travels to it.
 
 ## UI conventions
 
+**Shared datasets**: a TM export uploaded in the browser is published to Supabase Storage
+as `<state>/meta.json.gz` and `<state>/tickets.bin.gz`, so one upload serves the team —
+without it a deployment with no server artifact is empty until every person finds the
+workbook themselves. The *built artifact* travels, not the workbook: parsing already
+happened in the uploader's browser and nobody else pays for it again. Kerala's is 27 MB, so
+both objects are gzipped with `CompressionStream` first.
+
+Load order is this browser's own upload, then the team's published artifact, then whatever
+the server build shipped. Publishing outranks the bundled copy because it is a deliberate
+act — somebody put today's export there, and the bundled one is only ever as fresh as the
+last deploy. Only the provenance lives in Postgres; 265k rows in a table would throw away
+the whole reason the columnar format exists.
+
 **Layout**: the masthead spans the full width; below it a collapsible rail carries the
 sections and the working column takes the rest. The tabs were a horizontal strip, but six
 labels already filled a laptop's width, so it scrolled sideways and cost a band of the

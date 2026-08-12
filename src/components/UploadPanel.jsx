@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { STATES, detectState } from '../../shared/schema.mjs';
 import { deleteUpload, listUploads, putUpload } from '../data/uploads.js';
+import { publishDataset } from '../data/datasets.js';
+import { isConfigured } from '../data/supabase.js';
 
 /** Runs one workbook through the parser worker, reporting progress. */
 function parseInWorker(file, stateId, onProgress) {
@@ -37,7 +39,9 @@ function ago(iso) {
  * The workbook is parsed in this browser and cached in IndexedDB — the file is
  * never uploaded anywhere, which is what makes a static deployment safe.
  */
-export default function UploadPanel({ serverStates, onLoaded, onClose, landing = false }) {
+export default function UploadPanel({
+  serverStates, onLoaded, onClose, onPublished, landing = false,
+}) {
   const [stored, setStored] = useState({});
   const [busy, setBusy] = useState(null); // { stateId, phase, pct, detail }
   const [error, setError] = useState(null);
@@ -76,6 +80,22 @@ export default function UploadPanel({ serverStates, onLoaded, onClose, landing =
       await putUpload(state.id, { buffer: buffer.slice(0), meta, filename: file.name });
       reload();
       onLoaded(state.id, meta, buffer);
+
+      /*
+       * Publish after handing the dashboard its data, not before. Uploading 27 MB
+       * takes a while and there is no reason to make this person watch it — their
+       * figures are already on screen. A failure here is reported but does not
+       * undo the local load, because a dataset only they can see still beats none.
+       */
+      if (isConfigured()) {
+        setBusy({ stateId: state.id, phase: 'Sharing with the team', pct: 100 });
+        try {
+          await publishDataset(state.id, { meta, buffer, filename: file.name });
+          onPublished?.();
+        } catch (e) {
+          setError(`Loaded here, but could not share it: ${e.message}`);
+        }
+      }
     } catch (e) {
       setError(e.message);
     } finally {

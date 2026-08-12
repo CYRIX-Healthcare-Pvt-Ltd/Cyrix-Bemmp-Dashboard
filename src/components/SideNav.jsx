@@ -51,9 +51,13 @@ export default function SideNav({ tabs, active, onSelect }) {
               aria-label={t.label}
               onClick={() => onSelect(t.id)}
             >
+              {/* The icon carries the section's own colour — the same hue the
+                  charts use for that measure, so the rail teaches the palette
+                  rather than inventing a second one. Only the icon: a coloured
+                  label would make six competing headings. */}
               <svg
                 viewBox="0 0 24 24" width="18" height="18" fill="none"
-                stroke="currentColor" strokeWidth="1.7"
+                stroke={`var(--nav-${t.id})`} strokeWidth="1.7"
                 strokeLinecap="round" strokeLinejoin="round"
                 aria-hidden="true"
               >

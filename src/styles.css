@@ -1696,3 +1696,90 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .filters .field-presets { margin-bottom: 18px; }
 .filters .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .filters .preset { text-align: center; }
+
+/* =================================================== section colour + motion == */
+
+/*
+ * One hue per section, and each is the colour that section's own figures already
+ * use — call volume blue, penalty red, repeats orange, FTFR green. The rail
+ * teaches the chart palette rather than inventing a second one.
+ */
+:root {
+  --nav-dashboard:   var(--series-1);
+  --nav-calls:       var(--status-warning);
+  --nav-penalty:     var(--status-critical);
+  --nav-repeats:     var(--series-2);
+  --nav-performance: var(--status-good);
+  /* Penalty money is red for the same reason penalty calls are: it is money
+     leaving the company. Both being red is correct — they are the same problem
+     counted two ways, and the icon shape is what tells them apart. */
+  --nav-money:       var(--status-critical);
+}
+
+/*
+ * Motion, in the house style: short, eased out, and physical. Nothing here
+ * animates longer than a quarter second, because interface motion is meant to
+ * explain where a thing came from, not to be watched.
+ *
+ * `--ease-out` overshoots very slightly, which is what makes a panel feel like
+ * it settled rather than stopped.
+ */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 140ms;
+  --dur: 220ms;
+}
+
+/* Press feedback. The single cheapest thing that makes a page feel answered:
+   the control moves under the finger before the network has said anything. */
+.sidenav-item, .tab, .segmented button, .chart-tab, .state-btn, .preset,
+.icon-toggle, .theme-toggle, .refresh-btn, .filter-toggle, .filter-reset,
+.bar-more, .row-more, .login-submit, .ask, .refresh-run, .assistant-fab,
+.suggestion, .reset, .upload-btn, .icon-btn {
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) ease;
+}
+.sidenav-item:active, .tab:active, .segmented button:active, .chart-tab:active,
+.state-btn:active, .preset:active, .icon-toggle:active, .theme-toggle:active,
+.refresh-btn:active, .filter-toggle:active, .filter-reset:active,
+.bar-more:active, .row-more:active, .login-submit:active, .ask:active,
+.refresh-run:active, .suggestion:active, .reset:active, .icon-btn:active {
+  transform: scale(0.975);
+}
+.assistant-fab:active { transform: translateY(-1px) scale(0.98); }
+
+/* The rail's icon brightens into its own colour on hover, so the section is
+   identifiable before the label is read. */
+.sidenav-item svg { transition: opacity var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out); opacity: 0.62; }
+.sidenav-item:hover svg { opacity: 1; }
+.sidenav-item[aria-current='page'] svg { opacity: 1; }
+.sidenav-item[aria-current='page'] { font-weight: 620; }
+
+/*
+ * Tab content enters from slightly below, once, quickly. Keyed on the tab in
+ * App.jsx so React remounts the wrapper and the animation actually replays —
+ * a CSS animation on a persistent node fires only on first mount.
+ */
+.tabview { animation: tabIn var(--dur) var(--ease-out) both; }
+@keyframes tabIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Panels and tiles keep their stagger but land faster — the old 0.55s made the
+   last tile arrive well after the eye had already reached it. */
+.panel, .kpi { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }
+.kpi { animation-delay: calc(var(--i, 0) * 22ms); }
+.panel { animation-delay: calc(var(--i, 0) * 26ms); }
+
+/* Overlays: the drawer and the filter panel settle rather than stop. */
+.drawer, .assistant, .filters { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }
+
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
