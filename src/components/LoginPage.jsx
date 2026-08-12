@@ -15,6 +15,7 @@ export default function LoginPage({ onSignedIn }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [help, setHelp] = useState(false);
   const first = useRef(null);
 
   useEffect(() => { first.current?.focus(); }, []);
@@ -37,13 +38,16 @@ export default function LoginPage({ onSignedIn }) {
     <div className="login">
       <aside className="login-brand">
         <div className="login-brand-top">
-          <Logo height={34} />
+          <Logo height={26} />
         </div>
 
         <div className="login-brand-mid">
           <p className="eyebrow">Biomedical equipment maintenance</p>
+          {/* Two weights, not one: the company name carries the weight and the
+              product name sits beside it in the lighter cut, which is what stops
+              a two-word lockup reading as one long word. */}
           <h1 className="login-wordmark">
-            CYRI<span className="login-x">X</span> BEMMP<span className="login-dot">.</span>
+            <b>CYRI<span className="login-x">X</span></b> BEMMP<span className="login-dot">.</span>
           </h1>
           <p className="login-strap">
             Measure. Review. Resolve.
@@ -91,20 +95,34 @@ export default function LoginPage({ onSignedIn }) {
             />
           </label>
 
+          <button
+            type="button"
+            className="login-forgot"
+            onClick={() => setHelp((v) => !v)}
+            aria-expanded={help}
+          >
+            Forgot password?
+          </button>
+
           {/* Live so a screen reader hears the failure without moving focus off
               the field the person is about to correct. */}
           <p className="login-error" role="status" aria-live="polite">
             {error ?? ' '}
           </p>
 
-          <button type="submit" className="login-submit" disabled={busy || !code || !password}>
+          {/* Not disabled on empty fields: `required` already blocks the submit,
+              and a greyed-out slab is the first thing anyone sees on this page.
+              It stays solid until there is a request actually in flight. */}
+          <button type="submit" className="login-submit" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
 
-          <p className="login-help">
-            Lost your password? Ask your project head to reset it — codes are
-            issued per person, not shared.
-          </p>
+          {help && (
+            <p className="login-help">
+              Codes are issued per person rather than shared, so ask your project
+              head to reset yours.
+            </p>
+          )}
         </form>
 
         <footer className="login-foot">
