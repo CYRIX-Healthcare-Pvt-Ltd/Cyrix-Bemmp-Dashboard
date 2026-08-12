@@ -12,6 +12,8 @@ import {
   maxResolvedDay,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
+import LoginPage from './components/LoginPage.jsx';
+import { supabase, isConfigured, loadProfile, signOut } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
 import RefreshButton from './components/RefreshButton.jsx';
@@ -208,6 +210,29 @@ export default function App() {
   const [uploads, setUploads] = useState(null); // stateId -> summary
   const [showUpload, setShowUpload] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
+  // undefined while the stored session is being restored, null when signed out.
+  const [session, setSession] = useState(isConfigured() ? undefined : null);
+  const [profile, setProfile] = useState(null);
+
+  /*
+   * A build with no Supabase configured is a supported state, not a broken one:
+   * it is the offline and on-prem case, and the dashboard's figures come from
+   * files rather than from an account. Only the meeting tab needs to be signed
+   * in, and it is the thing that disappears when nobody is.
+   */
+  useEffect(() => {
+    if (!supabase) return undefined;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Role and scope decide which tabs exist, so they are loaded before the app
+  // renders rather than fetched by the tab that needs them.
+  useEffect(() => {
+    if (!session) { setProfile(null); return; }
+    loadProfile().then(setProfile).catch(() => setProfile(null));
+  }, [session]);
 
   useEffect(() => {
     // A static deployment ships no artifacts at all, so a missing states.json is a
@@ -406,6 +431,18 @@ export default function App() {
     setCallBucket(bucket);
     setTab('calls');
   }, []);
+
+  // Restoring a stored session takes a tick. Rendering the login form in that
+  // tick would flash it at somebody who is already signed in.
+  if (session === undefined) {
+    return (
+      <div className="status-msg">
+        <div className="loader" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (isConfigured() && !session) return <LoginPage onSignedIn={() => {}} />;
 
   if (error) {
     return (

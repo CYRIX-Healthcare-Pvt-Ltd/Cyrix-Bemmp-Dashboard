@@ -31,24 +31,24 @@
 
   --brand-red:  #e4232a;
 
-  /* Ink is every data mark. One series per chart, so nothing needs telling
-     apart by hue and the palette collapses to a single value.
-
-     The three series slots stay as aliases rather than being deleted from the
-     twenty-odd call sites that name them: they are the one lever that puts
-     colour back into the data marks, and a breakdown that wants to be told
-     apart by hue only has to change here. */
+  /* Ink is the chrome: the solid primary button, the selected state badge, an
+     avatar. Anything that is furniture rather than a figure. */
   --ink:        #0a0a0a;
   --ink-soft:   rgba(10, 10, 10, 0.10);
-  --series-1: var(--ink);
-  --series-2: var(--ink);
-  --series-3: var(--ink);
 
-  /* Buckets, and the only place colour means something. Desaturated well below
-     the old palette so they read as annotation rather than decoration. */
-  --status-good:     #17803d;
-  --status-warning:  #b45309;
-  --status-critical: #c0322b;
+  /*
+   * Colour is reserved for data, and this is the whole of it. Keeping it off the
+   * chrome is what lets it stay this saturated on the charts without the page
+   * turning loud — the hue is a signal precisely because nothing decorative
+   * uses one.
+   */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+
+  --status-good:     #0f9d58;
+  --status-warning:  #d97706;
+  --status-critical: #d03b3b;
 
   --radius-lg: 20px;
   --radius: 14px;
@@ -104,11 +104,14 @@
 
   --ink:        #fafafa;
   --ink-soft:   rgba(250, 250, 250, 0.12);
-  --series-1: var(--ink);
-  --series-2: var(--ink);
-  --series-3: var(--ink);
 
-  --status-good:     #4ade80;
+  /* Stepped up rather than reused: the page here is near-black, and the light
+     values sit too close to it to read as a line. */
+  --series-1: #4a94ea;
+  --series-2: #f2814e;
+  --series-3: #2ec4a0;
+
+  --status-good:     #34d399;
   --status-warning:  #fbbf24;
   --status-critical: #f87171;
 
@@ -1341,4 +1344,133 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .state-btn { flex: 1 1 0; min-width: 0; justify-content: center; }
   .state-name { overflow: hidden; text-overflow: ellipsis; }
   .crumbs { gap: 6px; }
+}
+
+/* =================================================================== login == */
+
+/*
+ * Two halves. The ink one states what this is, the paper one asks for two
+ * fields — and the paper half is deliberately the wider of the two, because it
+ * is the half with something to do in it.
+ */
+.login {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.login-brand {
+  display: flex; flex-direction: column; justify-content: space-between;
+  gap: 48px; padding: 44px 48px;
+  background: var(--ink);
+  color: var(--page);
+}
+/* The mark is drawn with `currentColor`, so on ink it needs the page colour
+   handed to it rather than inheriting the app's text colour. */
+.login-brand .logo { color: var(--page); }
+.login-brand .eyebrow { color: rgba(255, 255, 255, 0.45); }
+
+.login-wordmark {
+  margin: 14px 0 22px;
+  font-size: clamp(38px, 5.2vw, 62px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.login-x { color: var(--brand-red); }
+.login-dot { color: var(--brand-red); }
+
+.login-strap {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.62);
+  max-width: 34ch;
+}
+
+.login-brand-foot {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+}
+.login-meta {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 7px;
+}
+.login-meta li,
+.login-region {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: rgba(255, 255, 255, 0.4);
+}
+
+.login-form-wrap {
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 44px 48px;
+  background: var(--page);
+}
+.login-form {
+  margin: auto 0;
+  width: min(380px, 100%);
+  display: flex; flex-direction: column;
+}
+.login-form h2 {
+  margin: 0 0 34px;
+  font-size: clamp(26px, 3vw, 33px); font-weight: 700; letter-spacing: -0.03em;
+}
+
+/* Underlined rather than boxed. A field on a bare page does not need four sides
+   to read as a field, and one line is quieter next to the solid submit. */
+.login-field { display: block; margin-bottom: 26px; }
+.login-field .eyebrow { display: block; margin-bottom: 8px; }
+.login-field input {
+  width: 100%; font: inherit; font-size: 16px;
+  padding: 8px 2px; color: var(--text-primary);
+  background: none; border: none;
+  border-bottom: 1px solid var(--baseline);
+  border-radius: 0;
+  transition: border-color 0.18s;
+}
+.login-field input::placeholder { color: var(--text-muted); }
+.login-field input:focus { outline: none; border-bottom-color: var(--ink); }
+
+/* Always in the layout, empty or not, so the button does not jump when a
+   failure appears under the fields. */
+.login-error {
+  margin: 0 0 18px; min-height: 18px;
+  font-size: 12.5px; color: var(--status-critical);
+}
+
+.login-submit {
+  padding: 15px 20px; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: var(--ink); color: var(--page);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  transition: opacity 0.18s, transform 0.18s var(--ease);
+}
+.login-submit:hover:not(:disabled) { transform: translateY(-1px); }
+.login-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.login-help {
+  margin: 20px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--text-muted);
+}
+
+.login-foot {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding-top: 24px; border-top: 1px solid var(--gridline);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+
+/* Below the split, the ink half becomes a band: enough to place the product,
+   not enough to push the form off the first screen. */
+@media (max-width: 860px) {
+  .login { grid-template-columns: 1fr; min-height: 0; }
+  .login-brand { gap: 26px; padding: 26px 22px 30px; }
+  .login-brand-mid { display: flex; flex-direction: column; }
+  .login-wordmark { margin: 10px 0 12px; font-size: 34px; }
+  .login-strap { font-size: 14px; }
+  .login-brand-foot, .login-meta { display: none; }
+  .login-form-wrap { padding: 32px 22px 24px; min-height: 60vh; }
+  .login-form { margin: 0; width: 100%; }
+  .login-form h2 { margin-bottom: 26px; }
 }
