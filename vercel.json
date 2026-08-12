@@ -3,7 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "//": "The SPA catch-all must not swallow the functions. Vercel does check the filesystem before rewrites, but stating the exclusion means a future rewrite rule cannot quietly break the assistant and the admin screen.",
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
   "headers": [
     {
