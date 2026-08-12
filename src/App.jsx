@@ -13,6 +13,7 @@ import {
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
+import SideNav from './components/SideNav.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
 import {
   supabase, isConfigured, loadProfile, signOut, canEditMeeting,
@@ -204,7 +205,7 @@ export default function App() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState(null);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('dashboard');
   /* Which view of the open backlog is showing. Either a bucket, or the
      tracker — the same rows in the form the daily meeting works through. */
   const [callView, setCallView] = useState(BUCKET.OPEN);
@@ -603,6 +604,14 @@ export default function App() {
           </div>
         </header>
 
+        <div className="shell">
+        <SideNav
+          tabs={visibleTabs}
+          active={tab}
+          onSelect={setTab}
+        />
+        <div className="work">
+
         {showUpload && (
           <UploadPanel
             serverStates={states}
@@ -617,17 +626,6 @@ export default function App() {
           filters={filters}
           setFilters={setFilters}
         />
-
-        <div className="tabs" role="tablist">
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id} type="button" role="tab" className="tab"
-              aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
 
         {tab === 'dashboard' && (
           <div className="grid" style={{ gap: 16 }}>
@@ -914,6 +912,8 @@ export default function App() {
             )}
           />
         )}
+        </div>
+        </div>
       </div>
 
       <TicketDrawer

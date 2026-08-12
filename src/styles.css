@@ -1555,3 +1555,121 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 }
 .meeting-table thead th:first-child { z-index: 3; }
 .meeting-table tr.is-expanded td:first-child { background: var(--page-deep); }
+
+/* ================================================================== shell == */
+
+/*
+ * Navigation down the side, working area beside it.
+ *
+ * The tabs were a horizontal strip: six labels already filled a laptop's width,
+ * so the strip scrolled sideways and cost a whole band of the first screen on
+ * every tab. A rail costs a fixed column, and collapses to icons when the
+ * content wants the room back.
+ */
+/* The masthead spans the full width and the rail starts below it. Running the
+   rail alongside the header left the brand block in a narrow well with the nav
+   floating beside it, which read as two pages rather than one. */
+.app {
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 20px 22px 60px;
+}
+.shell {
+  display: grid;
+  grid-template-columns: var(--nav-w) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+:root { --nav-w: 208px; }
+:root[data-nav='rail'] { --nav-w: 60px; }
+
+.work { min-width: 0; }
+
+.sidenav {
+  position: sticky; top: 20px;
+  display: flex; flex-direction: column; gap: 18px;
+  min-width: 0;
+}
+.sidenav-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+.sidenav-item {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 12px; cursor: pointer; text-align: left;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: none; color: var(--text-secondary);
+  font-size: 13px; font-weight: 550; white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.sidenav-item svg { flex: none; }
+.sidenav-item:hover { background: var(--hover-wash); color: var(--text-primary); }
+.sidenav-item[aria-current='page'] {
+  background: var(--surface); border-color: var(--border);
+  color: var(--text-primary); box-shadow: var(--shadow-sm);
+}
+
+/* Icon only, and aligned to the rail's edge so it reads as a control on the
+   divider rather than a seventh nav item. */
+.sidenav-collapse {
+  display: grid; place-items: center;
+  width: 28px; height: 28px; margin-left: auto; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: none; color: var(--text-muted);
+}
+.sidenav-collapse:hover { background: var(--hover-wash); color: var(--text-primary); }
+
+/* Collapsed: icons only, centred, labels gone from the layout entirely rather
+   than merely hidden — a zero-width label still pushes the icon off centre. */
+.sidenav.is-rail .sidenav-label { display: none; }
+.sidenav.is-rail .sidenav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidenav.is-rail .sidenav-collapse { margin: 0 auto; }
+
+/* Below the split the rail becomes a scrolling strip along the top — a sidebar
+   on a phone is either most of the screen or a hamburger nobody opens. */
+@media (max-width: 860px) {
+  .app { padding: 14px 12px 60px; }
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .sidenav { position: static; }
+  .sidenav-list {
+    grid-auto-flow: column; grid-auto-columns: max-content; gap: 4px;
+    overflow-x: auto; scrollbar-width: none; padding: 4px;
+    background: var(--track-bg); border: 1px solid var(--track-border);
+    border-radius: var(--radius-pill);
+  }
+  .sidenav-list::-webkit-scrollbar { display: none; }
+  .sidenav-item { border-radius: var(--radius-pill); padding: 8px 14px; }
+  .sidenav-item svg, .sidenav-collapse { display: none; }
+}
+
+/* ============================================================ filter drawer == */
+
+.filter-scrim {
+  position: fixed; inset: 0; z-index: 40;
+  border: none; padding: 0; cursor: default;
+  background: rgba(8, 10, 16, 0.28);
+  animation: fadeIn 0.18s ease both;
+}
+
+/* Docked right, over the content, so a filter panel costs nothing when closed —
+   which is most of the time, because the default range is the one people want. */
+.filters {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(360px, 100vw);
+  display: block;
+  overflow-y: auto;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  padding: 20px;
+  margin: 0;
+  box-shadow: var(--shadow-lg);
+  animation: slideIn 0.26s var(--ease) both;
+}
+.filters-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+/* Stacked, because 360px has room for one control per row and a grid here just
+   produced two cramped columns. */
+.filters .field { margin-bottom: 14px; }
+.filters .field-presets { margin-bottom: 18px; }
+.filters .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.filters .preset { text-align: center; }

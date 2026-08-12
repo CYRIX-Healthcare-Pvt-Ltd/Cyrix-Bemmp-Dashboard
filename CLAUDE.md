@@ -339,6 +339,17 @@ and the request travels to it.
 
 ## UI conventions
 
+**Layout**: the masthead spans the full width; below it a collapsible rail carries the
+sections and the working column takes the rest. The tabs were a horizontal strip, but six
+labels already filled a laptop's width, so it scrolled sideways and cost a band of the
+first screen on every tab. Collapsed, the rail is 60px of icons and hands 148px back to the
+content; the state is remembered, because it is a working preference rather than a
+per-visit choice. Below 860px the rail becomes a scrolling strip along the top — a sidebar
+on a phone is either most of the screen or a hamburger nobody opens.
+
+The filter panel is a right-hand drawer over the content rather than a band across it, so
+it costs nothing when closed, which is most of the time.
+
 **Tabs**: `Dashboard` carries the KPI grid, the chart and the breakdowns — everything that
 answers "how is the contract doing". The rest are working surfaces and deliberately do not
 repeat the tiles above themselves.

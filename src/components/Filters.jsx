@@ -118,7 +118,33 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
         )}
       </div>
 
+      {/* A drawer rather than a band across the page. Expanded in place it cost a
+          third of the first screen on every tab, and most sessions never touch it
+          because the default range is the one people want. */}
+      {open && (
+        <button
+          type="button"
+          className="filter-scrim"
+          aria-label="Close filters"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
       <div className="filters" id="filter-panel" hidden={!open}>
+        <div className="filters-head">
+          <span className="eyebrow">Filters</span>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close filters"
+            onClick={() => setOpen(false)}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
         <div className="field field-presets">
           <label>Date range</label>
           <div className="presets">
