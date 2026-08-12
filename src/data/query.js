@@ -36,6 +36,100 @@ export function penaltyWindows(ds) {
   return out;
 }
 
+/**
+ * The newest logged date that can hold a penalty call at all.
+ *
+ * Penalty needs `age > window`, so the last `window` days before the reference
+ * date are structurally empty — not "no breaches yet", but "no breach possible
+ * yet". Plotted, that reads as a cliff to zero and gets taken for a collapse in
+ * the backlog. The shortest window wins, since a date qualifies as soon as *any*
+ * criticality could have breached in it.
+ */
+export function penaltyEligibleThrough(ds, referenceDay) {
+  const windows = penaltyWindows(ds);
+  let shortest = windows[0];
+  for (let i = 1; i < windows.length; i++) {
+    if (windows[i] < shortest) shortest = windows[i];
+  }
+  return referenceDay - shortest - 1;
+}
+
+const SUNDAY = 0;
+const MS_PER_DAY_ = 86400000;
+
+/** Day of week for an Excel serial, 0 = Sunday. */
+function weekday(serial) {
+  return new Date((serial - 25569) * MS_PER_DAY_).getUTCDay();
+}
+
+/**
+ * The last day a call had to be resolved in to still count as a first-time fix.
+ *
+ * Normally logged + `FTFR_MAX_DAYS`, but Sunday is not a service day: a call
+ * logged on Saturday still has Monday to be fixed on the next working day, and
+ * one logged Sunday has Monday too.
+ */
+export function ftfrWindowEnd(loggedDay) {
+  const end = loggedDay + FTFR_MAX_DAYS;
+  return weekday(end) === SUNDAY ? end + 1 : end;
+}
+
+/**
+ * Whether a call was fixed inside its window, honouring the Sunday rule.
+ *
+ * A plain `resolvedDay - loggedDay <= 1` fails every Saturday: the next day is a
+ * Sunday nobody works, so Saturday's calls scored a fix rate of about 30% where
+ * the surrounding weekdays sat at 60% — a sawtooth that was an artefact of the
+ * service week, not of anyone's performance.
+ */
+export function isFirstTimeFix(loggedDay, resolvedDay) {
+  if (resolvedDay <= 0 || resolvedDay < loggedDay) return false;
+  return resolvedDay <= ftfrWindowEnd(loggedDay);
+}
+
+const MAX_RESOLVED = new WeakMap();
+
+/**
+ * The newest resolved date anywhere in the dataset.
+ *
+ * Distinct from `dateRange.maxDay`, which is the newest *logged* date, and the
+ * one that actually bounds what the fix rate can be measured over: resolutions
+ * dated after the export was taken are simply not in it.
+ */
+export function maxResolvedDay(ds) {
+  const cached = MAX_RESOLVED.get(ds);
+  if (cached !== undefined) return cached;
+  const col = ds.cols.resolvedDay;
+  let max = 0;
+  for (let i = 0; i < col.length; i++) if (col[i] > max) max = col[i];
+  MAX_RESOLVED.set(ds, max);
+  return max;
+}
+
+/**
+ * The newest logged date whose fix rate is actually settled.
+ *
+ * A call logged yesterday can still be resolved today, so yesterday's rate is
+ * not final until today is over — plotting it shows a rate computed from a
+ * fraction of its eventual denominator, which is why the last point on the chart
+ * kept swinging to 0% or 100%.
+ *
+ * Walks back rather than subtracting a constant, because the Sunday rule makes
+ * the gap two days over a weekend and three across Saturday: on a Monday the
+ * newest settled date is the Friday before, since Saturday's calls still have
+ * that Monday to be fixed on.
+ */
+export function ftfrSettledThrough(referenceDay, maxResolved = referenceDay) {
+  // Bounded by whichever runs out first — the logged dates or the resolved ones.
+  // The horizon day itself is excluded because the export is usually taken part
+  // way through it: on this dataset the last logged day carries 39 calls against
+  // a normal 270, and almost no resolutions at all.
+  const horizon = Math.min(referenceDay, maxResolved || referenceDay);
+  let day = horizon - 1;
+  while (day > 0 && ftfrWindowEnd(day) >= horizon) day--;
+  return day;
+}
+
 /** Whether one open row has breached its SLA as of `referenceDay`. */
 export function isPenalty(ds, windows, referenceDay, row) {
   if (ds.cols.bucket[row] !== BUCKET.OPEN) return false;
@@ -382,9 +476,17 @@ export function defaultGranularity(dayFrom, dayTo) {
  * and their periods always line up.
  *
  *   volume    calls logged in the period
- *   ftfrPct   share of the period's *resolved* calls fixed within FTFR_MAX_DAYS
+ *   ftfrPct   share of the period's *logged* calls fixed inside their window
  *   repeats   calls that were not the first on their asset
  *   penalties calls currently open past SLA, placed in the period they were logged
+ *
+ * The fix rate here divides by calls **logged**, not by calls resolved — the one
+ * place in the dashboard where it does, and deliberately. Over a whole date range
+ * the two agree closely, but per period the resolved-only denominator is broken:
+ * it only contains the calls that have been resolved *so far*, and the fast ones
+ * land first. The most recent periods therefore start at 100% and sink for weeks
+ * as the slow resolutions arrive. Dividing by calls logged settles two days after
+ * the period and never moves again, which is what a trend line needs.
  */
 export function buildSeries(ds, idx, granularity, referenceDay) {
   const { cols, dict } = ds;
@@ -428,17 +530,13 @@ export function buildSeries(ds, idx, granularity, referenceDay) {
     else if (bucket === BUCKET.PARKED) p.parked++;
     else p.resolved++;
 
-    const r = cols.resolvedDay[i];
-    if (r > 0) {
-      const d = r - day;
-      if (d >= 0 && d <= FTFR_MAX_DAYS) p.fixes++;
-    }
+    if (isFirstTimeFix(day, cols.resolvedDay[i])) p.fixes++;
 
     if (isRepeat.has(i)) p.repeats++;
     if (isPenalty(ds, windows, referenceDay, i)) p.penalties++;
   }
 
   const out = [...periods.values()].sort((a, b) => a.key - b.key);
-  for (const p of out) p.ftfrPct = p.resolved ? (p.fixes / p.resolved) * 100 : 0;
+  for (const p of out) p.ftfrPct = p.volume ? (p.fixes / p.volume) * 100 : 0;
   return out;
 }

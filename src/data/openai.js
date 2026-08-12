@@ -13,6 +13,8 @@
  * shared key given away.
  */
 
+import { applyPolarity } from './assistant.js';
+
 const KEY_STORAGE = 'bemmp-openai-key';
 const MODEL_STORAGE = 'bemmp-openai-model';
 export const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -165,7 +167,7 @@ export async function planQuery({ question, context, tools, session, history = [
 
   return call.function.name === 'reply_conversationally'
     ? { kind: 'chat', reply: args.reply }
-    : { kind: 'query', spec: disambiguateMonthYear(args, question) };
+    : { kind: 'query', spec: applyPolarity(disambiguateMonthYear(args, question), question) };
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];

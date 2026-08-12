@@ -8,19 +8,18 @@ import UploadPanel from './components/UploadPanel.jsx';
 import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
-  accruingRows, closurePenalty,
+  accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
+  maxResolvedDay,
 } from './data/query.js';
-import Backdrop from './components/Backdrop.jsx';
 import Logo, { Tagline } from './components/Logo.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
-import MotionToggle from './components/MotionToggle.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
 import MetricChart from './components/MetricChart.jsx';
 import BarList from './components/BarList.jsx';
-import DrillExplorer from './components/DrillExplorer.jsx';
+import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 
@@ -34,7 +33,14 @@ const METRICS = [
   {
     id: 'ftfr', tab: 'FTFR %', label: 'First time fix rate',
     color: 'var(--status-good)', value: (d) => d.ftfrPct, percent: true,
-    caption: 'Share of each period\'s resolved calls fixed within 1 day of logging',
+    caption: 'Share of each period\'s logged calls fixed by the next service day',
+    // Stops where the verdict is final. Sunday is not a service day, so the gap
+    // is two days midweek and three on a Monday.
+    through: (ds, referenceDay) => ftfrSettledThrough(referenceDay, maxResolvedDay(ds)),
+    note: (ds, referenceDay) =>
+      `Ends ${formatDay(ftfrSettledThrough(referenceDay, maxResolvedDay(ds)))}`
+      + ' — later calls can still be fixed',
+    detail: (d) => [['Fixed in window', d.fixes]],
   },
   {
     id: 'repeats', tab: 'Repeat calls', label: 'Repeat calls',
@@ -45,6 +51,11 @@ const METRICS = [
     id: 'penalty', tab: 'Penalty calls', label: 'Penalty calls',
     color: 'var(--status-critical)', value: (d) => d.penalties,
     caption: 'Calls still open past SLA, placed in the period they were logged',
+    // The last days before the reference date cannot breach yet, whatever
+    // happens in them, so plotting them would draw a cliff that is not there.
+    through: penaltyEligibleThrough,
+    note: (ds, referenceDay) =>
+      `Ends ${formatDay(penaltyEligibleThrough(ds, referenceDay))} — later calls are inside SLA`,
   },
 ];
 
@@ -64,6 +75,11 @@ const TABS = [
 ];
 
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+/** Caption suffix telling the reader the list is longer than what is on screen. */
+const inScope = (items) => (items.length > TOP_N
+  ? ` · ${items.length.toLocaleString()} in this selection`
+  : '');
 
 /**
  * The two money measures from "KL Penalty Logic.xlsx".
@@ -288,6 +304,20 @@ export default function App() {
   );
   const metric = METRICS.find((m) => m.id === metricId) ?? METRICS[0];
 
+  /**
+   * Two of the four metrics cannot be judged right up to the reference date, and
+   * plotting the part that cannot reads as a collapse rather than as a gap.
+   *
+   * Dropped by period, not by day: a period survives if it *starts* on or before
+   * the cutoff, so a partly-settled week or month still plots. Only the daily
+   * view, where period and day are the same thing, trims to the exact date.
+   */
+  const plotted = useMemo(() => {
+    if (!metric.through || !series.length) return series;
+    const cutoff = metric.through(ds, referenceDay);
+    return series.filter((p) => p.key <= cutoff);
+  }, [series, metric, ds, referenceDay]);
+
   const bucketRows = useMemo(
     () => (idx ? rowsInBucket(ds, idx, callBucket) : []),
     [ds, idx, callBucket],
@@ -361,29 +391,15 @@ export default function App() {
     if (!idx) return null;
     const { dict } = ds;
     return {
-      district: topN(countBy(ds, idx, 'district'), dict.district, 30),
-      facility: topN(countBy(ds, idx, 'facilityName'), dict.facilityName, 10),
-      equipment: topN(countBy(ds, idx, 'equipment'), dict.equipment, 10),
-      manufacturer: topN(countBy(ds, idx, 'manufacturer'), dict.manufacturer, 10),
-      facilityType: topN(countBy(ds, idx, 'facilityType'), dict.facilityType, 10),
-      parkedReason: topN(countBy(ds, idx, 'parkedReason'), dict.parkedReason, 10)
+      // Full rankings; BarList shows TOP_N of each and expands on demand.
+      district: topN(countBy(ds, idx, 'district'), dict.district, Infinity),
+      facility: topN(countBy(ds, idx, 'facilityName'), dict.facilityName, Infinity),
+      equipment: topN(countBy(ds, idx, 'equipment'), dict.equipment, Infinity),
+      manufacturer: topN(countBy(ds, idx, 'manufacturer'), dict.manufacturer, Infinity),
+      facilityType: topN(countBy(ds, idx, 'facilityType'), dict.facilityType, Infinity),
+      parkedReason: topN(countBy(ds, idx, 'parkedReason'), dict.parkedReason, Infinity)
         .filter((r) => r.id >= 0),
     };
-  }, [ds, idx]);
-
-  /**
-   * Open calls per district, keyed by district name, for the map behind the page.
-   * Open rather than total: the backdrop should show where the pressure is now,
-   * not which district is simply the biggest.
-   */
-  const districtLoad = useMemo(() => {
-    if (!idx) return null;
-    const counts = countBy(ds, rowsInBucket(ds, idx, BUCKET.OPEN), 'district');
-    const out = {};
-    for (const [id, n] of counts) {
-      if (id >= 0) out[ds.dict.district[id]] = n;
-    }
-    return out;
   }, [ds, idx]);
 
   const openBucket = useCallback((bucket) => {
@@ -394,7 +410,6 @@ export default function App() {
   if (error) {
     return (
       <>
-        <Backdrop />
         <div className="status-msg">
           <p>{error}</p>
           <p>Run <code>npm run build:data</code>, then reload.</p>
@@ -408,7 +423,6 @@ export default function App() {
   if (ready && !available.length) {
     return (
       <>
-        <Backdrop />
         <div className="app">
           <header className="masthead">
             <div className="brand">
@@ -421,7 +435,6 @@ export default function App() {
             </div>
             <div className="masthead-right">
               <div className="toggle-group">
-                <MotionToggle />
                 <ThemeToggle />
               </div>
             </div>
@@ -435,7 +448,6 @@ export default function App() {
   if (!ds || !filters || !idx) {
     return (
       <>
-        <Backdrop />
         <div className="status-msg">
           <div className="loader" aria-hidden="true" />
           <p>Loading ticket data…</p>
@@ -448,7 +460,6 @@ export default function App() {
 
   return (
     <>
-      <Backdrop stateId={meta.id} districtLoad={districtLoad} />
       <div className={`app${busy ? ' is-busy' : ''}`}>
         <header className="masthead">
           <div className="brand">
@@ -486,7 +497,6 @@ export default function App() {
                 </svg>
                 <span className="toggle-label">Data</span>
               </button>
-              <MotionToggle />
               <ThemeToggle />
             </div>
           </div>
@@ -561,38 +571,61 @@ export default function App() {
               </div>
               <h2>{metric.label}</h2>
               <p className="caption">
-                {metric.caption} · {series.length.toLocaleString()}{' '}
+                {metric.caption} · {plotted.length.toLocaleString()}{' '}
                 {activeGranularity === 'month' ? 'months' : (activeGranularity === 'week' ? 'weeks' : 'days')}
                 {granularity === null && ' · granularity follows the date range'}
+                {/* Say why the line stops short, or the missing tail looks like
+                    missing data. */}
+                {metric.note && plotted.length < series.length
+                  && ` · ${metric.note(ds, referenceDay)}`}
               </p>
-              <MetricChart series={series} metric={metric} />
+              <MetricChart series={plotted} metric={metric} />
             </div>
 
             <div className="grid grid-2">
               <div className="panel" style={{ '--i': 1 }}>
                 <h2>Districts</h2>
-                <p className="caption">Calls by district</p>
+                <p className="caption">
+                  Calls by district
+                  {breakdowns.district.length > TOP_N
+                    ? ` · ${breakdowns.district.length} in this selection, scroll for the rest`
+                    : ''}
+                </p>
+                {/* No expander: the district list is short enough to render whole. */}
                 <BarList items={breakdowns.district} total={summary.total} />
               </div>
               <div className="panel" style={{ '--i': 2 }}>
                 <h2>Facilities</h2>
-                <p className="caption">Calls by facility · top 10</p>
-                <BarList items={breakdowns.facility} total={summary.total} />
+                <p className="caption">Calls by facility{inScope(breakdowns.facility)}</p>
+                <BarList items={breakdowns.facility} total={summary.total} initial={TOP_N} />
               </div>
               <div className="panel" style={{ '--i': 3 }}>
                 <h2>Equipment</h2>
-                <p className="caption">Calls by asset description · top 10</p>
-                <BarList items={breakdowns.equipment} total={summary.total} color="var(--series-2)" />
+                <p className="caption">
+                  Calls by asset description{inScope(breakdowns.equipment)}
+                </p>
+                <BarList
+                  items={breakdowns.equipment} total={summary.total}
+                  color="var(--series-2)" initial={TOP_N}
+                />
               </div>
               <div className="panel" style={{ '--i': 4 }}>
                 <h2>Manufacturers</h2>
-                <p className="caption">Calls by manufacturer · top 10</p>
-                <BarList items={breakdowns.manufacturer} total={summary.total} color="var(--series-3)" />
+                <p className="caption">
+                  Calls by manufacturer{inScope(breakdowns.manufacturer)}
+                </p>
+                <BarList
+                  items={breakdowns.manufacturer} total={summary.total}
+                  color="var(--series-3)" initial={TOP_N}
+                />
               </div>
               <div className="panel" style={{ '--i': 5 }}>
                 <h2>Facility types</h2>
-                <p className="caption">Share of total calls</p>
-                <BarList items={breakdowns.facilityType} total={summary.total} color="var(--series-2)" />
+                <p className="caption">Share of total calls{inScope(breakdowns.facilityType)}</p>
+                <BarList
+                  items={breakdowns.facilityType} total={summary.total}
+                  color="var(--series-2)" initial={TOP_N}
+                />
               </div>
               <div className="panel" style={{ '--i': 6 }}>
                 <h2>Why calls are unresolved</h2>
@@ -603,6 +636,7 @@ export default function App() {
                   items={breakdowns.parkedReason}
                   total={summary.parked}
                   color="var(--status-warning)"
+                  initial={TOP_N}
                   emptyText="No unresolved calls in range"
                 />
               </div>
@@ -632,6 +666,9 @@ export default function App() {
               referenceDay={referenceDay}
               onSelectRow={setDrawerRow}
               showAgeing
+              // Only the parked bucket has remarks to explain; on the open
+              // bucket the panel would be empty by definition.
+              showParkedReasons={callBucket === BUCKET.PARKED}
               intro={(n) => (callBucket === BUCKET.OPEN
                 ? `${n.toLocaleString()} open calls — Resolved Date blank and no Ticket Remark. This is the live, actionable backlog.`
                 : `${n.toLocaleString()} unresolved calls — no Resolved Date, but out of service scope, with the reason held in Ticket Remark.`)}

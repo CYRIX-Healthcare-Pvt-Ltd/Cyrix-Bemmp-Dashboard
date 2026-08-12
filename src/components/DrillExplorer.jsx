@@ -19,16 +19,33 @@ const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
  * service manager narrows down — with engineer and department available at any level.
  */
 export const DIMENSIONS = [
-  { key: 'district', label: 'Districts', noun: 'district', color: 'var(--series-1)', top: 30 },
-  { key: 'facilityName', label: 'Facilities', noun: 'facility', color: 'var(--series-1)', top: 12 },
-  { key: 'equipment', label: 'Equipment', noun: 'equipment', color: 'var(--series-2)', top: 12 },
-  { key: 'manufacturer', label: 'Manufacturers', noun: 'manufacturer', color: 'var(--series-3)', top: 10 },
-  { key: 'engineer', label: 'Engineers', noun: 'engineer', color: 'var(--series-1)', top: 10 },
-  { key: 'department', label: 'Departments', noun: 'department', color: 'var(--series-3)', top: 10 },
-  { key: 'facilityType', label: 'Facility types', noun: 'facility type', color: 'var(--series-2)', top: 10 },
+  // Districts are a closed set — 14 in Kerala, 28 in Andhra — so the whole list
+  // renders and the tail is a scroll away. An expander over a list that short
+  // is a click asking permission for something it should just do.
+  { key: 'district', label: 'Districts', noun: 'district', color: 'var(--series-1)', all: true },
+  { key: 'facilityName', label: 'Facilities', noun: 'facility', color: 'var(--series-1)' },
+  { key: 'equipment', label: 'Equipment', noun: 'equipment', color: 'var(--series-2)' },
+  { key: 'manufacturer', label: 'Manufacturers', noun: 'manufacturer', color: 'var(--series-3)' },
+  { key: 'engineer', label: 'Engineers', noun: 'engineer', color: 'var(--series-1)' },
+  { key: 'department', label: 'Departments', noun: 'department', color: 'var(--series-3)' },
+  { key: 'facilityType', label: 'Facility types', noun: 'facility type', color: 'var(--series-2)' },
 ];
 
+/** Rows shown before the expander, the same everywhere. A breakdown that stops
+ *  at 12 next to one that stops at 10 reads as an oversight, not a decision. */
+export const TOP_N = 10;
+
 const DIM_BY_KEY = Object.fromEntries(DIMENSIONS.map((d) => [d.key, d]));
+
+/**
+ * Two things drill that are not dimensions, so they never get a breakdown panel
+ * of their own among `remaining` — but they do need a noun for the breadcrumb.
+ * Age is a range rather than a dictionary id; reason is a real column, but one
+ * that only makes sense on the unresolved bucket.
+ */
+const AGE_KEY = '@age';
+const REASON_KEY = 'parkedReason';
+const EXTRA_NOUN = { [AGE_KEY]: 'age', [REASON_KEY]: 'reason' };
 
 const AGE_BANDS = [
   { label: '0–7 days', min: 0, max: 7 },
@@ -39,40 +56,24 @@ const AGE_BANDS = [
 ];
 
 /** Ordinal bands, so they stay in chronological order rather than sorting by size. */
-function AgeBands({ ds, rows, referenceDay }) {
-  const items = useMemo(() => {
-    const counts = AGE_BANDS.map(() => 0);
-    for (const i of rows) {
-      const age = referenceDay - ds.cols.loggedDay[i];
-      const n = AGE_BANDS.findIndex((b) => age >= b.min && age <= b.max);
-      if (n >= 0) counts[n]++;
-    }
-    return AGE_BANDS.map((b, n) => ({ id: b.label, label: b.label, value: counts[n] }));
-  }, [ds, rows, referenceDay]);
+function ageItems(ds, rows, referenceDay) {
+  const counts = AGE_BANDS.map(() => 0);
+  for (const i of rows) {
+    const age = referenceDay - ds.cols.loggedDay[i];
+    const n = AGE_BANDS.findIndex((b) => age >= b.min && age <= b.max);
+    if (n >= 0) counts[n]++;
+  }
+  return AGE_BANDS.map((b, n) => ({ id: b.label, label: b.label, value: counts[n], band: b }));
+}
 
-  const max = Math.max(...items.map((i) => i.value), 1);
-
-  return (
-    <div className="bars">
-      {items.map((item) => (
-        <div className="bar-row" key={item.id}>
-          <div>
-            <div className="b-label">{item.label}</div>
-            <div className="bar-track">
-              <div
-                className="bar-fill"
-                style={{
-                  width: `${Math.max(2, (item.value / max) * 100)}%`,
-                  background: 'var(--status-critical)',
-                }}
-              />
-            </div>
-          </div>
-          <div className="b-value">{item.value.toLocaleString()}</div>
-        </div>
-      ))}
-    </div>
-  );
+/** Age is a range, not a dictionary id, so it filters by predicate. */
+function rowsInBand(ds, idx, band, referenceDay) {
+  const out = [];
+  for (let k = 0; k < idx.length; k++) {
+    const age = referenceDay - ds.cols.loggedDay[idx[k]];
+    if (age >= band.min && age <= band.max) out.push(idx[k]);
+  }
+  return out;
 }
 
 /** Engineer values carry code and phone; everything else is shown verbatim. */
@@ -91,7 +92,7 @@ function displayValue(key, raw) {
  */
 export default function DrillExplorer({
   ds, rows, mode = 'tickets', referenceDay, onSelectRow,
-  intro, showPenaltyColumn = false, showAgeing = false,
+  intro, showPenaltyColumn = false, showAgeing = false, showParkedReasons = false,
   measure = null, showResolutionColumn = false,
 }) {
   const { cols, dict } = ds;
@@ -105,9 +106,13 @@ export default function DrillExplorer({
 
   const scoped = useMemo(() => {
     let cur = rows;
-    for (const step of path) cur = rowsWhere(ds, cur, step.key, step.id);
+    for (const step of path) {
+      cur = step.key === AGE_KEY
+        ? rowsInBand(ds, cur, step.band, referenceDay)
+        : rowsWhere(ds, cur, step.key, step.id);
+    }
     return cur;
-  }, [ds, rows, path]);
+  }, [ds, rows, path, referenceDay]);
 
   // In repeats mode the analysis re-runs at every level, so "repeat" keeps meaning
   // ">1 call on the same asset" inside whatever the manager has drilled into.
@@ -124,9 +129,14 @@ export default function DrillExplorer({
 
   const breakdowns = useMemo(() => remaining.map((dim) => {
     if (!measure) {
+      const counts = countBy(ds, counted, dim.key);
       return {
         dim,
-        items: topN(countBy(ds, counted, dim.key), dict[dim.key], dim.top)
+        groupCount: counts.size,
+        // The whole ranking, uncapped. BarList shows TOP_N of it and expands on
+        // demand — a ceiling here would put the tail permanently out of reach,
+        // and the tail is exactly where the quiet outliers sit.
+        items: topN(counts, dict[dim.key], Infinity)
           .map((it) => ({ ...it, label: displayValue(dim.key, it.id < 0 ? null : it.label) })),
       };
     }
@@ -147,8 +157,27 @@ export default function DrillExplorer({
       .filter((g) => measure.kind !== 'sum' || g.value > 0);
 
     groups.sort((a, b) => (measure.sort === 'asc' ? a.value - b.value : b.value - a.value));
-    return { dim, items: groups.slice(0, dim.top) };
+    return { dim, groupCount: groups.length, items: groups };
   }), [ds, counted, remaining, dict, measure]);
+
+  const ageUsed = path.some((p) => p.key === AGE_KEY);
+  const reasonUsed = path.some((p) => p.key === REASON_KEY);
+
+  /**
+   * Why the unresolved calls in scope are unresolved. Re-runs at every drill
+   * level, so it answers "why is this facility's backlog parked" rather than
+   * restating the all-time reasons.
+   */
+  const parkedReasons = useMemo(() => {
+    if (!showParkedReasons || reasonUsed) return null;
+    return topN(countBy(ds, counted, REASON_KEY), dict[REASON_KEY], Infinity)
+      .filter((r) => r.id >= 0);
+  }, [ds, counted, dict, showParkedReasons, reasonUsed]);
+
+  const ages = useMemo(
+    () => (showAgeing && !ageUsed ? ageItems(ds, counted, referenceDay) : null),
+    [ds, counted, referenceDay, showAgeing, ageUsed],
+  );
 
   const windows = useMemo(() => penaltyWindows(ds), [ds]);
 
@@ -179,9 +208,20 @@ export default function DrillExplorer({
   );
 
   const push = (key, id) => { setPath((p) => [...p, { key, id }]); setAsset(null); };
+  const pushAge = (band) => { setPath((p) => [...p, { key: AGE_KEY, band }]); setAsset(null); };
   const popTo = (n) => { setPath((p) => p.slice(0, n)); setAsset(null); };
 
+  const stepNoun = (step) => DIM_BY_KEY[step.key]?.noun ?? EXTRA_NOUN[step.key];
+  const stepLabel = (step) => (step.key === AGE_KEY
+    ? step.band.label
+    : displayValue(step.key, label(dict[step.key], step.id)));
+
   const total = counted.length;
+  const drillable = [
+    ...remaining.map((d) => d.noun),
+    ...(ages ? ['age'] : []),
+    ...(parkedReasons?.length ? ['reason'] : []),
+  ];
 
   return (
     <div className="grid" style={{ gap: 16 }}>
@@ -191,15 +231,13 @@ export default function DrillExplorer({
             All
           </button>
           {path.map((step, n) => (
-            <span key={`${step.key}-${step.id}`} className="crumb-step">
+            <span key={`${step.key}-${step.id ?? step.band.label}`} className="crumb-step">
               <span className="crumb-sep" aria-hidden="true">›</span>
-              <span className="crumb-dim">{DIM_BY_KEY[step.key].noun}</span>
+              <span className="crumb-dim">{stepNoun(step)}</span>
               {n === path.length - 1 ? (
-                <strong>{displayValue(step.key, label(dict[step.key], step.id))}</strong>
+                <strong>{stepLabel(step)}</strong>
               ) : (
-                <button type="button" onClick={() => popTo(n + 1)}>
-                  {displayValue(step.key, label(dict[step.key], step.id))}
-                </button>
+                <button type="button" onClick={() => popTo(n + 1)}>{stepLabel(step)}</button>
               )}
             </span>
           ))}
@@ -210,9 +248,9 @@ export default function DrillExplorer({
           )}
         </nav>
         <p className="caption drill-intro">{intro(total, repeats)}</p>
-        {remaining.length > 0 && total > 0 && (
+        {drillable.length > 0 && total > 0 && (
           <p className="caption drill-hint">
-            Select any bar below to drill deeper — {remaining.map((d) => d.noun).join(', ')}.
+            Select any bar below to drill deeper — {drillable.join(', ')}.
           </p>
         )}
       </div>
@@ -222,14 +260,49 @@ export default function DrillExplorer({
       ) : (
         <>
           <div className="grid grid-2">
-            {showAgeing && (
+            {ages && (
               <div className="panel" style={{ '--i': 1 }}>
-                <h2>Ageing</h2>
-                <p className="caption">How long these calls have been sitting, as of {formatDay(referenceDay)}</p>
-                <AgeBands ds={ds} rows={counted} referenceDay={referenceDay} />
+                <div className="panel-head">
+                  <div>
+                    <h2>Ageing</h2>
+                    <p className="caption">
+                      How long these calls have been sitting, as of {formatDay(referenceDay)}
+                    </p>
+                  </div>
+                  <span className="drill-badge" aria-hidden="true">drill</span>
+                </div>
+                <BarList
+                  items={ages}
+                  color="var(--status-critical)"
+                  onSelect={(item) => pushAge(item.band)}
+                />
               </div>
             )}
-            {breakdowns.map(({ dim, items }, n) => (
+
+            {parkedReasons && (
+              <div className="panel" style={{ '--i': 1 }}>
+                <div className="panel-head">
+                  <div>
+                    <h2>Why calls are unresolved</h2>
+                    <p className="caption">
+                      Ticket Remark on the calls in this selection — these sit outside the
+                      open backlog
+                    </p>
+                  </div>
+                  <span className="drill-badge" aria-hidden="true">drill</span>
+                </div>
+                <BarList
+                  items={parkedReasons}
+                  total={total}
+                  color="var(--status-warning)"
+                  initial={TOP_N}
+                  onSelect={(item) => push(REASON_KEY, item.id)}
+                  emptyText="No reason recorded on these calls"
+                />
+              </div>
+            )}
+
+            {breakdowns.map(({ dim, items, groupCount }, n) => (
               <div className="panel" key={dim.key} style={{ '--i': n + 2 }}>
                 <div className="panel-head">
                   <div>
@@ -238,7 +311,9 @@ export default function DrillExplorer({
                       {measure
                         ? `${measure.label} by ${dim.noun} · ${measure.sort === 'asc' ? 'worst' : 'highest'} first`
                         : `${mode === 'repeats' ? 'Repeat calls' : 'Calls'} by ${dim.noun}`}
-                      {items.length >= dim.top ? ` · top ${dim.top}` : ''}
+                      {groupCount > TOP_N
+                        ? ` · ${groupCount.toLocaleString()} in this selection${dim.all ? ', scroll for the rest' : ''}`
+                        : ''}
                     </p>
                   </div>
                   <span className="drill-badge" aria-hidden="true">drill</span>
@@ -247,6 +322,7 @@ export default function DrillExplorer({
                   items={items}
                   total={measure ? null : total}
                   color={measure?.color ?? dim.color}
+                  initial={dim.all ? null : TOP_N}
                   onSelect={(item) => push(dim.key, item.id)}
                   emptyText={measure
                     ? `No ${dim.noun} to rank for this measure`

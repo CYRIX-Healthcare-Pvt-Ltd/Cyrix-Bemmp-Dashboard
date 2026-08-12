@@ -147,6 +147,18 @@ Andhra's export also carries its own `Penalty Down Days` and `Penalty Amount` co
 are preserved in the artifact but the dashboard computes the flag from the rule above so
 both states are measured identically.
 
+**The chart stops before the reference date** for the same class of reason as FTFR, but a
+stronger one: the last `window` days are not "no breaches yet", they are "no breach
+*possible* yet". Plotted, that drew a cliff to zero that got read as the backlog clearing.
+`penaltyEligibleThrough` is `referenceDay - shortestWindow - 1` — shortest, because a date
+qualifies as soon as *any* criticality could have breached in it, which matters only for
+Andhra's two windows.
+
+Both cutoffs drop whole periods, never part of one: a period survives if it *starts* on or
+before the cutoff, so a partly-settled week or month still plots and only the daily view
+trims to the exact date. The caption says why the line stops short, or the missing tail
+reads as missing data.
+
 ## Penalty money
 
 Kerala's rate card comes from `KL Penalty Logic.xlsx` and is encoded in the state config
@@ -197,6 +209,37 @@ A call logged today and resolved today or tomorrow is a first-time fix:
 
 The denominator is **resolved calls only**, not all calls: an open call has no fix to rate.
 No row in either state resolves before it was logged, so the duration never needs clamping.
+
+### The chart measures it differently, on purpose
+
+`buildSeries` divides by calls **logged**, not by calls resolved — the one place in the
+dashboard that does. Per period the resolved-only denominator is not just noisy, it is
+systematically wrong: it holds only the calls resolved *so far*, and the quick ones land
+first. Every recent period therefore starts at **100%** and sinks for weeks as the slow
+resolutions arrive. Measured on the real artifact, 21 and 22 Jul both read 100.0% under
+the old denominator against a settled baseline of 55–60%. Dividing by calls logged is final
+two days after the period and never moves again, which is what a trend line needs.
+
+It also applies the Sunday rule to the numerator, via `isFirstTimeFix`. A plain
+`resolved - logged <= 1` fails every Saturday, whose next day nobody works: Sat 18 Jul
+scored 30.6% against weekday neighbours at 60%, a sawtooth that was an artefact of the
+service week. With the rule it reads 45.7%.
+
+**The chart also stops before the reference date.** `ftfrSettledThrough` returns the newest
+logged date whose verdict is final, bounded by `maxResolvedDay` as well as the logged
+range — the export is usually taken part way through its last day, which on this dataset
+carries 39 calls against a normal 270 and almost no resolutions. The Sunday rule is why it
+walks back a day at a time instead of subtracting a constant. Worked examples, all
+confirmed against how the business reads it: today Fri 31 Jul → 29 Jul; Mon 27 Jul → Fri
+24 Jul; Tue 28 Jul → Sun 26 Jul.
+
+**The KPI tile still uses the old definition** — `fixes / resolved` with a flat one-day
+window, over the whole selected range, where the unsettled tail is a rounding error. It is
+one of the figures `BASELINE.md` pins, so aligning it to the chart means regenerating that
+baseline and re-checking the numbers with the business. Until that happens the chart reads
+several points lower than the tile, because its denominator is larger. The tooltip prints
+`Fixed in window` next to `Calls logged` so the percentage on screen can always be checked
+by hand.
 
 ## Normalisation applied at build time
 
@@ -266,6 +309,14 @@ Translation sends only the already-composed sentence, so the numbers in it are f
 before any model sees them. Voice in and out use the browser's own Web Speech engines —
 no audio is uploaded.
 
+**`order` is a direction, not a verdict.** Which end of a ranking is the bad one depends on
+the measure: for turnaround the slowest is worst, for FTFR the lowest is. Models read
+"worst" as one fixed direction, which answered "which district has the worst closure TAT"
+with the three *fastest* districts. Each measure declares `worstOrder`, and `applyPolarity`
+resolves the question's quality word against it after the model replies — the same
+after-the-fact correction pattern as `disambiguateMonthYear`. It fires only on a quality
+word, so "the highest average resolution time" states its own direction and is left alone.
+
 Engineer labels go through `parseEngineer` before display, or the answer reads a phone
 number aloud.
 
@@ -296,6 +347,30 @@ narrows down. In `repeats` mode the repeat analysis re-runs at each level, so "r
 keeps meaning ">1 call on the same asset" inside whatever has been drilled into rather
 than filtering a precomputed all-time list.
 
+Two things drill without being dimensions, so neither gets a breakdown panel of its own,
+and both need their noun in `EXTRA_NOUN` for the breadcrumb. **Ageing** is a range over
+`loggedDay` rather than a dictionary id, so its path step carries the band and filters by
+predicate under the reserved key `@age`; `showAgeing` is passed only on the open and
+penalty tabs, since over resolved calls "how long these calls have been sitting" answers a
+question nobody asked. **Why calls are unresolved** is a real column, but one that only
+means anything on the unresolved bucket. Both panels hide once their step is on the path —
+there is nothing left to choose.
+
+That reason breakdown also appears on the overview. Inside the drill it recomputes at each
+level, which is the whole point of it being there: "why is *this facility's* backlog
+parked" is not a question an all-time list can answer.
+
+Breakdowns hand `BarList` the **whole** ranking and it shows `TOP_N` — ten everywhere, so
+no two panels stop at different depths — until the expander is used. Nothing is capped: a
+ceiling would put the tail permanently out of reach, and the tail is where the quiet
+outliers sit. Districts set `all` and skip the expander entirely, being a closed set of 14
+or 28.
+
+Past ten rows the list scrolls inside its panel rather than stretching it, and threads its
+own series colour through `--bar-color` so each scrollbar matches the bars it belongs to.
+There is a note in `styles.css` about why `content-visibility` is not used on those rows;
+read it before adding it.
+
 **Aggregation must stay one linear pass per breakdown.** It runs on every filter and drill
 change. Anything shaped like "for each asset, scan the rows" is O(assets x rows) — 11
 billion operations at Kerala's full scope — and will hang the tab. Add new breakdowns to
@@ -303,8 +378,11 @@ the single pass, the way `analyzeRepeats` collects its rows.
 
 **Colour**: chart series come from the validated data-viz palette and are stepped per
 theme; brand red and navy are chrome only (logo, accents, state switcher) and never encode
-data. The theme toggle writes `data-theme` on the root, and that scope is authored to beat
-the `prefers-color-scheme` block in both directions.
+data. Both palettes hang off `data-theme` on the root and nothing else — an inline script
+in `index.html` stamps it from the same `localStorage` key `ThemeToggle` writes, before the
+first paint. That is what lets the stylesheet carry **one** dark palette: the earlier
+`prefers-color-scheme` copy had already drifted out of step with the `[data-theme='dark']`
+one, which is the failure mode a duplicated token list always has.
 
 **Date range**: the dashboard opens on the **current month of the data**, not all time and
 not the calendar month — the export lags reality, so "this month" is derived from
@@ -313,31 +391,63 @@ not the calendar month — the export lags reality, so "this month" is derived f
 **Charts**: one component, `MetricChart`, with the metric passed in. All four series
 (volume, FTFR %, repeats, penalty) come from a single `buildSeries` pass so switching tabs
 costs nothing and the periods always line up. Granularity follows the selected date range
-until the user picks one. Values are labelled selectively — peak, trough and latest — never
-one per point.
+until the user picks one.
 
-**Motion**: decorative animation lives in `Backdrop.jsx` — an aurora of five blurred
-orbs, a technical grid, rising bubbles, and a three-lane vitals stack (ECG, respiration,
-SpO2) borrowed from the bedside monitors this dashboard reports on. The lanes run at
-7s / 17s / 9.5s, which share no common period, so the field never visibly resyncs.
+Every point carries its value. Labels are placed left to right and each must clear the
+last, so a narrow viewport thins them instead of stacking them — two labels on top of each
+other is worse than one missing. The latest point always keeps its label and the one before
+it gives way, since that is the figure people look for. Widths are estimated from the
+character count rather than measured: `.point-label` is tabular, so every digit is the same
+width and the estimate cannot drift out of step with what renders.
 
-Only `transform` and `stroke-dashoffset` are animated, keeping the whole layer on the
-compositor — an animated `feTurbulence` would look more organic but repaints the viewport
-every frame. The blobs get their fluid quality from rotating off-centre radial gradients
-instead. Below 640px the extra lanes, bubbles and two orbs drop out.
+**Glass**: every raised surface — masthead, panel, KPI tile, filter bar, drawer, assistant,
+tooltip — shares one recipe, declared once as a selector list in the *glass* section of
+`styles.css` rather than per component: a translucent tint, `backdrop-filter` with the blur
+**and** a saturation lift, a lit lip inset along the top edge and a shaded one along the
+bottom. Blurring alone desaturates whatever is behind it, so without the `saturate()` the
+colour arriving from the backdrop turns grey the moment a panel covers it.
 
-It is gated on `data-motion` on the root, seeded from the OS but overridable via
-`MotionToggle`. Windows' "Animation
-effects" setting makes Chrome report `prefers-reduced-motion: reduce`, which silently
-killed the whole ambient layer with no way to switch it back on — hence the explicit
-toggle. Reduced now means *static*, not hidden: the orbs, grid and ECG still render, they
-just stop moving. Automated browsers report `reduce`, so screenshots show the static form
-unless `data-motion="full"` is stamped manually.
+Four tokens carry the weights: `--glass` (panel), `--glass-strong` (overlays, which sit
+over live content and must stay legible), `--control-bg` (a pill *on* a surface) and
+`--track-bg` (a groove cut *into* one). The last two flip direction with the theme —
+lighter than their backing in dark, darker in light — because that contrast direction is
+the only thing telling the eye which is raised.
+
+`--glass-ring` is the outer hairline and is the one that is easy to get wrong: on the light
+page a white border against a white panel draws nothing, so the edge that actually
+separates them is a faint ink line *outside* the border. Dark mode fills the same slot with
+a dark line. Dropping it makes every panel look like it is floating on shadow alone.
+
+Controls are pills throughout (`--radius-pill`). A rounded rectangle among this much
+curvature reads as something the restyle missed.
+
+**Backdrop**: `Backdrop.jsx` is two very wide, heavily blurred washes of brand colour in
+opposite corners, and nothing else. Only brand red and navy appear there; a backdrop
+borrowing the chart palette reads as a legend. It exists *for* the glass as much as for
+itself — a frosted surface over a flat page has nothing to refract and just looks grey — so
+the alphas are set low enough that the wash never registers as a shape.
+
+It does not move, and there is no motion toggle. Earlier versions had an animated ambient
+layer (ECG traces, drifting orbs, corner spheres); on a dashboard people read for long
+stretches, anything moving behind the figures competes with them every time it passes.
+`prefers-reduced-motion` is still honoured, but it now covers only the interface's own
+entrances — panels rising in, the drawer sliding, bars growing.
+
+**Filters**: the bar is collapsed at every width and the panel opens on demand. It cost a
+third of the first screen open by default, and most sessions never touch it because the
+default range is the one people want. Collapsed, the row carries a one-line summary of
+what is selected — without it the figures below would have no visible provenance — and a
+reset that appears only once something is applied.
 
 **Mobile**: the filter bar collapses behind a toggle below 860px (the `[hidden]` attribute
 needs the `!important` reset in `styles.css` — a class rule like `.filters { display: flex }`
 beats UA specificity otherwise). The KPI grid steps 4 → 3 → 2 columns so eight tiles never
 leave a short final row.
+
+The masthead also drops `flex-wrap` there, not just the direction. A wrapping *column* flex
+container takes its width from its widest item instead of giving items the container's
+width, so the header sized itself to the state switcher and clipped the brand block against
+its own `overflow: hidden`.
 
 ## Dirty values to expect
 

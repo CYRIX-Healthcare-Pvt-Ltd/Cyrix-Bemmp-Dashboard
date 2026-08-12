@@ -53,6 +53,7 @@ export const MEASURES = {
     rows: (ds, idx) => rowsInBucket(ds, idx, BUCKET.OPEN),
     format: int,
     unit: 'open calls',
+    worstOrder: 'desc',
   },
   unresolved: {
     label: 'Unresolved calls',
@@ -61,6 +62,7 @@ export const MEASURES = {
     rows: (ds, idx) => rowsInBucket(ds, idx, BUCKET.PARKED),
     format: int,
     unit: 'unresolved calls',
+    worstOrder: 'desc',
   },
   resolved: {
     label: 'Resolved calls',
@@ -77,6 +79,7 @@ export const MEASURES = {
     rows: (ds, idx, ctx) => penaltyRows(ds, idx, ctx.referenceDay),
     format: int,
     unit: 'penalty calls',
+    worstOrder: 'desc',
   },
   repeat: {
     label: 'Repeat calls',
@@ -85,6 +88,7 @@ export const MEASURES = {
     rows: (ds, idx) => analyzeRepeats(ds, idx).rows,
     format: int,
     unit: 'repeat calls',
+    worstOrder: 'desc',
   },
   ftfr: {
     label: 'FTFR',
@@ -95,6 +99,8 @@ export const MEASURES = {
     format: (v) => `${(v * 100).toFixed(1)}%`,
     minSamples: 20,
     unit: '',
+    // The one measure where worst is the *bottom* of the ranking.
+    worstOrder: 'asc',
   },
   resolution: {
     label: 'Average resolution time',
@@ -106,6 +112,8 @@ export const MEASURES = {
     minSamples: 20,
     lowerIsBetter: true,
     unit: '',
+    // A long turnaround is the bad one, so worst is the slowest, not the fastest.
+    worstOrder: 'desc',
   },
   perDayPenalty: {
     label: 'Per-day penalty',
@@ -212,7 +220,12 @@ export const QUERY_TOOL = {
         order: {
           type: 'string',
           enum: ['desc', 'asc'],
-          description: 'desc for highest/worst-first, asc for lowest. Default desc.',
+          description:
+            'Purely a direction: desc ranks the largest value first, asc the smallest. '
+            + 'Default desc. It is NOT "worst first" — which end is bad depends on the '
+            + 'measure. For resolution (turnaround), longer is worse, so worst/slowest '
+            + 'is desc and best/fastest is asc. For ftfr, a higher rate is better, so '
+            + 'worst is asc. For every count measure, more is worse, so worst is desc.',
         },
         limit: { type: 'integer', description: 'How many groups to return, 1-25. Default 8.' },
         range: {
@@ -427,6 +440,33 @@ function matchDictionary(values, text) {
 
   const tolerance = needle.length <= 5 ? 1 : 2;
   return bestScore <= tolerance ? best : -1;
+}
+
+/* --------------------------------------------------------------- polarity -- */
+
+/** Quality words. Magnitude words ("highest", "most", "top") are deliberately
+ *  absent: those state a direction outright and need no interpretation. */
+const WORST = /\b(worst|slowest|longest|poorest|weakest|laggard|worst[- ]performing)\b/i;
+const BEST = /\b(best|fastest|quickest|shortest|strongest|best[- ]performing)\b/i;
+
+const FLIP = { asc: 'desc', desc: 'asc' };
+
+/**
+ * Resolves "worst" and "best" against the measure's own polarity.
+ *
+ * `order` is only a direction, and which end of a ranking is the bad one depends
+ * on what is being ranked: for turnaround the slowest is worst, for FTFR the
+ * lowest is. Models reliably read "worst" as one fixed direction, which answered
+ * "which district has the worst closure TAT" with the three *fastest* districts.
+ *
+ * Only fires on a quality word, so "highest average resolution" is left alone.
+ */
+export function applyPolarity(spec, question) {
+  const worstOrder = MEASURES[spec?.measure]?.worstOrder;
+  if (!worstOrder || !question) return spec;
+  if (WORST.test(question)) return { ...spec, order: worstOrder };
+  if (BEST.test(question)) return { ...spec, order: FLIP[worstOrder] };
+  return spec;
 }
 
 /* ---------------------------------------------------------------- runner --- */

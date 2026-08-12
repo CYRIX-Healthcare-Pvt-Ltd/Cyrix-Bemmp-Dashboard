@@ -17,6 +17,22 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
     />
+    <!--
+      Stamp the theme before the first paint, from the same key ThemeToggle
+      writes. Doing it here rather than in a `prefers-color-scheme` block is what
+      lets the stylesheet carry one dark palette instead of two: a duplicated
+      token list silently drifts the moment either copy is edited alone.
+      It also removes the flash of the light theme on a dark machine.
+    -->
+    <script>
+      (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('bemmp-theme'); } catch (e) { /* private mode */ }
+        var dark = stored === 'dark' || (stored !== 'light'
+          && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -15,8 +15,16 @@ const compact = (n) => {
 };
 
 /**
+ * Width of one character of `.point-label` — 11px Space Grotesk with tabular
+ * figures, so every digit is the same width and this estimate is exact enough to
+ * place labels without measuring the DOM.
+ */
+const CHAR_W = 6.4;
+const LABEL_GAP = 7;
+
+/**
  * One metric over time. A single series, so the panel heading names it and no
- * legend is needed; values are labelled selectively rather than on every point.
+ * legend is needed; every point carries its value.
  */
 export default function MetricChart({ series, metric, height = 300 }) {
   const wrapRef = useRef(null);
@@ -34,6 +42,7 @@ export default function MetricChart({ series, metric, height = 300 }) {
   }, []);
 
   const H = height;
+  const fmt = (v) => (metric.percent ? `${v.toFixed(1)}%` : Math.round(v).toLocaleString());
 
   const geom = useMemo(() => {
     if (!series.length) return null;
@@ -60,22 +69,38 @@ export default function MetricChart({ series, metric, height = 300 }) {
       .map((d, i) => ({ i, label: d.label }))
       .filter(({ i }) => i % every === 0 || i === series.length - 1);
 
-    // Selective direct labels: peak, trough and latest — never one per point.
-    const marked = new Set();
-    if (series.length <= 10) {
-      values.forEach((_, i) => marked.add(i));
-    } else {
-      let hi = 0; let lo = 0;
-      values.forEach((v, i) => {
-        if (v > values[hi]) hi = i;
-        if (v < values[lo]) lo = i;
-      });
-      marked.add(hi);
-      marked.add(lo);
-      marked.add(series.length - 1);
+    /*
+     * A value on every point, dropped only where it would physically land on
+     * top of its neighbour. Reading a trend one hover at a time is the thing
+     * people complain about, but two labels overlapping is worse than one
+     * missing — so they are placed left to right and each has to clear the last.
+     *
+     * Widths come from the character count rather than a DOM measurement: the
+     * label font is tabular, so every digit is the same width and the estimate
+     * cannot drift.
+     */
+    const labels = [];
+    let lastRight = -Infinity;
+    for (let i = 0; i < values.length; i++) {
+      const text = fmt(values[i]);
+      const w = text.length * CHAR_W;
+      // The ends pull inward so they cannot overhang the plot area.
+      const anchor = i === 0 ? 'start' : (i === values.length - 1 ? 'end' : 'middle');
+      const cx = x(i);
+      const left = anchor === 'start' ? cx : (anchor === 'end' ? cx - w : cx - w / 2);
+
+      if (left >= lastRight + LABEL_GAP) {
+        labels.push({ i, text, anchor });
+        lastRight = left + w;
+      } else if (i === values.length - 1) {
+        // The latest figure is the one people look for, so it always earns its
+        // place and the label before it gives way.
+        labels.pop();
+        labels.push({ i, text, anchor });
+      }
     }
 
-    return { x, y, line, area, ticks, xLabels, values, plotH, plotW, top, marked };
+    return { x, y, line, area, ticks, xLabels, values, plotH, plotW, top, labels };
   }, [series, W, H, metric]);
 
   const onMove = (e) => {
@@ -100,7 +125,6 @@ export default function MetricChart({ series, metric, height = 300 }) {
   }
 
   const point = hover ? series[hover.i] : null;
-  const fmt = (v) => (metric.percent ? `${v.toFixed(1)}%` : Math.round(v).toLocaleString());
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
@@ -145,15 +169,14 @@ export default function MetricChart({ series, metric, height = 300 }) {
           y1={PAD.top + geom.plotH} y2={PAD.top + geom.plotH}
         />
 
-        {[...geom.marked].map((i) => {
+        {geom.labels.map(({ i, text, anchor }) => {
           const vx = geom.x(i);
           const vy = geom.y(geom.values[i]);
-          const anchor = i === 0 ? 'start' : (i === series.length - 1 ? 'end' : 'middle');
           return (
             <g key={`m${i}`}>
-              <circle className="point-dot" cx={vx} cy={vy} r="3.5" fill={metric.color} />
+              <circle className="point-dot" cx={vx} cy={vy} r="3" fill={metric.color} />
               <text className="point-label" x={vx} y={vy - 10} textAnchor={anchor}>
-                {fmt(geom.values[i])}
+                {text}
               </text>
             </g>
           );
@@ -196,7 +219,15 @@ export default function MetricChart({ series, metric, height = 300 }) {
             <span>{fmt(metric.value(point))}</span>
           </div>
           <div className="t-row"><span>Calls logged</span><span>{point.volume.toLocaleString()}</span></div>
-          <div className="t-row"><span>Resolved</span><span>{point.resolved.toLocaleString()}</span></div>
+          {/* Whatever the metric needs to make its own percentage add up. */}
+          {metric.detail?.(point).map(([label, value]) => (
+            <div className="t-row" key={label}>
+              <span>{label}</span><span>{value.toLocaleString()}</span>
+            </div>
+          ))}
+          {/* "So far": resolutions keep arriving after the export was taken, so
+              this is a running total, not the period's final count. */}
+          <div className="t-row"><span>Resolved so far</span><span>{point.resolved.toLocaleString()}</span></div>
           <div className="t-row"><span>Open</span><span>{point.open.toLocaleString()}</span></div>
           <div className="t-row"><span>Unresolved</span><span>{point.parked.toLocaleString()}</span></div>
         </div>
