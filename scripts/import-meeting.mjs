@@ -173,6 +173,30 @@ function readMeeting(file) {
 
 /* ---------------------------------------------------------------- upload --- */
 
+async function get(pathname) {
+  const res = await fetch(`${URL_BASE}/rest/v1/${pathname}`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+/**
+ * Column S is spelled four ways — `Rber`, `rber`, `RBER`, and likewise `trc` and
+ * `esv`. They are the same choice from the same dropdown, so they fold to the
+ * canonical spelling exactly as equipment and manufacturer already do elsewhere
+ * in the pipeline. The canonical list is read from the table rather than copied
+ * here, so the seed data stays the one source of truth.
+ *
+ * Deliberately case-only. A value that differs by more than capitalisation is
+ * not a spelling variant, and is kept verbatim rather than guessed at.
+ */
+async function penaltyTypeFolder() {
+  const rows = await get('penalty_type?select=name');
+  const byLower = new Map(rows.map((r) => [r.name.trim().toLowerCase(), r.name]));
+  return (raw) => byLower.get(String(raw).trim().toLowerCase()) ?? null;
+}
+
 async function post(pathname, body, headers = {}) {
   const res = await fetch(`${URL_BASE}/rest/v1/${pathname}`, {
     method: 'POST',
@@ -202,7 +226,12 @@ async function main() {
   const rows = readMeeting(file);
   console.log(`read ${rows.length.toLocaleString()} rows from ${path.basename(file)}`);
 
+  const foldPenaltyType = (dry || !URL_BASE || !SERVICE_KEY)
+    ? ((v) => v)
+    : await penaltyTypeFolder();
+
   const seen = new Set();
+  const unmatched = new Set();
   const notes = [];
   let duplicates = 0;
   let blank = 0;
@@ -232,6 +261,18 @@ async function main() {
       }
       filled++;
     }
+    // Fold after casting, so an unrecognised spelling is kept rather than
+    // dropped — the foreign key would refuse it, and losing it silently would
+    // be worse than a null with the original beside it.
+    if (note.penalty_type) {
+      const folded = foldPenaltyType(note.penalty_type);
+      if (folded === null) {
+        legacy.penalty_type = note.penalty_type;
+        unmatched.add(note.penalty_type);
+      }
+      note.penalty_type = folded;
+    }
+
     note.legacy_values = Object.keys(legacy).length ? legacy : null;
     if (filled === 0) { blank++; continue; }
     notes.push(note);
@@ -240,6 +281,7 @@ async function main() {
   console.log(`  ${notes.length.toLocaleString()} carry at least one meeting value`);
   console.log(`  ${blank.toLocaleString()} skipped as entirely blank across S..AO`);
   if (duplicates) console.log(`  ${duplicates.toLocaleString()} duplicate tickets collapsed, last row wins`);
+  if (unmatched.size) console.log(`  ${unmatched.size} penalty types not on the dropdown, kept verbatim: ${[...unmatched].join(", ")}`);
 
   console.log('\nfilled per column:');
   for (const [, field] of FIELDS) {
