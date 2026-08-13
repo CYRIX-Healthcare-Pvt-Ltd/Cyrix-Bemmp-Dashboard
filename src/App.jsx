@@ -928,7 +928,6 @@ export default function App() {
                 rows={rowsInBucket(ds, undatedIdx, BUCKET.OPEN)}
                 referenceDay={referenceDay}
                 canEdit={canEditMeeting(profile)}
-                myCode={profile?.code}
                 onSelectRow={setDrawerRow}
               />
             ) : (

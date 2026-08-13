@@ -2,21 +2,40 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
 import { supabase } from '../data/supabase.js';
 import {
-  DETAIL_FIELDS, MEETING_FIELDS, PRIMARY_FIELDS, ensureRows, loadLog, loadLogSummary,
+  DETAIL_FIELDS, MEETING_FIELDS, PRIMARY_FIELDS, ensureRows, loadLog,
   loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
 
 /** Column keys are database names; the log has to read like the form does. */
 const FIELD_LABEL = Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, f.label]));
+const DATE_FIELDS = new Set(MEETING_FIELDS.filter((f) => f.kind === 'date').map((f) => f.key));
 
-/** Date and time together — "who changed it when" is not answerable by a date. */
-const stamp = (iso) => new Date(iso).toLocaleString('en-IN', {
-  day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-});
+/**
+ * `13-Aug-2026`.
+ *
+ * The database hands dates back as `2026-08-13`, which is unambiguous to a
+ * machine and to nobody else — read aloud in a meeting it invites the question
+ * of which number is the month. A named month cannot be misread.
+ */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const shortStamp = (iso) => new Date(iso).toLocaleString('en-IN', {
-  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-});
+function asDate(value) {
+  // Date columns arrive as `YYYY-MM-DD`; anything else is passed through rather
+  // than run through a parser that would turn a PO number into a date.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) return value;
+  return `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}`;
+}
+
+/** A value as it should read in the log: dates named, everything else verbatim. */
+const shownValue = (column, value) => (DATE_FIELDS.has(column) ? asDate(value) : value);
+
+/** When a change was made. Date in the same shape, plus the time. */
+function stamp(iso) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}, ${time}`;
+}
 
 /**
  * The daily penalty meeting.
@@ -96,9 +115,16 @@ function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitl
   const ref = useRef(null);
 
   useEffect(() => {
-    // Focus lands inside, so the next Tab continues in the form rather than
-    // walking the table behind it.
-    ref.current?.querySelector('input, select')?.focus();
+    /*
+     * Focus the dialog, never a field in it.
+     *
+     * It used to focus the first control, which is a date input — and on a phone
+     * focusing one opens the native picker, so simply pressing More put today's
+     * date into TRC given and the blur handler saved it. Three tickets were
+     * stamped that way before anyone touched a field. Opening a form must not
+     * fill it in.
+     */
+    ref.current?.focus();
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     // The grid scrolls horizontally; letting the page move underneath a modal
@@ -119,6 +145,7 @@ function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitl
         aria-modal="true"
         aria-label={`Purchase detail for ticket ${ticket}`}
         ref={ref}
+        tabIndex={-1}
       >
         <div className="modal-head">
           <div>
@@ -236,12 +263,14 @@ function LogDialog({ state, ticket, onClose }) {
                         render as an arrow into nothing. */}
                     {r.new_value == null ? (
                       <span className="log-change">
-                        cleared <s>{r.old_value}</s>
+                        cleared <s>{shownValue(r.column_name, r.old_value)}</s>
                       </span>
                     ) : (
                       <span className="log-change">
-                        {r.old_value != null && <><s>{r.old_value}</s> → </>}
-                        <b>{r.new_value}</b>
+                        {r.old_value != null && (
+                          <><s>{shownValue(r.column_name, r.old_value)}</s> → </>
+                        )}
+                        <b>{shownValue(r.column_name, r.new_value)}</b>
                       </span>
                     )}
                   </div>
@@ -276,7 +305,7 @@ function exportColumns(hasZone) {
   ];
 }
 
-export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRow, myCode }) {
+export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRow }) {
   const { cols, dict } = ds;
   const state = ds.meta.id;
   const hasZone = dict.zone.length > 0;
@@ -286,7 +315,6 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState(null);
   const [log, setLog] = useState(null);
-  const [logs, setLogs] = useState(new Map());
   const [sync, setSync] = useState(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState(null); // { key, dir } — null keeps the export's order
@@ -331,9 +359,6 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
       setTypes((list.data ?? []).map((r) => r.name));
       if (canEdit) setSync(await reconcileOpen(state, ids));
       setNotes(await loadNotes(state, ids));
-      // After the grid can render, not before: the log column is useful but it
-      // is not what anybody opened this tab for.
-      loadLogSummary(state, ids).then(setLogs).catch(() => setLogs(new Map()));
     } catch (e) {
       setError(e.message);
       setNotes(new Map());
@@ -345,25 +370,7 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
   const commit = useCallback((ticket, key) => async (value) => {
     const updated = await saveField(state, ticket, key, value);
     setNotes((prev) => new Map(prev).set(ticket, updated));
-    /*
-     * The trigger has just written a history row, so the count beside this ticket
-     * is now one short. Advanced locally rather than re-fetched: the write
-     * succeeded, so what it did is known, and refetching the summary for the
-     * whole tab after every field somebody types would be a request per keystroke
-     * of the meeting.
-     */
-    setLogs((prev) => {
-      const next = new Map(prev);
-      const cur = next.get(ticket);
-      next.set(ticket, {
-        ticket,
-        entries: Number(cur?.entries ?? 0) + 1,
-        last_at: new Date().toISOString(),
-        last_by: myCode ?? cur?.last_by ?? null,
-      });
-      return next;
-    });
-  }, [state, myCode]);
+  }, [state]);
 
   /*
    * Search then sort, both over the same list.
@@ -564,27 +571,18 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                         More
                       </button>
                     </td>
-                    {/* Who last touched this ticket and when, with the full
-                        trail a click away. A ticket nobody has written against
-                        says so rather than offering an empty dialog. */}
+                    {/* One label on every row. Carrying the count and the last
+                        editor here made the widest column in the grid out of the
+                        least urgent thing in it — the trail matters when
+                        somebody asks, and then a click is the right price. */}
                     <td className="log-cell">
-                      {(() => {
-                        const l = logs.get(r.ticket);
-                        if (!l) return <span className="money-nil">—</span>;
-                        return (
-                          <button
-                            type="button"
-                            className="log-btn"
-                            onClick={() => setLog(r.ticket)}
-                            title={`${l.entries} change${Number(l.entries) === 1 ? '' : 's'} · last by ${l.last_by ?? 'system'}`}
-                          >
-                            <span className="log-count">{l.entries}</span>
-                            <span className="log-meta">
-                              {l.last_by ?? 'system'} · {shortStamp(l.last_at)}
-                            </span>
-                          </button>
-                        );
-                      })()}
+                      <button
+                        type="button"
+                        className="row-more"
+                        onClick={() => setLog(r.ticket)}
+                      >
+                        See log
+                      </button>
                     </td>
                   </tr>
                 );

@@ -140,6 +140,10 @@ export const MEASURES = {
 };
 
 export const DIMENSIONS = {
+  // Kerala's North/South, above district in the same way the drill nests them.
+  // Andhra's export has no such column, so its dictionary is empty there and
+  // `datasetContext` tells the model not to reach for it.
+  zone: 'zone',
   district: 'district',
   facility: 'facilityName',
   equipment: 'equipment',
@@ -151,6 +155,7 @@ export const DIMENSIONS = {
 
 /** Singular and plural, so the summary sentence does not say "5 equipments". */
 const DIM_NOUN = {
+  zone: ['zone', 'zones'],
   district: ['district', 'districts'],
   facility: ['facility', 'facilities'],
   equipment: ['equipment type', 'equipment types'],
@@ -325,6 +330,16 @@ export function datasetContext(ds, filters) {
     ds.meta.penaltyRates
       ? 'This contract has a penalty rate card, so money measures are available.'
       : 'This contract has NO penalty rate card; money measures are unavailable.',
+    /*
+     * Every state's export has a different schema, and a dimension a contract
+     * does not supply has an empty dictionary — asking for it produces "I
+     * couldn't find that", which reads as the question being wrong rather than
+     * the column being absent. Naming the ones that exist prevents the attempt.
+     */
+    ds.dict.zone.length
+      ? `Zones are ${ds.dict.zone.join(' and ')}, and each contains several districts. `
+        + 'Use dimension "zone" when the user says zone, north or south.'
+      : 'This contract has NO zone column; never use the zone dimension for it.',
     'A ticket is open only when it has no resolved date AND no ticket remark.',
     'A penalty call is an open call past its SLA window.',
   ].join(' ');
@@ -507,6 +522,16 @@ export function resolvePenaltyMeasure(spec, question, hasRateCard) {
   return { ...spec, measure: CLOSURE.test(question) ? 'closurePenalty' : 'perDayPenalty' };
 }
 
+/**
+ * Dimensions `filterRows` narrows by itself, so the whole pass sees the filter
+ * rather than it being applied to the result afterwards. Mirrors `FILTERABLE`
+ * in query.js; anything absent here still works, just after the fact.
+ */
+const ENGINE_FILTERS = new Set([
+  'zone', 'district', 'facilityName', 'facilityType', 'equipment', 'equipmentType',
+  'manufacturer', 'engineer', 'department',
+]);
+
 /* ---------------------------------------------------------------- runner --- */
 
 /**
@@ -577,11 +602,17 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
       throw new Error(`I couldn't find "${spec.filterValue}" in ${spec.filterDimension}.`);
     }
     appliedFilter = { dimension: spec.filterDimension, label: ds.dict[filterCol][id] };
-    // District, facility type and criticality have first-class filter slots; other
-    // dimensions are narrowed after the fact.
-    if (filterCol === 'district') effective = { ...effective, district: new Set([id]) };
-    else if (filterCol === 'facilityType') effective = { ...effective, facilityType: new Set([id]) };
-    else appliedFilter.postFilter = { col: filterCol, id };
+    /*
+     * Anything `filterRows` knows how to narrow by goes through the engine;
+     * the rest is filtered after the fact. Zone belongs in the first group — the
+     * question that exposed this, "which engineer in north zone has the highest
+     * penalty", could not be answered at all while zone was not a dimension.
+     */
+    if (ENGINE_FILTERS.has(filterCol)) {
+      effective = { ...effective, [filterCol]: new Set([id]) };
+    } else {
+      appliedFilter.postFilter = { col: filterCol, id };
+    }
   }
 
   const idx = filterRows(ds, effective);

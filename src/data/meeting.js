@@ -117,31 +117,16 @@ export async function ensureRows(state, tickets) {
 }
 
 /**
- * How much has been recorded against each ticket on screen, and by whom last.
- *
- * A summary rather than the entries themselves: the tracker carries the whole
- * open backlog — nine hundred calls on Kerala — and their full history is not
- * something to fetch in order to draw a column. The entries come on demand.
+ * Every recorded change to one ticket, newest first.
  *
  * Goes through an RPC because `changed_by` is a uuid and `profile` is readable
- * only for your own row. The function resolves it to a code and hands back
- * nothing else.
+ * only for your own row, so the browser cannot resolve a colleague's id to a
+ * name. The function does that and hands back nothing else.
+ *
+ * Loaded when the log is opened rather than with the grid: the tracker carries
+ * the whole open backlog, and nine hundred tickets' history is not something to
+ * fetch in order to draw a column of buttons.
  */
-export async function loadLogSummary(state, tickets) {
-  if (!supabase || !tickets.length) return new Map();
-  const out = new Map();
-  for (let i = 0; i < tickets.length; i += IN_CHUNK) {
-    const { data, error } = await supabase.rpc('meeting_log_summary', {
-      p_state: state,
-      p_tickets: tickets.slice(i, i + IN_CHUNK),
-    });
-    if (error) throw error;
-    for (const row of data ?? []) out.set(row.ticket, row);
-  }
-  return out;
-}
-
-/** Every recorded change to one ticket, newest first. */
 export async function loadLog(state, ticket) {
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('meeting_log', {

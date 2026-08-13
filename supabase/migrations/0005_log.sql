@@ -14,31 +14,6 @@
 -- ============================================================================
 
 /*
- * One row per ticket: how much has been recorded, and the most recent entry.
- *
- * Asked for the whole tab at once so the grid can show a count per row without
- * a request per ticket, and kept to a summary because the tracker can carry
- * nine hundred open calls and their full history is not something to send just
- * to draw a column.
- */
-create or replace function meeting_log_summary(p_state text, p_tickets text[])
-returns table (ticket text, entries bigint, last_at timestamptz, last_by text)
-language sql stable security definer set search_path = public as $$
-  select h.ticket,
-         count(*)                                      as entries,
-         max(h.changed_at)                             as last_at,
-         (array_agg(p.code order by h.changed_at desc))[1] as last_by
-    from meeting_note_history h
-    left join profile p on p.id = h.changed_by
-   where h.state = p_state
-     and h.ticket = any (p_tickets)
-     -- The caller's own scope, checked here rather than trusted from the client:
-     -- a security definer function bypasses the policy that would have done it.
-     and in_scope (p_state)
-   group by h.ticket;
-$$;
-
-/*
  * The entries for one ticket, newest first, opened on demand.
  *
  * `changed_by` can be null: the reconcile job and the original import both run
@@ -65,7 +40,11 @@ language sql stable security definer set search_path = public as $$
    limit 500;
 $$;
 
-revoke all on function meeting_log_summary(text, text[]) from public;
 revoke all on function meeting_log(text, text) from public;
-grant execute on function meeting_log_summary(text, text[]) to authenticated;
 grant execute on function meeting_log(text, text) to authenticated;
+
+-- A per-ticket summary lived here briefly, to put a change count and the last
+-- editor in the grid. The column became the widest thing on the row for the
+-- least urgent information on it, so the cell is now one button and the trail
+-- is a click away. Dropped rather than left behind unused.
+drop function if exists meeting_log_summary (text, text[]);
