@@ -1357,6 +1357,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 @media (max-width: 860px) {
   .filters { grid-template-columns: 1fr; }
   .filters .field select, .filters .field input[type='date'] { width: 100%; }
+  /* The intrinsic width of a native date input is wider than half a phone, and
+     a grid track will not shrink below it without being told to. */
+  .field-pair .field { min-width: 0; }
+  .field-pair .field select, .field-pair .field input { min-width: 0; }
   /* The summary is the first thing to go — the toggle and the reset are both
      controls, and the row must not wrap. */
   .filter-summary { display: none; }
@@ -1689,6 +1693,7 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   font-size: 12px; font-weight: 600; color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+.meeting-hint { font-size: 12px; color: var(--text-muted); }
 
 /* The whole header is the control, so the hit area is the cell rather than a
    caret a few pixels wide. */
@@ -1701,13 +1706,67 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 }
 .meeting-table th.num .th-sort { justify-content: flex-end; }
 .th-sort:hover { color: var(--text-primary); }
-/* Reserved whether or not this column is the sorted one, so the headers do not
-   shuffle sideways as the sort moves between them. */
-.sort-mark {
-  display: inline-block; min-width: 8px; font-size: 8px; line-height: 1;
-  color: var(--series-1);
+/* The heading has to look like a control before anyone tries it. */
+.th-sort:hover { background: var(--hover-wash); }
+
+.sort-mark { flex: none; }
+.sort-mark path {
+  fill: currentColor;
+  /* Faint on every column: enough to say "these sort", not enough to compete
+     with the heading it sits beside. */
+  opacity: 0.28;
+  transition: opacity var(--dur-fast) ease, fill var(--dur-fast) ease;
 }
-.sort-mark.is-active { opacity: 1; }
+.th-sort:hover .sort-mark path { opacity: 0.5; }
+.sort-mark path.is-on { fill: var(--series-1); opacity: 1; }
+
+/* -------------------------------------------------------------- the log -- */
+
+/*
+ * Who last touched a ticket, and the whole trail behind it. Two lines in a
+ * narrow cell: the number of changes, which is what the eye scans for, and the
+ * person and time, which is what it stops on.
+ */
+.log-cell { white-space: nowrap; }
+.log-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 9px 3px 5px; cursor: pointer;
+  border: 1px solid var(--control-border); border-radius: var(--radius-pill);
+  background: var(--control-bg); color: var(--text-secondary);
+  font: inherit; font-size: 11.5px;
+}
+.log-btn:hover { border-color: var(--baseline); color: var(--text-primary); }
+.log-count {
+  display: grid; place-items: center; min-width: 19px; height: 19px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--series-1) 18%, transparent);
+  color: var(--series-1); font-weight: 700; font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.log-meta { color: var(--text-muted); }
+
+.log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+/* A rule between entries rather than cards: this is a sequence, and boxes would
+   make each change look like an item in its own right. */
+.log-entry {
+  display: grid; gap: 3px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--gridline);
+}
+.log-entry:last-child { border-bottom: none; }
+.log-when {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 11px; color: var(--text-muted);
+}
+.log-when strong { font-size: 12.5px; color: var(--text-primary); font-weight: 650; }
+.log-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 13px; }
+.log-field {
+  font-size: 10px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.log-change { color: var(--text-secondary); }
+.log-change s { color: var(--text-muted); text-decoration-thickness: 1px; }
+.log-change b { color: var(--text-primary); font-weight: 620; }
 
 /* The grid is wider than any screen, so the one column that identifies the row
    stays put while the rest scrolls under it. Without this you lose track of
@@ -1929,6 +1988,18 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .sidenav-list::-webkit-scrollbar { display: none; }
   .sidenav-item { border-radius: var(--radius-pill); padding: 8px 14px; }
   .sidenav-item svg, .sidenav-collapse { display: none; }
+
+  /*
+   * There is no collapsed state here, and saying so has to be explicit.
+   *
+   * `is-rail` is remembered across widths, and on this strip it hides the
+   * labels while the rule above hides the icons — which leaves six two-pixel
+   * buttons and an empty rounded box where the navigation should be. It reads
+   * as a stray input field above the filters, which is exactly what it was
+   * reported as. A strip is already as small as this gets.
+   */
+  .sidenav.is-rail .sidenav-label { display: block; }
+  .sidenav.is-rail .sidenav-item { justify-content: flex-start; padding: 8px 14px; }
 }
 
 /* ============================================================ filter drawer == */
@@ -1944,6 +2015,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
    which is most of the time, because the default range is the one people want. */
 .filters {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  /* On a phone this is the whole screen rather than a drawer with a finger's
+     width of dashboard showing beside it — that sliver is not usable, and a
+     panel that nearly covers the page while still showing it reads as two
+     things overlapping rather than one thing opening. */
   width: min(360px, 100vw);
   display: block;
   overflow-y: auto;
@@ -1964,6 +2039,30 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .filters .field-presets { margin-bottom: 18px; }
 .filters .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .filters .preset { text-align: center; }
+
+/*
+ * On a phone the drawer is the whole screen.
+ *
+ * At 360px over a 375px viewport it left fifteen pixels of dashboard down one
+ * side — too narrow to read, too wide to ignore, and the result reads as two
+ * things overlapping rather than one thing opening. This block sits after the
+ * drawer's own rule rather than up in the mobile section, because they carry
+ * equal specificity and the later one wins.
+ */
+@media (max-width: 860px) {
+  .filters {
+    width: 100vw;
+    border-left: none;
+    /* `dvh`, because the phone's browser chrome takes a bite out of `vh` and the
+       last control ends up underneath it. */
+    height: 100dvh;
+  }
+  /* A native date input's intrinsic width is wider than half a phone, and a grid
+     track will not shrink below it unless told. */
+  .field-pair .field,
+  .field-pair .field select,
+  .field-pair .field input { min-width: 0; }
+}
 
 /* =================================================== section colour + motion == */
 

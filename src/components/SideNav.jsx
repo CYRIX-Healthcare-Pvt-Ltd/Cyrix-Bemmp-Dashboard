@@ -26,7 +26,13 @@ const KEY = 'bemmp-nav-collapsed';
  * Matched to the shell's own grid: `--nav-w` is 208px and the working column
  * needs roughly 900px before a table stops scrolling sideways.
  */
-const AUTO_COLLAPSE_BELOW = '(max-width: 1180px)';
+/*
+ * A range, not a ceiling. Below 860px there is no rail at all — the sections
+ * become a horizontal strip — so collapsing there means nothing, and worse, the
+ * flag is remembered: a phone that picked it up rendered a strip with its labels
+ * hidden and its icons already hidden, which is to say an empty box.
+ */
+const AUTO_COLLAPSE_BELOW = '(min-width: 861px) and (max-width: 1180px)';
 
 /** One 24px stroke icon per tab, in the same visual weight as the rest of the UI. */
 const ICONS = {

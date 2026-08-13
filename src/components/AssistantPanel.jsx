@@ -196,6 +196,9 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
         tools: [QUERY_TOOL, CHAT_TOOL],
         session,
         history,
+        // Andhra has no rate card, so "penalty" has to stay the call count there
+        // — there is no rupee figure to give instead.
+        hasRateCard: Boolean(ds.meta.penaltyRates),
       });
 
       /*

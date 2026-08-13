@@ -906,12 +906,29 @@ export default function App() {
             </div>
 
             {callView === TRACKER ? (
+              /*
+               * The whole open backlog, not the selected month.
+               *
+               * `undatedIdx` rather than `idx`: a call logged in October with no
+               * resolved date is still open in July and still on the meeting's
+               * agenda, but a logged-date window drops it — and the ones it drops
+               * are the oldest, which is to say the most overdue and the most
+               * expensive. On the Kerala export the month view showed 724 of 807.
+               * The dimension filters still apply; only the date window is lifted,
+               * exactly as it is for penalty accrual.
+               *
+               * Open only, not everything without a resolved date: parked calls
+               * carry a Ticket Remark putting them outside service scope, they
+               * accrue no penalty at all, and there are ten of them for every open
+               * one — enough to bury the agenda in rows that cost nothing.
+               */
               <MeetingTab
                 key={`tracker-${stateId}`}
                 ds={ds}
-                rows={rowsInBucket(ds, idx, BUCKET.OPEN)}
+                rows={rowsInBucket(ds, undatedIdx, BUCKET.OPEN)}
                 referenceDay={referenceDay}
                 canEdit={canEditMeeting(profile)}
+                myCode={profile?.code}
                 onSelectRow={setDrawerRow}
               />
             ) : (

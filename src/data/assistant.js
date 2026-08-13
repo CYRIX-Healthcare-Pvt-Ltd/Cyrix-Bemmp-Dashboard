@@ -74,7 +74,8 @@ export const MEASURES = {
   },
   penalty: {
     label: 'Penalty calls',
-    describe: 'open calls that have passed their SLA window',
+    describe: 'HOW MANY open calls have passed their SLA window — a count, not money. '
+      + 'Only for "how many penalty calls"; bare "penalty" means rupees, use perDayPenalty',
     kind: 'count',
     rows: (ds, idx, ctx) => penaltyRows(ds, idx, ctx.referenceDay),
     format: int,
@@ -117,7 +118,8 @@ export const MEASURES = {
   },
   perDayPenalty: {
     label: 'Per-day penalty',
-    describe: 'rupees accruing each day on open tickets past their grace window',
+    describe: 'RUPEES accruing each day on open tickets past their grace window. '
+      + 'This is what "penalty" means unqualified — what the backlog is costing',
     kind: 'sum',
     needsRateCard: true,
     rows: (ds, idx, ctx) => accruingRows(ds, ctx.undatedIdx, ctx.dayFrom, ctx.dayTo),
@@ -467,6 +469,42 @@ export function applyPolarity(spec, question) {
   if (WORST.test(question)) return { ...spec, order: worstOrder };
   if (BEST.test(question)) return { ...spec, order: FLIP[worstOrder] };
   return spec;
+}
+
+/**
+ * "Penalty" on its own means money.
+ *
+ * There are three penalty measures — a count of breaching calls, the rupees
+ * accruing per day, and the rupees settled on closure — and the model reaches
+ * for the count, because `penalty` is the shortest name in the list. So "which
+ * district has the highest penalty" came back as "Thiruvananthapuram, 11", which
+ * is a number of calls presented where a figure in rupees was asked for. The
+ * business asks this question about cost; a call count is what you get when you
+ * ask for penalty *calls*.
+ *
+ * Corrected here rather than by asking the model more nicely, for the same
+ * reason as `applyPolarity`: a convention this specific is not something to
+ * re-litigate with a language model on every turn.
+ *
+ * Two things hold it back. A question that names the count keeps the count —
+ * that is the "if I specify then ok" case. And a contract with no rate card
+ * keeps it too: Andhra has none, and swapping the measure there turns a real
+ * answer into "no rate card, this cannot be calculated".
+ */
+const COUNTS = new RegExp([
+  'how many', 'no\\.? of', 'number of', '\\bcount\\b',
+  '\\bcalls?\\b', '\\btickets?\\b', '\\bcases?\\b', '\\bjobs?\\b',
+  // The question is often asked in the language it is thought in.
+  'എത്ര', 'കോള', 'कितने', 'एत्रे', 'எத்தனை', 'ఎన్ని', 'ಎಷ್ಟು',
+].join('|'), 'i');
+
+/** Closure is the other money measure — settled rather than accruing. */
+const CLOSURE = /closur|closed|settl|\bpaid\b|recover/i;
+
+export function resolvePenaltyMeasure(spec, question, hasRateCard) {
+  if (spec?.measure !== 'penalty' || !question || !hasRateCard) return spec;
+  if (COUNTS.test(question)) return spec;
+  return { ...spec, measure: CLOSURE.test(question) ? 'closurePenalty' : 'perDayPenalty' };
 }
 
 /* ---------------------------------------------------------------- runner --- */

@@ -13,7 +13,7 @@
  * shared key given away.
  */
 
-import { applyPolarity } from './assistant.js';
+import { applyPolarity, resolvePenaltyMeasure } from './assistant.js';
 import { supabase } from './supabase.js';
 
 /**
@@ -151,7 +151,9 @@ friendly line rather than guessing. Never invent figures there.`;
  * Turns a question into a query spec. Only the question and the fixed tool schema
  * are sent — no ticket rows, no dictionaries, no figures.
  */
-export async function planQuery({ question, context, tools, session, history = [] }) {
+export async function planQuery({
+  question, context, tools, session, history = [], hasRateCard = false,
+}) {
   const body = {
     model: session.model || DEFAULT_MODEL,
     temperature: 0.3,
@@ -183,9 +185,18 @@ export async function planQuery({ question, context, tools, session, history = [
     throw new Error('The model returned a malformed query.');
   }
 
-  return call.function.name === 'reply_conversationally'
-    ? { kind: 'chat', reply: args.reply }
-    : { kind: 'query', spec: applyPolarity(disambiguateMonthYear(args, question), question) };
+  if (call.function.name === 'reply_conversationally') return { kind: 'chat', reply: args.reply };
+
+  /*
+   * Three corrections, applied in this order and all after the model has spoken.
+   * Each fixes a convention the model reads the common way rather than the way
+   * this business does; see the notes on each. Polarity runs last because it
+   * depends on which measure the spec ended up with.
+   */
+  let spec = disambiguateMonthYear(args, question);
+  spec = resolvePenaltyMeasure(spec, question, hasRateCard);
+  spec = applyPolarity(spec, question);
+  return { kind: 'query', spec };
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];

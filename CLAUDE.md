@@ -323,6 +323,15 @@ resolves the question's quality word against it after the model replies — the 
 after-the-fact correction pattern as `disambiguateMonthYear`. It fires only on a quality
 word, so "the highest average resolution time" states its own direction and is left alone.
 
+**"Penalty" on its own means money.** There are three penalty measures and the model reaches
+for `penalty` — the call count — because it has the shortest name, so "which district has
+the highest penalty" answered "Thiruvananthapuram, 11", a number of calls where a figure in
+rupees was asked for. `resolvePenaltyMeasure` swaps it to `perDayPenalty` after the model
+replies, matching the Penalty ₹ tab's own default. Two things hold it back: a question that
+names the count keeps the count ("how many penalty **calls**", and the equivalents in the
+five languages), and a contract with no rate card keeps it too — Andhra has none, so
+swapping there would turn a real answer into "this cannot be calculated".
+
 Engineer labels go through `parseEngineer` before display, or the answer reads a phone
 number aloud.
 
@@ -474,7 +483,32 @@ repeat the tiles above themselves.
 form the meeting works through them — which is why it is a sub-tab rather than a tab of its
 own. `callView` is either a bucket id or the `TRACKER` string, and `TRACKER` is a string
 precisely so it can never collide with a bucket. The tracker only appears for accounts that
-may edit it, and the global filter bar applies to it exactly as to every other view.
+may edit it.
+
+**The tracker is the one view the date window does not apply to.** It takes `undatedIdx`,
+for the same reason penalty accrual does: a call logged in October with no resolved date is
+still open in August and still on the meeting's agenda, but a logged-date window drops it —
+and the ones it drops are the oldest, which is to say the most overdue and the most
+expensive. On the Kerala export the default month view showed **639 of 931**, hiding 292
+open calls, the oldest logged 28 Oct 2025. The dimension filters still apply; only the date
+range is lifted, and the caption says so, because a count that disagrees with the "This
+month" summary above it otherwise reads as a fault.
+
+It stays **open only**, not everything without a resolved date. Parked calls carry a Ticket
+Remark putting them outside service scope, they accrue no penalty at all, and Kerala has
+7,525 of them against 931 open — enough to bury the agenda ten to one in rows that cost
+nothing.
+
+**The log column** surfaces `meeting_note_history`, which the audit trigger has been writing
+since 0001 and which nothing had ever shown. It reaches it through two `security definer`
+functions rather than the table directly, for one reason: `changed_by` is a uuid, and
+`profile` is readable only for your own row, so a coordinator cannot resolve a colleague's
+id to a name. `meeting_log_summary` returns a count and the last author per ticket for the
+whole tab at once — a summary, because nine hundred tickets' full history is not something
+to fetch to draw a column — and `meeting_log` returns one ticket's entries on demand. Both
+re-check `in_scope` themselves, since a definer function bypasses the policy that would
+otherwise have done it. A save advances the count locally instead of refetching, or the
+meeting would issue a request per field typed.
 
 The tracker carries its own **search and sort** on top of that bar, because the two answer
 different questions: the bar decides which calls reach the tab, the search finds the one

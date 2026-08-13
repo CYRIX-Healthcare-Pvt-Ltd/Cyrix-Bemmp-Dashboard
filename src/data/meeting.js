@@ -117,6 +117,42 @@ export async function ensureRows(state, tickets) {
 }
 
 /**
+ * How much has been recorded against each ticket on screen, and by whom last.
+ *
+ * A summary rather than the entries themselves: the tracker carries the whole
+ * open backlog — nine hundred calls on Kerala — and their full history is not
+ * something to fetch in order to draw a column. The entries come on demand.
+ *
+ * Goes through an RPC because `changed_by` is a uuid and `profile` is readable
+ * only for your own row. The function resolves it to a code and hands back
+ * nothing else.
+ */
+export async function loadLogSummary(state, tickets) {
+  if (!supabase || !tickets.length) return new Map();
+  const out = new Map();
+  for (let i = 0; i < tickets.length; i += IN_CHUNK) {
+    const { data, error } = await supabase.rpc('meeting_log_summary', {
+      p_state: state,
+      p_tickets: tickets.slice(i, i + IN_CHUNK),
+    });
+    if (error) throw error;
+    for (const row of data ?? []) out.set(row.ticket, row);
+  }
+  return out;
+}
+
+/** Every recorded change to one ticket, newest first. */
+export async function loadLog(state, ticket) {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('meeting_log', {
+    p_state: state,
+    p_ticket: ticket,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
  * Reconciles yesterday against today.
  *
  * Anything still open keeps its notes and has `last_seen` moved forward.

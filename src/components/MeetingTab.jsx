@@ -2,8 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
 import { supabase } from '../data/supabase.js';
 import {
-  DETAIL_FIELDS, PRIMARY_FIELDS, ensureRows, loadNotes, reconcileOpen, saveField,
+  DETAIL_FIELDS, MEETING_FIELDS, PRIMARY_FIELDS, ensureRows, loadLog, loadLogSummary,
+  loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
+
+/** Column keys are database names; the log has to read like the form does. */
+const FIELD_LABEL = Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, f.label]));
+
+/** Date and time together — "who changed it when" is not answerable by a date. */
+const stamp = (iso) => new Date(iso).toLocaleString('en-IN', {
+  day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+});
+
+const shortStamp = (iso) => new Date(iso).toLocaleString('en-IN', {
+  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+});
 
 /**
  * The daily penalty meeting.
@@ -156,6 +169,99 @@ function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitl
   );
 }
 
+/**
+ * Everything ever recorded against one ticket, newest first.
+ *
+ * The trigger has been writing this since the schema was created — column,
+ * before, after, who, when — and nothing had ever shown it. A meeting that
+ * carries money needs to be able to answer "who put that there, and when",
+ * including when the answer is that somebody cleared a field.
+ */
+function LogDialog({ state, ticket, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    loadLog(state, ticket)
+      .then((r) => { if (live) setRows(r); })
+      .catch((e) => { if (live) { setError(e.message); setRows([]); } });
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      live = false;
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [state, ticket, onClose]);
+
+  return (
+    <div className="modal-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={`History for ticket ${ticket}`}>
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">Ticket {ticket}</span>
+            <h2>Entry history</h2>
+            <p className="caption">
+              Every change to this ticket&rsquo;s meeting entries, newest first.
+            </p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {error && <p className="upload-error">{error}</p>}
+          {!rows && <div className="loader" aria-hidden="true" />}
+          {rows && rows.length === 0 && (
+            <p className="empty">Nothing has been entered against this ticket yet.</p>
+          )}
+          {rows && rows.length > 0 && (
+            <ol className="log-list">
+              {rows.map((r) => (
+                <li key={r.id} className="log-entry">
+                  <div className="log-when">
+                    <strong>{r.changed_by_code ?? 'System'}</strong>
+                    <span>{stamp(r.changed_at)}</span>
+                  </div>
+                  <div className="log-what">
+                    <span className="log-field">{FIELD_LABEL[r.column_name] ?? r.column_name}</span>
+                    {/* Cleared and set are different events and must not both
+                        render as an arrow into nothing. */}
+                    {r.new_value == null ? (
+                      <span className="log-change">
+                        cleared <s>{r.old_value}</s>
+                      </span>
+                    ) : (
+                      <span className="log-change">
+                        {r.old_value != null && <><s>{r.old_value}</s> → </>}
+                        <b>{r.new_value}</b>
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="modal-foot">
+          <p className="caption">
+            {rows ? `${rows.length} change${rows.length === 1 ? '' : 's'} recorded` : ' '}
+          </p>
+          <button type="button" className="modal-done" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Column definitions for the read-only half, so the header and the body cannot
  *  drift apart when one of them is conditional. */
 function exportColumns(hasZone) {
@@ -170,7 +276,7 @@ function exportColumns(hasZone) {
   ];
 }
 
-export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRow }) {
+export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRow, myCode }) {
   const { cols, dict } = ds;
   const state = ds.meta.id;
   const hasZone = dict.zone.length > 0;
@@ -179,6 +285,8 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
   const [types, setTypes] = useState([]);
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [log, setLog] = useState(null);
+  const [logs, setLogs] = useState(new Map());
   const [sync, setSync] = useState(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState(null); // { key, dir } — null keeps the export's order
@@ -223,6 +331,9 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
       setTypes((list.data ?? []).map((r) => r.name));
       if (canEdit) setSync(await reconcileOpen(state, ids));
       setNotes(await loadNotes(state, ids));
+      // After the grid can render, not before: the log column is useful but it
+      // is not what anybody opened this tab for.
+      loadLogSummary(state, ids).then(setLogs).catch(() => setLogs(new Map()));
     } catch (e) {
       setError(e.message);
       setNotes(new Map());
@@ -234,7 +345,25 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
   const commit = useCallback((ticket, key) => async (value) => {
     const updated = await saveField(state, ticket, key, value);
     setNotes((prev) => new Map(prev).set(ticket, updated));
-  }, [state]);
+    /*
+     * The trigger has just written a history row, so the count beside this ticket
+     * is now one short. Advanced locally rather than re-fetched: the write
+     * succeeded, so what it did is known, and refetching the summary for the
+     * whole tab after every field somebody types would be a request per keystroke
+     * of the meeting.
+     */
+    setLogs((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(ticket);
+      next.set(ticket, {
+        ticket,
+        entries: Number(cur?.entries ?? 0) + 1,
+        last_at: new Date().toISOString(),
+        last_by: myCode ?? cur?.last_by ?? null,
+      });
+      return next;
+    });
+  }, [state, myCode]);
 
   /*
    * Search then sort, both over the same list.
@@ -290,8 +419,13 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
         <div className="panel-head">
           <div>
             <h2>Daily penalty meeting</h2>
+            {/* Says "every date" out loud, because the filter bar above this may
+                well read "This month" — and a count that disagrees with the
+                filter summary next to it looks like a fault rather than a
+                decision. The oldest calls are the point of the meeting. */}
             <p className="caption">
-              {rows.length.toLocaleString()} open calls as of {formatDay(referenceDay)}.
+              {rows.length.toLocaleString()} open calls as of {formatDay(referenceDay)}
+              {' '}— the whole backlog, every date, not just the selected range.
               {' '}Entries save as you leave each field and carry over to tomorrow.
               {sync?.closed ? ` ${sync.closed.toLocaleString()} closed since the last export.` : ''}
             </p>
@@ -333,6 +467,12 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
             <span className="meeting-count">
               {visible.length.toLocaleString()} of {records.length.toLocaleString()}
             </span>
+          )}
+
+          {/* Said once, and only until it has been used — a permanent
+              instruction on a screen people work in every day is furniture. */}
+          {!sort && (
+            <span className="meeting-hint">Select any column heading to sort</span>
           )}
 
           {(query || sort) && (
@@ -381,6 +521,7 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                   </th>
                 ))}
                 <th />
+                <th>Log</th>
               </tr>
             </thead>
             <tbody>
@@ -423,6 +564,28 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                         More
                       </button>
                     </td>
+                    {/* Who last touched this ticket and when, with the full
+                        trail a click away. A ticket nobody has written against
+                        says so rather than offering an empty dialog. */}
+                    <td className="log-cell">
+                      {(() => {
+                        const l = logs.get(r.ticket);
+                        if (!l) return <span className="money-nil">—</span>;
+                        return (
+                          <button
+                            type="button"
+                            className="log-btn"
+                            onClick={() => setLog(r.ticket)}
+                            title={`${l.entries} change${Number(l.entries) === 1 ? '' : 's'} · last by ${l.last_by ?? 'system'}`}
+                          >
+                            <span className="log-count">{l.entries}</span>
+                            <span className="log-meta">
+                              {l.last_by ?? 'system'} · {shortStamp(l.last_at)}
+                            </span>
+                          </button>
+                        );
+                      })()}
+                    </td>
                   </tr>
                 );
               })}
@@ -448,17 +611,30 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
           onClose={() => setDetail(null)}
         />
       )}
+
+      {log && <LogDialog state={state} ticket={log} onClose={() => setLog(null)} />}
     </div>
   );
 }
 
-/** A caret that only appears on the sorted column — an arrow on every header is
- *  six arrows saying nothing. */
+/**
+ * The pair of arrows every sortable heading carries.
+ *
+ * It used to appear only on the column already sorted, on the argument that six
+ * arrows say nothing — which was wrong in the way that matters: with no mark at
+ * all, nobody could tell the headings were controls, so the sort went unused.
+ * Both arrows faint means "this sorts"; one lit means "this is the sort, this
+ * way". The unlit half stays visible so the lit one reads as a direction rather
+ * than as decoration.
+ */
 function SortMark({ active, dir }) {
-  if (!active) return <span className="sort-mark" aria-hidden="true" />;
   return (
-    <span className="sort-mark is-active" aria-hidden="true">
-      {dir === 'asc' ? '▲' : '▼'}
-    </span>
+    <svg
+      className={`sort-mark${active ? ' is-active' : ''}`}
+      viewBox="0 0 8 13" width="8" height="13" aria-hidden="true"
+    >
+      <path className={active && dir === 'asc' ? 'is-on' : undefined} d="M4 0.5 7.2 4.6H0.8Z" />
+      <path className={active && dir === 'desc' ? 'is-on' : undefined} d="M4 12.5 0.8 8.4H7.2Z" />
+    </svg>
   );
 }
