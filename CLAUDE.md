@@ -305,7 +305,11 @@ shapes, `CODE - Engineer Name - phone` and `ABC - District - DI USER ID - phone`
 
 ## Assistant
 
-`AssistantPanel` answers plain-language questions, by voice or text, in six languages.
+`AssistantPanel` is **Cyra**, and answers plain-language questions, by voice or text, in
+six languages. She is given the **whole conversation**, not a trailing window — four
+messages was enough for "and for Palakkad?" and nothing else, so a district discussed three
+turns ago was already forgotten. `HISTORY_LIMIT` caps the stored thread at forty turns and
+the bin button clears it; nothing else expires it.
 
 **The model never sees ticket data.** It receives only the question and the fixed
 `QUERY_TOOL` schema, and returns a small JSON spec — measure, dimension, order, limit,
@@ -485,6 +489,19 @@ it costs nothing when closed, which is most of the time.
 **Tabs**: `Dashboard` carries the KPI grid, the chart and the breakdowns — everything that
 answers "how is the contract doing". The rest are working surfaces and deliberately do not
 repeat the tiles above themselves.
+
+`Penalty` holds three sub-tabs over one backlog: `Per-day penalty`, `Penalty calls`,
+`Closure penalty`. Penalty calls used to be a section of its own, which asked the same
+question twice — a per-day figure *is* that backlog counted in rupees, and reading either
+without the other is how a handful of expensive calls hides behind a crowd of cheap ones.
+The calls view carries `money: false`, which is also what lets Andhra show it: it needs no
+rate card, so it is the one penalty view that works there.
+
+**A KPI tile takes the colour of the section it opens**, from the same `--nav-*` token that
+section's rail icon uses — not a copy of it. Press the amber tile, land on the amber
+section. The accent rail on the tile's left edge reads from the same token and lights on
+hover; the icon square carries the colour at rest, so both lit at all times would be the
+same fact stated twice.
 
 `Open calls` holds three sub-tabs over the same backlog: `Open`, `Unresolved`, and
 `Ticket tracker`. The tracker is the daily penalty meeting — the same open rows, in the

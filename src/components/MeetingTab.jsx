@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
 import { supabase } from '../data/supabase.js';
 import {
-  DETAIL_FIELDS, MEETING_FIELDS, PRIMARY_FIELDS, ensureRows, loadLog,
-  loadNotes, reconcileOpen, saveField,
+  MEETING_FIELDS, ensureRows, loadLog, loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
 
 /** Column keys are database names; the log has to read like the form does. */
@@ -103,15 +102,15 @@ function Cell({ value, kind, options, disabled, onCommit }) {
 }
 
 /**
- * The twenty-one purchasing fields, over the grid rather than inside it.
+ * Everything the meeting records against a ticket — all twenty-three fields.
  *
- * As an expanded row they were a form wearing a table's clothes: a `colSpan`
- * cell whose contents had no relationship to the columns above them, pushing
- * every other row down the page and leaving the ticket it belonged to scrolled
- * out of sight. Lifted out, the form is a form, and the row it came from is
- * still where it was when it closes.
+ * Two of them used to sit in the grid as live inputs. That put a dropdown and a
+ * free-text box on every one of nine hundred rows, which is a lot of controls to
+ * scroll past to reach the ticket you want, and it pushed the columns that
+ * identify the row off the side of the screen. The grid now identifies calls;
+ * this form changes them.
  */
-function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle }) {
+function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -143,14 +142,14 @@ function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitl
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Purchase detail for ticket ${ticket}`}
+        aria-label={`Meeting entry for ticket ${ticket}`}
         ref={ref}
         tabIndex={-1}
       >
         <div className="modal-head">
           <div>
             <span className="eyebrow">Ticket {ticket}</span>
-            <h2>Purchase and spare detail</h2>
+            <h2>Meeting entry</h2>
             {subtitle && <p className="caption">{subtitle}</p>}
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -162,8 +161,11 @@ function DetailDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitl
         </div>
 
         <div className="modal-body">
+          {/* Penalty type and current status lead, because they are the two the
+              meeting fills on almost every ticket — 99% and 27% of the source
+              sheet, against under 3% for everything below them. */}
           <div className="modal-grid">
-            {DETAIL_FIELDS.map((f) => (
+            {MEETING_FIELDS.map((f) => (
               <label key={f.key} className="field">
                 <span>{f.label}</span>
                 <Cell
@@ -387,25 +389,14 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
       : records;
 
     if (sort) {
-      const noteKey = !columns.some((c) => c.key === sort.key);
       const dir = sort.dir === 'asc' ? 1 : -1;
       const col = columns.find((c) => c.key === sort.key);
-      list = [...list].sort((a, b) => {
-        if (noteKey) {
-          // Blank entries sort last in both directions: they are the rows with
-          // nothing decided yet, and floating them to the top of a descending
-          // sort would bury the ones that do carry an answer.
-          const av = notes?.get(a.ticket)?.[sort.key] ?? '';
-          const bv = notes?.get(b.ticket)?.[sort.key] ?? '';
-          if (!av !== !bv) return av ? -1 : 1;
-          return av.localeCompare(bv) * dir;
-        }
-        if (col.type === 'num') return (a[sort.key] - b[sort.key]) * dir;
-        return String(a[sort.key]).localeCompare(String(b[sort.key])) * dir;
-      });
+      list = [...list].sort((a, b) => (col?.type === 'num'
+        ? (a[sort.key] - b[sort.key]) * dir
+        : String(a[sort.key]).localeCompare(String(b[sort.key])) * dir));
     }
     return list;
-  }, [records, query, sort, notes, columns]);
+  }, [records, query, sort, columns]);
 
   const toggleSort = (key) => setSort((s) => {
     if (s?.key !== key) return { key, dir: 'asc' };
@@ -513,20 +504,6 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                     </button>
                   </th>
                 ))}
-                {PRIMARY_FIELDS.map((f) => (
-                  <th
-                    key={f.key}
-                    className="meeting-edit"
-                    aria-sort={sort?.key === f.key
-                      ? (sort.dir === 'asc' ? 'ascending' : 'descending')
-                      : 'none'}
-                  >
-                    <button type="button" className="th-sort" onClick={() => toggleSort(f.key)}>
-                      {f.label}
-                      <SortMark active={sort?.key === f.key} dir={sort?.dir} />
-                    </button>
-                  </th>
-                ))}
                 <th />
                 <th>Log</th>
               </tr>
@@ -551,24 +528,16 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                         ? `₹${r.rate.toLocaleString('en-IN')}/d`
                         : <span className="money-nil">—</span>}
                     </td>
-                    {PRIMARY_FIELDS.map((f) => (
-                      <td key={f.key} className="meeting-edit">
-                        <Cell
-                          value={note?.[f.key]}
-                          kind={f.kind}
-                          options={types}
-                          disabled={!canEdit}
-                          onCommit={commit(r.ticket, f.key)}
-                        />
-                      </td>
-                    ))}
                     <td>
+                      {/* Named for what it does. "More" said there was extra
+                          reading somewhere; this is the button you press to
+                          record what the meeting just decided. */}
                       <button
                         type="button"
-                        className="row-more"
+                        className={`row-more${note ? ' has-entry' : ''}`}
                         onClick={() => setDetail(r.ticket)}
                       >
-                        More
+                        {canEdit ? 'Update entry' : 'View entry'}
                       </button>
                     </td>
                     {/* One label on every row. Carrying the count and the last
@@ -597,7 +566,7 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
       </div>
 
       {detail && (
-        <DetailDialog
+        <EntryDialog
           ticket={detail}
           note={notes.get(detail)}
           types={types}

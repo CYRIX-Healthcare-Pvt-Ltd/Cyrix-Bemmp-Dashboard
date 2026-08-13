@@ -37,8 +37,7 @@ const AUTO_COLLAPSE_BELOW = '(min-width: 861px) and (max-width: 1180px)';
 /** One 24px stroke icon per tab, in the same visual weight as the rest of the UI. */
 const ICONS = {
   dashboard: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
-  calls: <><path d="M4 5h16M4 12h16M4 19h9" /></>,
-  penalty: <><path d="M12 4l9 16H3l9-16Z" /><path d="M12 10v4M12 17v.5" /></>,
+  calls: <><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M7.5 9h9M7.5 13h6" /></>,
   repeats: <><path d="M4 10a6 6 0 0 1 6-6h7" /><path d="M14 1.5 17.5 4 14 6.5" /><path d="M20 14a6 6 0 0 1-6 6H7" /><path d="M10 17.5 6.5 20 10 22.5" /></>,
   performance: <><path d="M3 17l5-6 4 4 5-8 4 5" /></>,
   money: <><path d="M7 5h10M7 9h10M8 5c4 0 6 1.6 6 4s-2 4-6 4h-1l7 6" /></>,

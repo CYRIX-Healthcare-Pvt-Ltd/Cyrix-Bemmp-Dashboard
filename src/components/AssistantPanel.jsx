@@ -47,11 +47,11 @@ function saveHistory(stateId, entries) {
 }
 
 const SUGGESTIONS = [
-  'Which district has the highest FTFR?',
+  'Which district has the highest penalty?',
+  'Why is Kannur so bad?',
   'Top 5 equipment by repeat calls',
   'Which engineer has the slowest resolution time?',
-  'How many penalty calls are open right now?',
-  'Per-day penalty by district',
+  'FTFR by zone this month',
 ];
 
 /**
@@ -183,12 +183,22 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
     setBusy(true);
 
     try {
-      // Recent turns give the model enough thread to handle "and for Palakkad?"
-      // without re-reading the whole conversation.
-      const history = entries.slice(-4).flatMap((e) => ([
+      /*
+       * The whole conversation, not the last two exchanges.
+       *
+       * Four messages was enough for "and for Palakkad?" and nothing more — ask
+       * about a district, discuss it for a few turns, then say "compare that to
+       * last month" and the district was already forgotten. The thread is what
+       * makes it feel like talking to someone, so it lasts until the bin button
+       * clears it.
+       *
+       * It costs little: these are one-line sentences, and `HISTORY_LIMIT` caps
+       * the stored conversation at forty turns regardless.
+       */
+      const history = entries.flatMap((e) => ([
         { role: 'user', content: e.question },
         { role: 'assistant', content: e.sentence || e.reply || e.error || '' },
-      ]));
+      ])).filter((m) => m.content);
 
       const plan = await planQuery({
         question: trimmed,
@@ -243,11 +253,23 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} role="presentation" />
-      <aside className="assistant" role="dialog" aria-modal="true" aria-label="Ask the data">
+      <aside className="assistant" role="dialog" aria-modal="true" aria-label="Cyra, the dashboard assistant">
         <header className="assistant-head">
-          <div>
-            <div className="drawer-eyebrow">Assistant</div>
-            <h2>Ask the data</h2>
+          <div className="assistant-id">
+            {/* A mark rather than a stock chat bubble. Two arcs, like a signal
+                being read — and it takes the page's own blue, so Cyra belongs to
+                the dashboard rather than sitting on top of it. */}
+            <span className="cyra-mark" aria-hidden="true">
+              <svg viewBox="0 0 28 28" width="22" height="22" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round">
+                <path d="M19.5 8.2a7.5 7.5 0 1 0 0 11.6" />
+                <path d="M23 11.5v5" opacity="0.55" />
+              </svg>
+            </span>
+            <div>
+              <h2>Cyra</h2>
+              <div className="assistant-sub">{ds.meta.name} · remembers this chat</div>
+            </div>
           </div>
           <div className="drawer-head-right">
             {/* Sets the speech-recognition language only — the engine has to be
@@ -300,10 +322,16 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
         <div className="assistant-log" ref={logRef}>
           {entries.length === 0 && (
             <div className="assistant-empty">
+              <p className="assistant-hello">Hi — I&rsquo;m Cyra.</p>
               <p>
-                Ask about {ds.meta.name} in plain language, or tap the mic and speak —
-                Malayalam and the other languages in the picker all work. Answers come
-                back in English, computed here from the loaded data.
+                Ask me anything about {ds.meta.name} in plain language, or tap the mic
+                and speak — Malayalam, Tamil, Telugu, Hindi and Kannada all work. I keep
+                track of what we&rsquo;ve been discussing, so you can just say
+                &ldquo;and last month?&rdquo; and I&rsquo;ll follow.
+              </p>
+              <p className="caption">
+                Every figure is computed here from the loaded data, so nothing I quote
+                can disagree with the dashboard behind me.
               </p>
               <div className="suggestions">
                 {SUGGESTIONS.map((s) => (
@@ -352,7 +380,7 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
             onChange={(e) => setQuestion(e.target.value)}
             placeholder={unavailable
               ? 'Assistant not configured'
-              : (needsKey ? 'Add an OpenAI key to begin' : 'Ask about this contract…')}
+              : (needsKey ? 'Add an OpenAI key to begin' : 'Ask Cyra about this contract…')}
             disabled={busy || speech.listening || needsKey}
           />
           <button type="submit" className="ask" disabled={busy || !question.trim() || needsKey}>

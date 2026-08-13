@@ -52,7 +52,9 @@ const METRICS = [
   },
   {
     id: 'repeats', tab: 'Repeat calls', label: 'Repeat calls',
-    color: 'var(--series-2)', value: (d) => d.repeats,
+    // The same violet as the rail icon and the KPI tile. A measure that is one
+    // colour in the tile and another on the chart is two measures to the eye.
+    color: 'var(--series-5)', value: (d) => d.repeats,
     caption: 'Calls that were not the first on their asset, by period logged',
   },
   {
@@ -76,10 +78,12 @@ const GRANULARITIES = [
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'calls', label: 'Open calls' },
-  { id: 'penalty', label: 'Penalty calls' },
   { id: 'repeats', label: 'Repeat calls' },
   { id: 'performance', label: 'FTFR and Closure TAT' },
-  { id: 'money', label: 'Penalty ₹' },
+  // Penalty calls and penalty rupees are the same backlog counted two ways, so
+  // they are sub-tabs of one section rather than two sections asking the same
+  // question.
+  { id: 'money', label: 'Penalty' },
 ];
 
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -109,6 +113,22 @@ const MONEY = [
     format: (v) => `${inr(v)}/d`,
     subtitle: (n) => `${n.toLocaleString()} tickets`,
     caption: 'Penalty accruing each day, by Asset Value band (column AU)',
+  },
+  /*
+   * The calls the money is charged on, between the two rupee views rather than
+   * in a section of its own. They were separate tabs asking one question twice —
+   * a per-day figure is the same backlog counted in rupees, and reading one
+   * without the other is how a small number of expensive calls hides behind a
+   * large number of cheap ones.
+   *
+   * `money: false` marks it out: it needs no rate card, so it is the one penalty
+   * view Andhra can still show.
+   */
+  {
+    id: 'calls',
+    label: 'Penalty calls',
+    tab: 'Penalty calls',
+    money: false,
   },
   {
     id: 'closure',
@@ -772,7 +792,7 @@ export default function App() {
               penaltyDays={meta.penaltyDays}
               money={moneySummary}
               onOpenBucket={openBucket}
-              onOpenPenalty={() => setTab('penalty')}
+              onOpenPenalty={() => { setMoneyId('calls'); setTab('money'); }}
               onOpenRepeats={() => setTab('repeats')}
               onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
               onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
@@ -962,22 +982,6 @@ export default function App() {
           </>
         )}
 
-        {tab === 'penalty' && (
-          <DrillExplorer
-            key={`penalty-${stateId}`}
-            ds={ds}
-            rows={penalties}
-            referenceDay={referenceDay}
-            onSelectRow={setDrawerRow}
-            showAgeing
-            showPenaltyColumn
-            intro={(n) => (
-              `${n.toLocaleString()} penalty calls — open ${describeSla(meta.penaltyDays)}, `
-              + `measured as of ${formatDay(referenceDay)}. ${slaExample(meta.penaltyDays)}`
-            )}
-          />
-        )}
-
         {tab === 'performance' && (
           <>
             <div className="segmented-row">
@@ -1025,7 +1029,21 @@ export default function App() {
                 ))}
               </div>
             </div>
-            {!meta.penaltyRates ? (
+            {money.money === false ? (
+              <DrillExplorer
+                key={`penalty-${stateId}`}
+                ds={ds}
+                rows={penalties}
+                referenceDay={referenceDay}
+                onSelectRow={setDrawerRow}
+                showAgeing
+                showPenaltyColumn
+                intro={(n) => (
+                  `${n.toLocaleString()} penalty calls — open ${describeSla(meta.penaltyDays)}, `
+                  + `measured as of ${formatDay(referenceDay)}. ${slaExample(meta.penaltyDays)}`
+                )}
+              />
+            ) : !meta.penaltyRates ? (
               <div className="panel">
                 <h2>No rate card for {meta.name}</h2>
                 <p className="caption">
@@ -1094,13 +1112,13 @@ export default function App() {
         type="button"
         className="assistant-fab"
         onClick={() => setShowAssistant(true)}
-        aria-label="Ask the data"
+        aria-label="Ask Cyra"
       >
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.3-.6L3 21l1.8-5a8.3 8.3 0 0 1-.8-3.6 8.4 8.4 0 0 1 8.5-8.4 8.4 8.4 0 0 1 8.5 8.4Z" />
         </svg>
-        <span>Ask</span>
+        <span>Ask Cyra</span>
       </button>
 
       {showAssistant && (
