@@ -870,8 +870,16 @@ th {
 .tick { fill: var(--text-muted); font-size: 11px; }
 .gridline { stroke: var(--gridline); stroke-width: 1; }
 .axis { stroke: var(--baseline); stroke-width: 1; }
+/*
+ * No `stroke` here on purpose.
+ *
+ * The component sets it per metric, and a stylesheet declaration beats a
+ * presentation attribute — so this rule painted every line blue while the dots,
+ * the labels and the fill underneath took the metric's own colour. A green FTFR
+ * chart with a blue line through it.
+ */
 .trend-line {
-  fill: none; stroke: var(--series-1); stroke-width: 2;
+  fill: none; stroke-width: 2;
   stroke-linejoin: round; stroke-linecap: round;
 }
 .trend-line.draw {
@@ -881,7 +889,9 @@ th {
 @keyframes drawLine { to { stroke-dashoffset: 0; } }
 .trend-area { animation: fadeIn 1.2s 0.35s var(--ease) both; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.trend-marker { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+/* Same again: the fill is the metric's, set on the element. Only the ring that
+   lifts the dot off the line belongs here. */
+.trend-marker { stroke: var(--surface); stroke-width: 2; }
 .crosshair { stroke: var(--baseline); stroke-width: 1; stroke-dasharray: 3 3; }
 
 .tooltip {
