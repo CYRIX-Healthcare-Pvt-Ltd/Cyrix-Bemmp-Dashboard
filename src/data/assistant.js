@@ -444,9 +444,27 @@ function matchDictionary(values, text) {
 
   for (let i = 0; i < values.length; i++) {
     const hay = foldName(values[i]);
+
+    /*
+     * Values that fold away to nothing, and the near-nothing.
+     *
+     * The engineer column carries a literal "-  -", which folds to the empty
+     * string — and `needle.startsWith('')` is true for every needle, so that one
+     * entry won every engineer lookup before a real name was ever considered.
+     * Asking for Aswin returned it, and the answer was ₹0/day for "-  -".
+     *
+     * The length floor covers the same failure one step up: a two-character
+     * entry would otherwise claim every name beginning with those letters.
+     */
+    if (hay.length < 2) continue;
+
     if (hay === needle) return i;
-    if (starts < 0 && (hay.startsWith(needle) || needle.startsWith(hay))) starts = i;
-    if (contains < 0 && (hay.includes(needle) || needle.includes(hay))) contains = i;
+    if (starts < 0 && (hay.startsWith(needle) || (hay.length >= 3 && needle.startsWith(hay)))) {
+      starts = i;
+    }
+    if (contains < 0 && (hay.includes(needle) || (needle.includes(hay) && hay.length >= 4))) {
+      contains = i;
+    }
 
     const score = editDistance(needle, hay);
     if (score < bestScore) { bestScore = score; best = i; }
@@ -520,6 +538,27 @@ export function resolvePenaltyMeasure(spec, question, hasRateCard) {
   if (spec?.measure !== 'penalty' || !question || !hasRateCard) return spec;
   if (COUNTS.test(question)) return spec;
   return { ...spec, measure: CLOSURE.test(question) ? 'closurePenalty' : 'perDayPenalty' };
+}
+
+/**
+ * A "why" question needs a breakdown, or it just restates the number.
+ *
+ * "What is causing Aswin to have this much penalty" came back as a refusal until
+ * the prompt said otherwise, and then as a query with no dimension — which
+ * computes Aswin's total and answers "₹5,550/day", the figure that prompted the
+ * question. An explanation is the same measure, narrowed to the subject, split
+ * by something that varies underneath it.
+ *
+ * Equipment is the default split because it is the thing a service manager acts
+ * on: one analyser waiting on a spare is a different problem from twenty
+ * scattered calls. The model's own choice wins whenever it made one.
+ */
+const WHY = /\bwhy\b|what(?:'s| is| are)?\s+(?:causing|driving|behind)|reason|because of|due to/i;
+
+export function explainWhy(spec, question) {
+  if (!question || !WHY.test(question)) return spec;
+  if (spec?.dimension && spec.dimension !== 'none') return spec;
+  return { ...spec, dimension: 'equipment' };
 }
 
 /**
@@ -601,7 +640,16 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
     if (id < 0) {
       throw new Error(`I couldn't find "${spec.filterValue}" in ${spec.filterDimension}.`);
     }
-    appliedFilter = { dimension: spec.filterDimension, label: ds.dict[filterCol][id] };
+    /*
+     * Through `dimensionLabel`, like every other engineer label on the page.
+     * The raw value is `CYR181 - Aswin Ramachandran - 8301012759`, so without
+     * this the answer names a code and a mobile number — and the voice output
+     * reads the number out digit by digit.
+     */
+    appliedFilter = {
+      dimension: spec.filterDimension,
+      label: dimensionLabel(spec.filterDimension, ds.dict[filterCol][id]),
+    };
     /*
      * Anything `filterRows` knows how to narrow by goes through the engine;
      * the rest is filtered after the fact. Zone belongs in the first group — the

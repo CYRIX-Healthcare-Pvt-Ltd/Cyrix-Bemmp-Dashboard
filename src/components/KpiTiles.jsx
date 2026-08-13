@@ -130,7 +130,10 @@ export default function KpiTiles({
       />
       <Tile
         index={8} label="FTFR" accent="good" value={summary.ftfrPct} format={pct1}
-        note={`${summary.firstTimeFixes.toLocaleString()} fixed within ${FTFR_MAX_DAYS} day · drill in`}
+        /* Both halves of the fraction, so the percentage can be checked by hand
+           — and so the denominator being *logged* calls is visible rather than
+           something you have to know. */
+        note={`${summary.firstTimeFixes.toLocaleString()} of ${summary.ftfrLogged.toLocaleString()} logged, fixed within ${FTFR_MAX_DAYS} day · drill in`}
         onClick={() => onOpenPerformance('ftfr')}
       >
         <Ring pct={summary.ftfrPct} />

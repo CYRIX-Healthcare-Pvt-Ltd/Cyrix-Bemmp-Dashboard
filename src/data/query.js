@@ -9,14 +9,14 @@
  * scan the rows" is O(assets x rows) and will hang the tab.
  */
 import { BUCKET } from './store.js';
+import { FTFR_MAX_DAYS, ftfrWindowEnd, isFirstTimeFix } from '../../shared/schema.mjs';
 
 /**
- * First Time Fix Rate window, in days.
- *
- * A call logged today and resolved today or tomorrow counts as a first-time fix,
- * so the test is `resolvedDay - loggedDay <= 1`. Mirrored in scripts/build-data.mjs.
+ * First Time Fix Rate window, in days. A call logged today and resolved today or
+ * tomorrow counts as a first-time fix. Declared once in shared/schema.mjs, which
+ * is what the offline build reads too.
  */
-export const FTFR_MAX_DAYS = 1;
+export { FTFR_MAX_DAYS };
 
 /**
  * Penalty SLA lookup, as an array indexed by equipmentType dictionary id.
@@ -54,38 +54,13 @@ export function penaltyEligibleThrough(ds, referenceDay) {
   return referenceDay - shortest - 1;
 }
 
-const SUNDAY = 0;
-const MS_PER_DAY_ = 86400000;
-
-/** Day of week for an Excel serial, 0 = Sunday. */
-function weekday(serial) {
-  return new Date((serial - 25569) * MS_PER_DAY_).getUTCDay();
-}
-
-/**
- * The last day a call had to be resolved in to still count as a first-time fix.
- *
- * Normally logged + `FTFR_MAX_DAYS`, but Sunday is not a service day: a call
- * logged on Saturday still has Monday to be fixed on the next working day, and
- * one logged Sunday has Monday too.
+/*
+ * Both come from shared/schema.mjs, so the figure the offline build writes into
+ * meta.json and the figure this file computes in the browser cannot drift apart.
+ * Re-exported because the chart and the settled-through cutoff both import them
+ * from here.
  */
-export function ftfrWindowEnd(loggedDay) {
-  const end = loggedDay + FTFR_MAX_DAYS;
-  return weekday(end) === SUNDAY ? end + 1 : end;
-}
-
-/**
- * Whether a call was fixed inside its window, honouring the Sunday rule.
- *
- * A plain `resolvedDay - loggedDay <= 1` fails every Saturday: the next day is a
- * Sunday nobody works, so Saturday's calls scored a fix rate of about 30% where
- * the surrounding weekdays sat at 60% — a sawtooth that was an artefact of the
- * service week, not of anyone's performance.
- */
-export function isFirstTimeFix(loggedDay, resolvedDay) {
-  if (resolvedDay <= 0 || resolvedDay < loggedDay) return false;
-  return resolvedDay <= ftfrWindowEnd(loggedDay);
-}
+export { ftfrWindowEnd, isFirstTimeFix };
 
 const MAX_RESOLVED = new WeakMap();
 
@@ -213,7 +188,7 @@ export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
 }
 
 /** Headline counts for the current selection. */
-export function summarize(ds, idx, referenceDay) {
+export function summarize(ds, idx, referenceDay, { ftfrThrough = Infinity } = {}) {
   const { cols } = ds;
   const windows = penaltyWindows(ds);
   const counts = [0, 0, 0];
@@ -221,6 +196,7 @@ export function summarize(ds, idx, referenceDay) {
   let resolvedWithDates = 0;
   let resolutionDaysTotal = 0;
   let firstTimeFixes = 0;
+  let ftfrLogged = 0;
   let penalty = 0;
 
   for (let k = 0; k < idx.length; k++) {
@@ -236,8 +212,22 @@ export function summarize(ds, idx, referenceDay) {
       if (d >= 0) {
         resolutionDaysTotal += d;
         resolvedWithDates++;
-        if (d <= FTFR_MAX_DAYS) firstTimeFixes++;
       }
+    }
+
+    /*
+     * Only days whose verdict is final.
+     *
+     * A call logged yesterday still has today to be fixed in, so counting it as
+     * a miss is not a low score, it is an unfinished one — and the last two days
+     * of an export are always the least resolved, which dragged the tile down
+     * every time somebody refreshed. A day is in once its window has closed:
+     * today is Thursday the 13th, so the 11th is in and the 12th is not; on a
+     * Monday the last day in is Friday, and on a Tuesday it is Sunday.
+     */
+    if (cols.loggedDay[i] <= ftfrThrough) {
+      ftfrLogged++;
+      if (r > 0 && isFirstTimeFix(cols.loggedDay[i], r)) firstTimeFixes++;
     }
   }
 
@@ -249,8 +239,18 @@ export function summarize(ds, idx, referenceDay) {
     resolved,
     penalty,
     firstTimeFixes,
-    // Denominator is resolved calls only — an open call has no fix to rate.
-    ftfrPct: resolved ? (firstTimeFixes / resolved) * 100 : 0,
+    ftfrLogged,
+    /*
+     * Divided by calls **logged**, which is how the business counts it and how
+     * the chart has always counted it.
+     *
+     * Dividing by resolved calls asks "of the ones we closed, how many were
+     * quick" — it leaves out every call still sitting open, so it flatters the
+     * figure and moves for reasons that have nothing to do with speed. On the
+     * Kerala month it read 59.3% (888/1,498) against 48.8% counted this way,
+     * which is the figure the business's own sheet produces.
+     */
+    ftfrPct: ftfrLogged ? (firstTimeFixes / ftfrLogged) * 100 : 0,
     avgResolutionDays: resolvedWithDates ? resolutionDaysTotal / resolvedWithDates : 0,
     avgDownDays: idx.length ? downDaysTotal / idx.length : 0,
   };

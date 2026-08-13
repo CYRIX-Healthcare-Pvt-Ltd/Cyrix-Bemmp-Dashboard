@@ -209,43 +209,51 @@ preserved as `srcPenaltyDays`/`srcPenaltyAmount`.
 
 ## FTFR (First Time Fix Rate)
 
-A call logged today and resolved today or tomorrow is a first-time fix:
-`resolvedDay - loggedDay <= 1`. The window is `FTFR_MAX_DAYS`, declared in both
-`scripts/build-data.mjs` and `src/data/query.js` — change both together.
+A call logged today and resolved today or tomorrow is a first-time fix. The window is
+`FTFR_MAX_DAYS`, and the rule lives in `shared/schema.mjs` as `isFirstTimeFix` — the one
+place both the offline build and the browser read it from, so the headline figure the
+artifact carries and the figure the page computes cannot drift apart.
 
-The denominator is **resolved calls only**, not all calls: an open call has no fix to rate.
-No row in either state resolves before it was logged, so the duration never needs clamping.
+**Sunday is not a service day.** A call logged on Saturday still has Monday, and one logged
+on Sunday has Monday too, so `ftfrWindowEnd` steps over a Sunday rather than counting it.
+Without the rule every Saturday scored about 30% against weekday neighbours at 60% — a
+sawtooth that was an artefact of the service week, not of anyone's performance. The
+business's own spreadsheet applies the same rule, which is how it was confirmed.
 
-### The chart measures it differently, on purpose
+**The denominator is calls logged**, not calls resolved. Dividing by resolved asks "of the
+ones we closed, how many were quick", which leaves out every call still open and so
+flatters the figure — it also moves for reasons that have nothing to do with speed. This
+was wrong on the KPI tile until 13 Aug 2026: the tile read 59.3% (888/1,498) where the
+business's sheet read 49%. Checked against that sheet day by day for 1–10 Aug, every
+logged count and every fix count matched exactly; the figure is now 926/1,896 = 48.8%.
 
-`buildSeries` divides by calls **logged**, not by calls resolved — the one place in the
-dashboard that does. Per period the resolved-only denominator is not just noisy, it is
+**Only settled days count.** A call logged yesterday still has today to be fixed in, so
+counting it as a miss is not a low score but an unfinished one — and the last days of an
+export are always the least resolved. `ftfrSettledThrough` returns the newest logged date
+whose window has closed, and both the tile and the chart stop there. Worked examples, all
+confirmed with the business: today Thu 13th → 11th; Mon → Fri; Tue → Sun.
+
+### The chart measures it the same way
+
+`buildSeries` divides by calls **logged** too. Per period the resolved-only denominator is
+not just noisy, it is
 systematically wrong: it holds only the calls resolved *so far*, and the quick ones land
 first. Every recent period therefore starts at **100%** and sinks for weeks as the slow
 resolutions arrive. Measured on the real artifact, 21 and 22 Jul both read 100.0% under
 the old denominator against a settled baseline of 55–60%. Dividing by calls logged is final
 two days after the period and never moves again, which is what a trend line needs.
 
-It also applies the Sunday rule to the numerator, via `isFirstTimeFix`. A plain
-`resolved - logged <= 1` fails every Saturday, whose next day nobody works: Sat 18 Jul
-scored 30.6% against weekday neighbours at 60%, a sawtooth that was an artefact of the
-service week. With the rule it reads 45.7%.
+`ftfrSettledThrough` is bounded by `maxResolvedDay` as well as by the logged range — the
+export is usually taken part way through its last day, which on this dataset carries 39
+calls against a normal 270 and almost no resolutions. The Sunday rule is why it walks back
+a day at a time instead of subtracting a constant.
 
-**The chart also stops before the reference date.** `ftfrSettledThrough` returns the newest
-logged date whose verdict is final, bounded by `maxResolvedDay` as well as the logged
-range — the export is usually taken part way through its last day, which on this dataset
-carries 39 calls against a normal 270 and almost no resolutions. The Sunday rule is why it
-walks back a day at a time instead of subtracting a constant. Worked examples, all
-confirmed against how the business reads it: today Fri 31 Jul → 29 Jul; Mon 27 Jul → Fri
-24 Jul; Tue 28 Jul → Sun 26 Jul.
+The tooltip prints `Fixed in window` next to `Calls logged`, and the KPI tile's note reads
+"926 of 1,896 logged", so the percentage on screen can always be checked by hand.
 
-**The KPI tile still uses the old definition** — `fixes / resolved` with a flat one-day
-window, over the whole selected range, where the unsettled tail is a rounding error. It is
-one of the figures `BASELINE.md` pins, so aligning it to the chart means regenerating that
-baseline and re-checking the numbers with the business. Until that happens the chart reads
-several points lower than the tile, because its denominator is larger. The tooltip prints
-`Fixed in window` next to `Calls logged` so the percentage on screen can always be checked
-by hand.
+The build-time KPI in `shared/schema.mjs` applies no settled cutoff: it is an all-time
+figure over hundreds of thousands of rows, where the last two days are a rounding error.
+It is one of the numbers `BASELINE.md` pins — regenerate it after any change here.
 
 ## Normalisation applied at build time
 

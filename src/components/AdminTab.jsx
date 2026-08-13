@@ -93,7 +93,10 @@ function NewUserForm({ onCreated, onCancel }) {
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="KLTech04"
-            autoCapitalize="characters"
+            /* The code becomes the password verbatim, so a phone silently
+               upper-casing it would issue a credential nobody typed. */
+            autoCapitalize="off"
+            autoCorrect="off"
             spellCheck="false"
             required
           />

@@ -13,7 +13,7 @@
  * shared key given away.
  */
 
-import { applyPolarity, resolvePenaltyMeasure } from './assistant.js';
+import { applyPolarity, explainWhy, resolvePenaltyMeasure } from './assistant.js';
 import { supabase } from './supabase.js';
 
 /**
@@ -140,6 +140,19 @@ Place names may be colloquial or misspelled — Trivandrum, Calicut, Cochin, Viz
 Pass them through as the user said them; the application resolves them against the
 data's own spellings.
 
+"Why" is a query, not a refusal. When the user asks what is causing, driving or
+behind a figure — "what is causing Aswin to have this much penalty", "why is
+Kannur so bad" — keep the same measure, put the subject in
+filterDimension/filterValue, and break it down by whatever explains it: equipment
+first, then facility, then district. That answers the question with the ranking
+underneath the number. You are never unable to look into a figure, and you must
+never say you cannot access details or suggest the user go and read ticket
+remarks — narrowing and breaking down is exactly what you do.
+
+Follow-ups usually mean the previous question's subject. "And for Palakkad?"
+keeps the measure and changes the filter; "what about closure penalty" keeps the
+filter and changes the measure.
+
 Call reply_conversationally for greetings, thanks, small talk, or questions about
 what you can do. Answer like a colleague would — "Hey! Ask me anything about the
 Kerala contract. Try 'which district has the highest FTFR?'" Match the user's
@@ -195,6 +208,7 @@ export async function planQuery({
    */
   let spec = disambiguateMonthYear(args, question);
   spec = resolvePenaltyMeasure(spec, question, hasRateCard);
+  spec = explainWhy(spec, question);
   spec = applyPolarity(spec, question);
   return { kind: 'query', spec };
 }

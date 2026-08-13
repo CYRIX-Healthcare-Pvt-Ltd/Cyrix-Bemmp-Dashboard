@@ -10,7 +10,7 @@ import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
   accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
-  maxResolvedDay, FILTER_DIMS,
+  maxResolvedDay, FILTER_DIMS, isFirstTimeFix,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
@@ -141,7 +141,7 @@ const PERFORMANCE = [
     minSamples: 10,
     format: (v) => `${(v * 100).toFixed(1)}%`,
     subtitle: (n) => `${n.toLocaleString()} resolved`,
-    caption: 'Share of resolved calls fixed within 1 day of logging, worst first',
+    caption: 'Share of resolved calls fixed within 1 working day of logging, worst first',
   },
   {
     id: 'resolution',
@@ -424,9 +424,19 @@ export default function App() {
     () => (ds && filters ? filterRows(ds, filters) : null),
     [ds, filters],
   );
+  /*
+   * The newest logged date whose fix verdict is final — the same cutoff the FTFR
+   * chart stops at, so the tile and the line cannot disagree. Monday's last
+   * settled day is Friday; Tuesday's is Sunday.
+   */
+  const ftfrThrough = useMemo(
+    () => (ds ? ftfrSettledThrough(referenceDay, maxResolvedDay(ds)) : 0),
+    [ds, referenceDay],
+  );
+
   const summary = useMemo(
-    () => (idx ? summarize(ds, idx, referenceDay) : null),
-    [ds, idx, referenceDay],
+    () => (idx ? summarize(ds, idx, referenceDay, { ftfrThrough }) : null),
+    [ds, idx, referenceDay, ftfrThrough],
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
 
@@ -519,8 +529,11 @@ export default function App() {
     const { cols } = ds ?? {};
     return {
       ...base,
+      // `isFirstTimeFix` rather than a bare subtraction, so a Saturday call is
+      // not marked a failure for the Sunday nobody works — the same rule the
+      // tile and the chart use.
       value: base.id === 'ftfr'
-        ? (i) => (cols.resolvedDay[i] - cols.loggedDay[i] <= FTFR_MAX_DAYS ? 1 : 0)
+        ? (i) => (isFirstTimeFix(cols.loggedDay[i], cols.resolvedDay[i]) ? 1 : 0)
         : (i) => cols.resolvedDay[i] - cols.loggedDay[i],
     };
   }, [ds, perfId]);

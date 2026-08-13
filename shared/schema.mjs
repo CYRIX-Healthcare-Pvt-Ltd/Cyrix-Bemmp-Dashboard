@@ -107,6 +107,41 @@ export const BUCKET = { OPEN: 0, PARKED: 1, RESOLVED: 2 };
  */
 export const FTFR_MAX_DAYS = 1;
 
+const SUNDAY = 0;
+
+/** Day of week for an Excel serial, 0 = Sunday. */
+function weekday(serial) {
+  return new Date((serial - 25569) * 86400000).getUTCDay();
+}
+
+/**
+ * The last day a call had to be resolved in to still count as a first-time fix.
+ *
+ * Normally logged + `FTFR_MAX_DAYS`, but Sunday is not a service day: a call
+ * logged on Saturday still has Monday to be fixed on the next working day, and
+ * one logged on Sunday has Monday too.
+ */
+export function ftfrWindowEnd(loggedDay) {
+  const end = loggedDay + FTFR_MAX_DAYS;
+  return weekday(end) === SUNDAY ? end + 1 : end;
+}
+
+/**
+ * Whether a call was fixed inside its window, honouring the Sunday rule.
+ *
+ * Lives here rather than in query.js because the offline build and the browser
+ * both have to produce the same headline figure — the whole point of this module
+ * is that neither can drift from the other.
+ *
+ * The `resolvedDay < loggedDay` guard matters: Andhra has a row that resolves
+ * before it was logged, and without it a negative duration slips through as a
+ * first-time fix.
+ */
+export function isFirstTimeFix(loggedDay, resolvedDay) {
+  if (resolvedDay <= 0 || loggedDay <= 0 || resolvedDay < loggedDay) return false;
+  return resolvedDay <= ftfrWindowEnd(loggedDay);
+}
+
 /**
  * Rupees per penalty day for one ticket, from its Asset Value band.
  *
@@ -323,10 +358,7 @@ export class Builder {
     cols.dayRate[i] = cols.penaltyExempt[i] ? 0 : dayRateFor(state, assetValue);
     cols.bucket[i] = bucket;
 
-    // The `>= 0` guard matters: Andhra has a row that resolves before it was
-    // logged, and without it a negative duration slips through as a first-time fix.
-    const fixDays = resolved && loggedDay > 0 ? resolvedDay - loggedDay : -1;
-    if (fixDays >= 0 && fixDays <= FTFR_MAX_DAYS) this.firstTimeFixes++;
+    if (resolved && isFirstTimeFix(loggedDay, resolvedDay)) this.firstTimeFixes++;
 
     this.bucketTotals[bucket]++;
     this.rows++;
@@ -389,9 +421,16 @@ export class Builder {
         repeatAssets,
         repeatTickets,
         firstTimeFixes: this.firstTimeFixes,
-        ftfrPct: this.bucketTotals[BUCKET.RESOLVED]
-          ? (this.firstTimeFixes / this.bucketTotals[BUCKET.RESOLVED]) * 100
-          : 0,
+        /*
+         * Divided by calls **logged**, not by calls resolved.
+         *
+         * The resolved-only denominator answers "of the ones we closed, how many
+         * were quick", which flatters the figure by leaving out everything still
+         * open — on the Kerala month it read 59.3% against 45.5% measured this
+         * way. The business counts every call it took, and the chart already
+         * did; this is the tile catching up with both.
+         */
+        ftfrPct: rows ? (this.firstTimeFixes / rows) * 100 : 0,
       },
     };
 

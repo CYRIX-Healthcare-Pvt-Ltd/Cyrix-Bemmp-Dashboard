@@ -77,7 +77,11 @@ export default function LoginPage({ onSignedIn }) {
               value={code}
               onChange={(e) => setCode(e.target.value)}
               autoComplete="username"
-              autoCapitalize="characters"
+              /* Not `characters`. Codes are mixed case — KLCoord, not KLCOORD —
+                 and a phone that shouts every letter makes the field look wrong
+                 while you type it. Sign-in folds the case anyway. */
+              autoCapitalize="off"
+              autoCorrect="off"
               spellCheck="false"
               placeholder="E1042"
               required
