@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  loadDataset, loadStates, datasetFrom, formatDay, monthStart, BUCKET, BUCKET_LABEL,
+  loadDataset, loadStates, datasetFrom, formatDay, BUCKET, BUCKET_LABEL,
 } from './data/store.js';
 import { listUploads, getUpload } from './data/uploads.js';
 import { listSharedDatasets, fetchSharedDataset } from './data/datasets.js';
@@ -10,7 +10,7 @@ import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
   accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
-  maxResolvedDay, FILTER_DIMS, isFirstTimeFix,
+  maxResolvedDay, defaultFiltersFor, isFirstTimeFix,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
@@ -18,7 +18,7 @@ import SideNav from './components/SideNav.jsx';
 import AdminTab from './components/AdminTab.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
 import {
-  supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin,
+  supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin, firstName,
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
@@ -147,9 +147,14 @@ const MONEY = [
 /**
  * Drill measures that are a rate or a mean rather than a count.
  *
- * Both run over resolved calls only — an open call has no fix to rate and no
- * resolution time. `minSamples` keeps one-ticket groups off the ranking, which
- * would otherwise show a perfect or terrible score with no evidence behind it.
+ * The two run over **different row sets**, which is the thing to keep straight.
+ * Avg resolution is over resolved calls, because an open call has no resolution
+ * time to average. FTFR is over calls *logged*, because a call still open is a
+ * call that was not fixed in its window — dropping it is what made the drill
+ * read 58.9% for a zone the tile scored 49%.
+ *
+ * `minSamples` keeps one-ticket groups off the ranking, which would otherwise
+ * show a perfect or terrible score with no evidence behind it.
  */
 const PERFORMANCE = [
   {
@@ -160,8 +165,10 @@ const PERFORMANCE = [
     sort: 'asc',
     minSamples: 10,
     format: (v) => `${(v * 100).toFixed(1)}%`,
-    subtitle: (n) => `${n.toLocaleString()} resolved`,
-    caption: 'Share of resolved calls fixed within 1 working day of logging, worst first',
+    /* "logged", not "resolved" — the noun is the denominator, and it is the
+       only thing on screen that says which of the two figures this is. */
+    subtitle: (n) => `${n.toLocaleString()} logged`,
+    caption: 'Share of logged calls fixed within 1 working day of logging, worst first',
   },
   {
     id: 'resolution',
@@ -204,22 +211,6 @@ function slaExample(penaltyDays) {
   return `${lead}${ordinal(crit + 2)} if critical and the ${ordinal(non + 2)} if not.`;
 }
 
-/*
- * Opens on the current month rather than all time — the month in the data, not the
- * calendar, since the export lags reality and "this month" from today can be empty.
- */
-function blankFilters(meta) {
-  return {
-    preset: 'month',
-    dayFrom: monthStart(meta.dateRange.maxDay),
-    dayTo: meta.dateRange.maxDay,
-    // One empty Set per filterable dimension. `filterRows` skips empty ones, so
-    // the shape is about the panel having something to read back, not the engine.
-    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
-    bucket: new Set(),
-  };
-}
-
 export default function App() {
   const [states, setStates] = useState(null);
   const [stateId, setStateId] = useState(() => localStorage.getItem(STATE_KEY) || 'kl');
@@ -245,6 +236,8 @@ export default function App() {
   // undefined while the stored session is being restored, null when signed out.
   const [session, setSession] = useState(isConfigured() ? undefined : null);
   const [profile, setProfile] = useState(null);
+  /* Which export the current filter selection was built for. See the loader. */
+  const loadedSig = useRef(null);
 
   /*
    * A build with no Supabase configured is a supported state, not a broken one:
@@ -255,7 +248,23 @@ export default function App() {
   useEffect(() => {
     if (!supabase) return undefined;
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s ?? null));
+    /*
+     * Keyed on *who* is signed in, not on the session object.
+     *
+     * GoTrue refreshes the access token when a backgrounded tab comes back, and
+     * hands a brand new session object to every listener when it does. Storing
+     * that unconditionally re-ran the profile load, which produced a new profile
+     * object, which recomputed `available`, which re-ran the dataset loader —
+     * and the loader resets the filters. So minimising the window and returning
+     * to it silently cleared whatever had been selected.
+     *
+     * Nothing downstream reads the token off this object: `authHeader` asks
+     * `supabase.auth.getSession()` for it at the moment of the request, so it is
+     * always the fresh one.
+     */
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession((prev) => (prev?.user?.id === (s?.user?.id ?? null) ? prev : (s ?? null)));
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -263,7 +272,14 @@ export default function App() {
   // renders rather than fetched by the tab that needs them.
   useEffect(() => {
     if (!session) { setProfile(null); return; }
-    loadProfile().then(setProfile).catch(() => setProfile(null));
+    // Same reasoning as above, one level down: an identical row must not arrive
+    // as a new object, or every consumer of `profile` recomputes for nothing.
+    loadProfile()
+      .then((p) => setProfile((prev) => (
+        prev && p && prev.id === p.id && prev.role === p.role
+          && String(prev.scope) === String(p.scope) ? prev : p
+      )))
+      .catch(() => setProfile(null));
   }, [session]);
 
   useEffect(() => {
@@ -433,7 +449,23 @@ export default function App() {
       .then((data) => {
         if (cancelled) return;
         setDs(data);
-        setFilters(blankFilters(data.meta));
+        /*
+         * The filters survive anything short of the export actually changing.
+         *
+         * This effect resets them, and it re-runs for reasons that have nothing
+         * to do with the data — a token refresh on window focus was enough. The
+         * signature is what a filter selection is meaningful against: another
+         * contract, a different number of rows, a different date range or a
+         * different source all invalidate it, and a re-run over the same export
+         * does not. Belt and braces against every other cause of a re-run, found
+         * or not: whatever wakes this effect, a selection is not lost by it.
+         */
+        const sig = `${data.meta.id}|${data.source}|${data.meta.rows}`
+          + `|${data.meta.dateRange.minDay}|${data.meta.dateRange.maxDay}`;
+        if (loadedSig.current !== sig) {
+          loadedSig.current = sig;
+          setFilters(defaultFiltersFor(data));
+        }
         setBusy(false);
         localStorage.setItem(STATE_KEY, target);
       })
@@ -443,8 +475,11 @@ export default function App() {
 
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
-    setDs(datasetFrom(meta, buffer, 'upload'));
-    setFilters(blankFilters(meta));
+    const next = datasetFrom(meta, buffer, 'upload');
+    setDs(next);
+    // The saved default is resolved against the dictionaries of *this* export,
+    // so a district that has left the contract simply drops out of it.
+    setFilters(defaultFiltersFor(next));
     setStateId(id);
     setError(null);
     setBusy(false);
@@ -516,6 +551,24 @@ export default function App() {
     [ds, idx, referenceDay],
   );
   const resolved = useMemo(() => (idx ? resolvedRows(ds, idx) : []), [ds, idx]);
+
+  /**
+   * What the FTFR drill measures over: every call logged, up to the last day
+   * whose verdict is final — not just the calls that happen to be closed.
+   *
+   * The drill used to take `resolved` like the resolution measure does, so it
+   * asked "of the ones we closed, how many were quick" while the tile above it
+   * asked "of the ones we took, how many were quick". Two different questions
+   * with the same name on them, and the drill's answer was always the kinder
+   * one: it read 58.9% for South zone against a tile showing 49%.
+   *
+   * The cutoff is the same `ftfrThrough` the tile and the chart stop at, so a
+   * call logged yesterday is not counted as a miss for a window still open.
+   */
+  const ftfrRows = useMemo(
+    () => (idx ? idx.filter((i) => ds.cols.loggedDay[i] <= ftfrThrough) : []),
+    [ds, idx, ftfrThrough],
+  );
 
   const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
 
@@ -764,13 +817,17 @@ export default function App() {
                   type="button"
                   className="icon-toggle"
                   onClick={signOut}
+                  /* The code stays in the tooltip. It is what the account is
+                     called in the database and on the seed sheet, so it has to
+                     be recoverable — just not the thing read back at somebody on
+                     every screen. */
                   title={`Signed in as ${profile.code} — sign out`}
                 >
                   <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M15 17l5-5-5-5M20 12H9M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
                   </svg>
-                  <span className="toggle-label">{profile.code}</span>
+                  <span className="toggle-label is-name">{firstName(profile)}</span>
                 </button>
               )}
             </div>
@@ -797,8 +854,7 @@ export default function App() {
         )}
 
         <Filters
-          dict={dict}
-          dateRange={meta.dateRange}
+          ds={ds}
           filters={filters}
           setFilters={setFilters}
         />
@@ -1021,15 +1077,23 @@ export default function App() {
             <DrillExplorer
               key={`perf-${stateId}-${perfId}`}
               ds={ds}
-              rows={resolved}
+              rows={perfId === 'ftfr' ? ftfrRows : resolved}
               referenceDay={referenceDay}
               onSelectRow={setDrawerRow}
               measure={perfMeasure}
-              showResolutionColumn
-              intro={(n) => (
-                `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} resolved `
-                + `calls in range — open calls have no fix to rate. Groups with fewer than `
-                + `${perfMeasure.minSamples} resolved calls are left out of the ranking.`
+              /* Only for resolution. Over the FTFR row set most rows are still
+                 open, so a "days to fix" column would be mostly blank and the
+                 slowest-first sort would rank on a number half of them lack. */
+              showResolutionColumn={perfId === 'resolution'}
+              intro={(n) => (perfId === 'ftfr'
+                ? `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} calls `
+                  + `logged in range whose window has closed — a call still open is a call `
+                  + `that was not fixed in time, so it counts against the rate rather than `
+                  + `being left out. Groups with fewer than ${perfMeasure.minSamples} logged `
+                  + `calls are left out of the ranking.`
+                : `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} resolved `
+                  + `calls in range — an open call has no resolution time. Groups with fewer `
+                  + `than ${perfMeasure.minSamples} resolved calls are left out of the ranking.`
               )}
             />
           </>
@@ -1145,8 +1209,8 @@ export default function App() {
       {showAssistant && (
         <AssistantPanel
           ds={ds}
-          filters={filters}
           referenceDay={referenceDay}
+          profile={profile}
           onClose={() => setShowAssistant(false)}
         />
       )}

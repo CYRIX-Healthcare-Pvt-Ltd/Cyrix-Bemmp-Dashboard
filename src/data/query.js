@@ -142,6 +142,120 @@ const FILTERABLE = [
 export const FILTER_DIMS = ['zone', 'district', 'facilityName', 'equipment'];
 
 /**
+ * The resting selection: the whole contract, nothing narrowed.
+ *
+ * Declared here rather than in either component that needs it, because both do
+ * — `App` builds it when a dataset loads and the filter panel rebuilds it when
+ * Reset is pressed — and the two had drifted. One said all time and the other
+ * said this month, so Reset did not return the page to the state it opened in.
+ *
+ * It opens on **all time**. The month was the default on the reasoning that a
+ * service review is a monthly conversation, but the first thing anyone asks of a
+ * contract dashboard is what the contract has done, and a landing figure of
+ * 2,591 under a masthead reading 270,293 tickets looks like a fault rather than
+ * a date range. Every preset is still anchored to `maxDay` rather than to today,
+ * because the export lags reality and a calendar month can be empty.
+ */
+export function blankFilters(meta) {
+  return {
+    preset: 'all',
+    dayFrom: meta.dateRange.minDay,
+    dayTo: meta.dateRange.maxDay,
+    // One empty Set per filterable dimension. `filterRows` skips empty ones, so
+    // the shape is about the panel having something to read back, not the engine.
+    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
+    bucket: new Set(),
+  };
+}
+
+/* ------------------------------------------------- a saved default view -- */
+
+/*
+ * Somebody who only ever looks at one district should not have to select it
+ * every morning, so the current selection can be saved as that person's own
+ * default and the page opens on it.
+ *
+ * Per contract, because a dictionary id means nothing outside the state it was
+ * built from. Local to the browser rather than in Postgres: it is a working
+ * preference, not something the team needs to agree on, and a row per person
+ * per contract is a table to maintain for a value nobody else reads.
+ */
+const DEFAULT_KEY = (stateId) => `bemmp-default-filters:${stateId}`;
+
+/*
+ * Stored as **labels**, not ids.
+ *
+ * Dictionaries are interned in first-seen order while parsing, so every new
+ * export renumbers them — a saved id 14 is a different district next month, and
+ * nothing on screen would say so. A label that no longer exists is simply
+ * dropped, which is the right answer for a facility that has left the contract.
+ */
+function labelsOf(dict, ids) {
+  return [...ids].map((id) => dict[id]).filter((v) => v != null);
+}
+
+function idsOf(dict, labels) {
+  const out = new Set();
+  for (const name of labels ?? []) {
+    const i = dict.indexOf(name);
+    if (i >= 0) out.add(i);
+  }
+  return out;
+}
+
+/** Whether this contract has a saved default. */
+export function hasDefaultFilters(stateId) {
+  try { return localStorage.getItem(DEFAULT_KEY(stateId)) != null; } catch { return false; }
+}
+
+export function saveDefaultFilters(ds, filters) {
+  const payload = {
+    preset: filters.preset,
+    dayFrom: filters.dayFrom,
+    dayTo: filters.dayTo,
+    bucket: [...filters.bucket],
+    dims: Object.fromEntries(
+      FILTER_DIMS.map((k) => [k, labelsOf(ds.dict[k] ?? [], filters[k] ?? new Set())]),
+    ),
+  };
+  try { localStorage.setItem(DEFAULT_KEY(ds.meta.id), JSON.stringify(payload)); } catch { /* full */ }
+}
+
+export function clearDefaultFilters(stateId) {
+  try { localStorage.removeItem(DEFAULT_KEY(stateId)); } catch { /* private mode */ }
+}
+
+/**
+ * What the page opens on: the saved default if there is one, otherwise blank.
+ *
+ * Everything is validated against the dataset it is being applied to rather
+ * than trusted — the export behind a saved preference changes underneath it, and
+ * a stored date outside the contract's range would put the dashboard on an empty
+ * window with no way to tell why.
+ */
+export function defaultFiltersFor(ds) {
+  const blank = blankFilters(ds.meta);
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DEFAULT_KEY(ds.meta.id)) ?? 'null'); } catch { saved = null; }
+  if (!saved) return blank;
+
+  const { minDay, maxDay } = ds.meta.dateRange;
+  const clamp = (d, fallback) => (
+    Number.isFinite(d) ? Math.min(Math.max(d, minDay), maxDay) : fallback
+  );
+  return {
+    ...blank,
+    preset: saved.preset ?? blank.preset,
+    dayFrom: clamp(saved.dayFrom, blank.dayFrom),
+    dayTo: clamp(saved.dayTo, blank.dayTo),
+    bucket: new Set((saved.bucket ?? []).filter((b) => b >= 0 && b <= 2)),
+    ...Object.fromEntries(
+      FILTER_DIMS.map((k) => [k, idsOf(ds.dict[k] ?? [], saved.dims?.[k])]),
+    ),
+  };
+}
+
+/**
  * Applies the active filters and returns the matching row indices.
  * `filters.district` etc. are Sets of dictionary ids; an empty Set means "all".
  */

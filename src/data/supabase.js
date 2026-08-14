@@ -94,6 +94,19 @@ export async function loadProfile() {
   return data;
 }
 
+/**
+ * What to call somebody: the first word of their name.
+ *
+ * "Kevin", not "Kevin R" and not `E1427` — an employee code is what you type to
+ * get in, not what you want read back at you on every screen and by the
+ * assistant. The code is the fallback rather than the first choice, because it
+ * is always present but nobody thinks of it as a name.
+ */
+export function firstName(profile) {
+  const full = (profile?.full_name || '').trim();
+  return full ? full.split(/\s+/)[0] : (profile?.code ?? '');
+}
+
 /** Directors read every tab but the meeting: it is a working surface, not a report. */
 export const canEditMeeting = (profile) => Boolean(profile) && profile.role !== 'director';
 

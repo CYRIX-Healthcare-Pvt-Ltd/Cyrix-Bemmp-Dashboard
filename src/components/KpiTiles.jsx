@@ -130,7 +130,7 @@ export default function KpiTiles({
       <Tile
         index={3} label="Unresolved calls" icon="parked" dot="parked" accent="warning"
         value={summary.parked} format={int}
-        note="Out of service scope · drill in"
+        note="Unresolved, with remark · drill in"
         onClick={() => onOpenBucket(1)}
       />
       <Tile

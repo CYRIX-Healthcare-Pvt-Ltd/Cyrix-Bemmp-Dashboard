@@ -319,14 +319,39 @@ export const CHAT_TOOL = {
  * model was being told the range was "46204 to 46226", which it cannot reason
  * about, so "till date" had nothing to anchor to.
  */
-export function datasetContext(ds, filters) {
+/**
+ * The baseline Cyra queries against: the whole contract.
+ *
+ * She used to inherit the dashboard's own filter bar, which made her answers
+ * depend on page state nobody was thinking about while typing. "How many open
+ * calls in Kannur" gave one number with the panel on This month and a different
+ * one on All time, and neither the question nor the answer mentioned a date —
+ * so the figure looked wrong rather than scoped. Worse, a district left selected
+ * in the panel silently intersected with the district in the question, and the
+ * answer for Palakkad was quietly zero.
+ *
+ * She narrows from everything instead, using only what the question says. The
+ * range and the filter in a spec are the model's, and they are the only ones.
+ */
+export function neutralFilters(ds) {
+  return {
+    preset: 'all',
+    dayFrom: ds.meta.dateRange.minDay,
+    dayTo: ds.meta.dateRange.maxDay,
+    ...Object.fromEntries([...ENGINE_FILTERS].map((k) => [k, new Set()])),
+    bucket: new Set(),
+  };
+}
+
+export function datasetContext(ds) {
   const iso = (day) => serialToISO(day);
   return [
     `Active contract: ${ds.meta.name}.`,
     `The newest day in this data is ${iso(ds.meta.dateRange.maxDay)}; treat that as `
       + `today for "to date", "till now" and "so far". The data starts `
       + `${iso(ds.meta.dateRange.minDay)}.`,
-    `The dashboard is currently filtered to ${iso(filters.dayFrom)} .. ${iso(filters.dayTo)}.`,
+    'Unless the question names a period, answer over the whole contract — you are '
+      + 'not bound by whatever the dashboard is filtered to.',
     ds.meta.penaltyRates
       ? 'This contract has a penalty rate card, so money measures are available.'
       : 'This contract has NO penalty rate card; money measures are unavailable.',

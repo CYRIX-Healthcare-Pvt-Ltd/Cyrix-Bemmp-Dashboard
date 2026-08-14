@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  QUERY_TOOL, CHAT_TOOL, datasetContext, runQuery, describeResult,
+  QUERY_TOOL, CHAT_TOOL, datasetContext, runQuery, describeResult, neutralFilters,
 } from '../data/assistant.js';
 import { formatDay } from '../data/store.js';
+import { firstName } from '../data/supabase.js';
 import {
   planQuery, probeServer, storedKey, storedModel, DEFAULT_MODEL,
 } from '../data/openai.js';
@@ -70,9 +71,9 @@ function toView(result, describeRange) {
     measureLabel: result.measure.label,
     colour: result.measure.kind === 'sum' ? 'var(--status-critical)' : 'var(--series-1)',
     dimension: result.spec.dimension,
-    // The actual window, not the preset name. A question answered for explicit
-    // dates used to still read "current filters" in the footer, contradicting the
-    // sentence right above it.
+    // The actual window, always. Cyra answers over the whole contract unless the
+    // question names a period, so the footer has to say which period it used —
+    // the tiles beside it may well be showing a different one.
     range: describeRange,
     filterLabel: result.appliedFilter?.label ?? null,
   };
@@ -124,7 +125,18 @@ function Answer({ entry }) {
   );
 }
 
-export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
+export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
+  /*
+   * The whole contract, not the dashboard's filter bar.
+   *
+   * She used to answer inside whatever was selected on the page, so the same
+   * question gave different figures depending on state nobody was thinking about
+   * while typing — and a district left in the panel silently intersected with
+   * the district in the question. She narrows from everything now, using only
+   * what the question actually says.
+   */
+  const scope = useMemo(() => neutralFilters(ds), [ds]);
+
   const [session, setSession] = useState({ mode: null, apiKey: storedKey(), model: storedModel() });
   const [language, setLanguage] = useState(storedLanguage);
   const [question, setQuestion] = useState('');
@@ -202,10 +214,22 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
 
       const plan = await planQuery({
         question: trimmed,
-        context: datasetContext(ds, filters),
+        context: datasetContext(ds),
         tools: [QUERY_TOOL, CHAT_TOOL],
         session,
         history,
+        /*
+         * Who she is talking to: a first name and a role.
+         *
+         * First name only — "Kevin", not "Kevin R" and not the whole seat. An
+         * assistant that says the full name every time sounds like a form letter,
+         * and being addressed by an employee code sounds like one too.
+         *
+         * The account's own name where there is one, falling back to the id they
+         * signed in with, which is always there. Nothing else goes: the model has
+         * never seen a ticket and does not start now.
+         */
+        who: profile ? { name: firstName(profile), role: profile.role } : null,
         // Andhra has no rate card, so "penalty" has to stay the call count there
         // — there is no rupee figure to give instead.
         hasRateCard: Boolean(ds.meta.penaltyRates),
@@ -224,13 +248,12 @@ export default function AssistantPanel({ ds, filters, referenceDay, onClose }) {
         return;
       }
 
-      const result = runQuery(ds, filters, referenceDay, plan.spec);
+      const result = runQuery(ds, scope, referenceDay, plan.spec);
       const sentence = `${opener()} ${describeResult(ds, result)}`;
-      const movedWindow = result.effective.dayFrom !== filters.dayFrom
-        || result.effective.dayTo !== filters.dayTo;
-      const rangeLabel = movedWindow
-        ? `${formatDay(result.effective.dayFrom)} – ${formatDay(result.effective.dayTo)}`
-        : 'current filters';
+      /* Always the real dates. There is no "current filters" to defer to any
+         more, and naming the window is what lets somebody check the figure
+         against the tiles — which may well be on a different range. */
+      const rangeLabel = `${formatDay(result.effective.dayFrom)} – ${formatDay(result.effective.dayTo)}`;
 
       setEntries((prev) => [...prev, {
         question: trimmed, view: toView(result, rangeLabel), sentence, at: Date.now(),

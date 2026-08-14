@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
+import { penaltyAmountIn } from '../data/query.js';
 import { supabase } from '../data/supabase.js';
 import {
   MEETING_FIELDS, ensureRows, loadLog, loadNotes, reconcileOpen, saveField,
@@ -303,7 +304,15 @@ function exportColumns(hasZone) {
     { key: 'district', label: 'District', type: 'text' },
     { key: 'facility', label: 'Facility', type: 'text' },
     { key: 'equipment', label: 'Equipment', type: 'text' },
+    /*
+     * Two money columns, because they answer the two questions the meeting
+     * actually asks. The rate is what this ticket costs per day it stays open;
+     * `accrued` is what it has cost so far. A ₹50/d ticket open since October
+     * has run up more than a ₹1,000/d one logged on Tuesday, and ranking on the
+     * rate alone hides exactly that — which is the reason the column is here.
+     */
     { key: 'rate', label: 'Penalty ₹', type: 'num', align: 'num' },
+    { key: 'accrued', label: 'Accrued ₹', type: 'num', align: 'num' },
   ];
 }
 
@@ -346,6 +355,12 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
       facility,
       equipment,
       rate: cols.dayRate[row],
+      /* Everything this ticket has run up, from the day its grace window closed
+         to the reference date. `0` as the lower bound rather than the selected
+         range: the tracker is the whole backlog and ignores the date window, so
+         scoping the money to it would understate the oldest calls — the ones
+         that have accrued the most. */
+      accrued: penaltyAmountIn(ds, row, 0, referenceDay),
       haystack: `${ticket} ${zone} ${district} ${facility} ${equipment}`.toLowerCase(),
     };
   }), [ds, rows, cols, dict, referenceDay, hasZone]);
@@ -526,6 +541,11 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                     <td className="num">
                       {r.rate > 0
                         ? `₹${r.rate.toLocaleString('en-IN')}/d`
+                        : <span className="money-nil">—</span>}
+                    </td>
+                    <td className="num">
+                      {r.accrued > 0
+                        ? `₹${r.accrued.toLocaleString('en-IN')}`
                         : <span className="money-nil">—</span>}
                     </td>
                     <td>

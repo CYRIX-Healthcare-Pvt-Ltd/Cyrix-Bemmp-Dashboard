@@ -1,6 +1,8 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { serialToISO, dateToSerial, monthStart, formatDay, BUCKET_LABEL } from '../data/store.js';
-import { FILTER_DIMS } from '../data/query.js';
+import {
+  FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, clearDefaultFilters, hasDefaultFilters,
+} from '../data/query.js';
 
 /** Presets are anchored to the latest logged date in the data, not today —
  *  the export lags reality and "last 30 days" from today can be empty. */
@@ -120,7 +122,10 @@ function Search({ label, dict, value, onChange, allLabel }) {
   );
 }
 
-export default function Filters({ dict, dateRange, filters, setFilters }) {
+export default function Filters({ ds, filters, setFilters }) {
+  const { dict } = ds;
+  const dateRange = ds.meta.dateRange;
+  const stateId = ds.meta.id;
   const set = (patch) => setFilters((f) => ({ ...f, ...patch }));
 
   // Closed on load at every width. Expanded, the bar costs a third of the first
@@ -136,10 +141,18 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
     [dict],
   );
 
+  /*
+   * What is narrowing the figures. The badge and the reset both read it, so a
+   * landing page nobody has touched must count zero — a "1" on the button with
+   * nothing selected sends people into the panel to find out what they filtered.
+   *
+   * `all` is the resting range now, and it is not a narrowing at all: it is the
+   * whole contract. Anything else is one, whether it came from a preset or from
+   * two typed dates.
+   */
   const activeCount = dims.reduce((n, k) => n + (filters[k].size ? 1 : 0), 0)
     + (filters.bucket.size ? 1 : 0)
-    // 'month' is the default range, so it does not count as a filter being applied.
-    + (filters.preset === 'month' ? 0 : 1);
+    + (filters.preset === 'all' ? 0 : 1);
 
   const firstOf = (s) => (s.size ? [...s][0] : null);
 
@@ -166,13 +179,36 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
 
   const single = (key) => (id) => set({ [key]: id == null ? new Set() : new Set([id]) });
 
-  const reset = () => setFilters({
-    preset: 'month',
-    dayFrom: monthStart(dateRange.maxDay),
-    dayTo: dateRange.maxDay,
-    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
-    bucket: new Set(),
-  });
+  /*
+   * Reset returns the page to whatever it *opens* on, which is the saved default
+   * if this person has one and the blank selection otherwise — not a third
+   * state. It used to be a second copy of the blank object written out here, and
+   * the copy still said "this month", so Reset put you somewhere the page had
+   * never been.
+   */
+  const reset = () => setFilters(defaultFiltersFor(ds));
+
+  /*
+   * A saved default, so somebody who only ever looks at one district does not
+   * select it every morning.
+   *
+   * One button with two jobs, because they are the two halves of one decision
+   * and both cannot apply at once: with nothing saved it offers to save, and
+   * with something saved it offers to take it away. `saved` is state rather than
+   * read on every render — localStorage would not tell React it had changed.
+   */
+  const [saved, setSaved] = useState(() => hasDefaultFilters(stateId));
+  useEffect(() => { setSaved(hasDefaultFilters(stateId)); }, [stateId]);
+
+  const setAsDefault = () => { saveDefaultFilters(ds, filters); setSaved(true); };
+  const forgetDefault = () => {
+    clearDefaultFilters(stateId);
+    setSaved(false);
+    // Put the page back on the built-in default in the same press — the saved
+    // one is gone by the time this runs, so it returns blank. Clearing it and
+    // leaving its selection on screen would say nothing had happened.
+    setFilters(defaultFiltersFor(ds));
+  };
 
   return (
     <>
@@ -323,6 +359,44 @@ export default function Filters({ dict, dateRange, filters, setFilters }) {
             {BUCKET_LABEL.map((l, i) => <option key={l} value={i}>{l}</option>)}
           </select>
         </div>
+
+        {/*
+          * The two things you can do to a selection once you have made one, at
+          * the bottom where you finish rather than in the collapsed bar where
+          * you started. Reset is the quiet one; making this the view the page
+          * opens on is the deliberate one, so it takes the filled button.
+          */}
+        <div className="filter-actions">
+          <button
+            type="button"
+            className="filter-reset"
+            onClick={reset}
+            disabled={activeCount === 0 && !saved}
+          >
+            Reset filters
+          </button>
+          {saved ? (
+            <button type="button" className="filter-default" onClick={forgetDefault}>
+              Reset default filter
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="filter-default is-set"
+              onClick={setAsDefault}
+              disabled={activeCount === 0}
+            >
+              Set as default
+            </button>
+          )}
+        </div>
+        <p className="caption">
+          {saved
+            ? 'This contract opens on your saved filters. Reset default filter puts it '
+              + 'back to all time.'
+            : 'Set as default and this contract opens on what is selected here, on this '
+              + 'device.'}
+        </p>
       </div>
     </>
   );

@@ -334,6 +334,16 @@ th {
 .theme-icon { display: flex; }
 .theme-label, .toggle-label { font-size: 12.5px; font-weight: 550; }
 
+/*
+ * On a phone the masthead's three chips have to share a row with the brand
+ * block, and "Data" and "Light" are labels for icons that already say the same
+ * thing — an upload arrow and a sun. The name is the one that carries something
+ * the icon cannot, so it is the one that stays.
+ */
+@media (max-width: 860px) {
+  .theme-label, .toggle-label:not(.is-name) { display: none; }
+}
+
 /* ---------------------------------------------------- collapsible filters -- */
 
 /*
@@ -370,9 +380,47 @@ th {
   color: var(--status-critical);
   transition: background 0.2s, transform 0.2s var(--ease);
 }
-.filter-reset:hover {
+.filter-reset:hover:not(:disabled) {
   background: color-mix(in srgb, var(--status-critical) 22%, transparent);
   transform: translateY(-1px);
+}
+
+/*
+ * The panel's own actions, at the bottom where a selection is finished rather
+ * than in the collapsed bar where it is started. Two equal columns: neither is
+ * the destructive one, and a row that reflows on a phone would put them on
+ * separate lines for no reason — they are read as a pair.
+ */
+.filter-actions {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  margin-top: 18px;
+}
+.filter-actions .filter-reset { width: 100%; }
+
+.filter-default {
+  padding: 8px 15px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg); color: var(--text-secondary);
+  transition: background 0.2s, color 0.2s, transform 0.2s var(--ease);
+}
+/* Saving a view is the deliberate half of the pair, so it carries the accent.
+   Clearing one is housekeeping and stays quiet. */
+.filter-default.is-set {
+  border-color: color-mix(in srgb, var(--series-1) 55%, transparent);
+  background: color-mix(in srgb, var(--series-1) 14%, transparent);
+  color: var(--series-1);
+}
+.filter-default:hover:not(:disabled) { transform: translateY(-1px); }
+.filter-default.is-set:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--series-1) 24%, transparent);
+}
+
+/* Nothing selected means nothing to reset and nothing worth saving. Dimmed
+   rather than removed: a control that appears only sometimes is one people do
+   not learn is there. */
+.filter-reset:disabled, .filter-default:disabled {
+  opacity: 0.4; cursor: not-allowed;
 }
 .filter-count {
   display: inline-grid; place-items: center; min-width: 20px; height: 20px;

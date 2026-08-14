@@ -173,14 +173,33 @@ friendly line rather than guessing. Never invent figures there.`;
  * Turns a question into a query spec. Only the question and the fixed tool schema
  * are sent — no ticket rows, no dictionaries, no figures.
  */
+/**
+ * Who is asking, in one line for the system prompt.
+ *
+ * The id they signed in with and their role, and that is the whole of it — the
+ * model has never seen a ticket and does not start now. It is what lets her
+ * greet somebody rather than open cold, which is most of the difference between
+ * a search box and a colleague, and it is what answers "what is my name".
+ *
+ * Roles are underscored in the database; the model reads them better as words.
+ */
+function whoLine(who) {
+  if (!who?.name) return '';
+  const role = who.role ? ` Their role is ${String(who.role).replace(/_/g, ' ')}.` : '';
+  return `\n\nYou are talking to ${who.name}, who is signed in.${role}`
+    + ' If they ask who they are or what their name is, answer with it.'
+    + ' Otherwise use it sparingly — when greeting them, or when an answer is bad'
+    + ' news worth softening. Using it in every reply reads as a script.';
+}
+
 export async function planQuery({
-  question, context, tools, session, history = [], hasRateCard = false,
+  question, context, tools, session, history = [], hasRateCard = false, who = null,
 }) {
   const body = {
     model: session.model || DEFAULT_MODEL,
     temperature: 0.3,
     messages: [
-      { role: 'system', content: `${SYSTEM}\n\n${context}` },
+      { role: 'system', content: `${SYSTEM}\n\n${context}${whoLine(who)}` },
       ...history,
       { role: 'user', content: question },
     ],

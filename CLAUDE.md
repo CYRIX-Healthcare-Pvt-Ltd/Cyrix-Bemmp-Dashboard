@@ -233,7 +233,7 @@ export are always the least resolved. `ftfrSettledThrough` returns the newest lo
 whose window has closed, and both the tile and the chart stop there. Worked examples, all
 confirmed with the business: today Thu 13th → 11th; Mon → Fri; Tue → Sun.
 
-### The chart measures it the same way
+### The chart and the drill measure it the same way
 
 `buildSeries` divides by calls **logged** too. Per period the resolved-only denominator is
 not just noisy, it is
@@ -242,6 +242,15 @@ first. Every recent period therefore starts at **100%** and sinks for weeks as t
 resolutions arrive. Measured on the real artifact, 21 and 22 Jul both read 100.0% under
 the old denominator against a settled baseline of 55–60%. Dividing by calls logged is final
 two days after the period and never moves again, which is what a trend line needs.
+
+So does the **drill**, which is the one that was missed when the tile was fixed. The FTFR
+tab feeds `DrillExplorer` a row set of its own — every call *logged* through
+`ftfrSettledThrough`, not `resolvedRows` — because a call still open is a call that was not
+fixed in its window and belongs in the denominator. It read 58.9% for South zone against a
+tile showing 49%; the two now share a denominator exactly, and the zone rates weight up to
+the headline. `Avg resolution` still takes `resolvedRows`, because an open call has no
+resolution time to average — the two measures on that tab deliberately run over different
+rows, and the row set is chosen by `perfId`, not shared.
 
 `ftfrSettledThrough` is bounded by `maxResolvedDay` as well as by the logged range — the
 export is usually taken part way through its last day, which on this dataset carries 39
@@ -310,6 +319,21 @@ six languages. She is given the **whole conversation**, not a trailing window �
 messages was enough for "and for Palakkad?" and nothing else, so a district discussed three
 turns ago was already forgotten. `HISTORY_LIMIT` caps the stored thread at forty turns and
 the bin button clears it; nothing else expires it.
+
+**She does not inherit the filter bar.** `neutralFilters` is her baseline — the whole
+contract, every date, nothing selected — and only what the question says narrows it. She
+used to be handed the dashboard's own filters, which made her answers depend on page state
+nobody is thinking about while typing: the same question gave a different number on This
+month than on All time, and neither the question nor the answer mentioned a date, so the
+figure read as wrong rather than as scoped. Worse, a district left in the panel silently
+intersected with the district in the question and the answer came back zero. The footer
+therefore always names the real window, since the tiles beside it may be on another one.
+
+**She knows who is asking**: the signed-in account's first name and role, and nothing else
+— no ticket data has ever reached the model. `firstName` in `supabase.js` is the one place
+that decides what somebody is called, and the masthead's account chip reads from it too;
+the employee code stays in that chip's tooltip, because it is what the database and the
+seed sheet call the account.
 
 **The model never sees ticket data.** It receives only the question and the fixed
 `QUERY_TOOL` schema, and returns a small JSON spec — measure, dimension, order, limit,
@@ -575,6 +599,14 @@ re-check `in_scope` themselves, since a definer function bypasses the policy tha
 otherwise have done it. A save advances the count locally instead of refetching, or the
 meeting would issue a request per field typed.
 
+**Two money columns, not one.** `Penalty ₹` is the day rate — what this ticket costs for
+every further day it stays open — and `Accrued ₹` is what it has cost so far, from the day
+its grace window closed to the reference date. Either alone misleads: on the Kerala backlog
+a ₹10,000/d ticket 23 days old has run up less than a ₹3,000/d one open 97 days, and a
+meeting working down the rate column would take them in the wrong order. Accrual is
+computed from day 0, not from the selected range, for the same reason the tracker ignores
+the date window at all — scoping it would understate exactly the oldest calls.
+
 The tracker carries its own **search and sort** on top of that bar, because the two answer
 different questions: the bar decides which calls reach the tab, the search finds the one
 somebody just said out loud. Every word must match, so "kannur dialysis" narrows. Sorting
@@ -635,9 +667,31 @@ first paint. That is what lets the stylesheet carry **one** dark palette: the ea
 `prefers-color-scheme` copy had already drifted out of step with the `[data-theme='dark']`
 one, which is the failure mode a duplicated token list always has.
 
-**Date range**: the dashboard opens on the **current month of the data**, not all time and
-not the calendar month — the export lags reality, so "this month" is derived from
-`meta.dateRange.maxDay`. Every preset is anchored to `maxDay` for the same reason.
+**Date range**: the dashboard opens on **all time**. It opened on the current month, on the
+reasoning that a service review is a monthly conversation — but the first thing anyone asks
+of a contract dashboard is what the contract has done, and a landing figure of 2,591 under
+a masthead reading 270,293 tickets looks like a fault rather than a date range. Presets are
+still anchored to `meta.dateRange.maxDay` rather than to today, because the export lags
+reality and a calendar month can be empty.
+
+`blankFilters` lives in `query.js` and is the **only** definition of that resting state.
+It was a copy in `App.jsx` and another in the panel's Reset, and the copies drifted: one
+said all time and the other said this month, so Reset put you somewhere the page had never
+been. The badge counts `preset !== 'all'` as a narrowing, so an untouched page shows none.
+
+**A person can save their own default.** Somebody who only ever looks at one district
+should not select it every morning, so the panel's `Set as default` writes the current
+selection to `localStorage` and `defaultFiltersFor` is what the page then opens on —
+including after an upload. Reset returns to *that*, not to blank, or there would be three
+states where the user thinks there are two. The same button becomes `Reset default filter`
+once one is saved, and clearing it puts the page back on all time in the same press.
+
+Two things it stores deliberately. It is keyed **per contract**, since a dictionary id
+means nothing outside the state it was built from. And it stores **labels, not ids** —
+dictionaries are interned in first-seen order while parsing, so every new export renumbers
+them and a saved id would quietly become a different district; a label that no longer
+resolves is simply dropped, which is the right answer for a facility that has left the
+contract. Dates are clamped to the export's own range on the way back in.
 
 **Charts**: one component, `MetricChart`, with the metric passed in. All four series
 (volume, FTFR %, repeats, penalty) come from a single `buildSeries` pass so switching tabs
