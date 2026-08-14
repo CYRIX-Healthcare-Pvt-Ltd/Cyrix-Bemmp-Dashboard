@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
 import { penaltyAmountIn } from '../data/query.js';
+import { writeSheet, saveBlob } from '../data/xlsx.js';
 import { supabase } from '../data/supabase.js';
 import {
   MEETING_FIELDS, ensureRows, loadLog, loadNotes, reconcileOpen, saveField,
@@ -418,6 +419,50 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
     return list;
   }, [records, query, sort, columns]);
 
+  /*
+   * The tracker as a spreadsheet.
+   *
+   * Exports exactly what is on screen — after the search, in the current sort
+   * order — because the button sits beside the search box and anything else
+   * would be a surprise. Downloading 915 rows having just narrowed to 12 is not
+   * what "download" means next to a filter.
+   *
+   * The meeting's own fields come with it. Zone, district and equipment are
+   * already in the export somebody could open themselves; what is only here is
+   * what the meeting decided, and that is the reason to take this file away.
+   */
+  const download = async () => {
+    const columns = [
+      { header: 'Ticket', key: 'ticket' },
+      { header: 'Down Days', key: 'age', numeric: true },
+      ...(hasZone ? [{ header: 'Zone', key: 'zone' }] : []),
+      { header: 'District', key: 'district' },
+      { header: 'Facility', key: 'facility' },
+      { header: 'Equipment', key: 'equipment' },
+      { header: 'Per day penalty', key: 'rate', numeric: true },
+      { header: 'Penalty', key: 'accrued', numeric: true },
+      ...MEETING_FIELDS.map((f) => ({ header: f.label, key: f.key })),
+    ];
+
+    const rows = visible.map((r) => {
+      const note = notes.get(r.ticket) ?? {};
+      return {
+        ...r,
+        // Dates as the page shows them. A date serial in a text column would be
+        // a number nobody can read, and a real date cell needs a number format
+        // this writer deliberately does not carry.
+        ...Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, shownValue(f.key, note[f.key])])),
+      };
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const scope = query.trim() ? 'filtered' : 'all';
+    saveBlob(
+      await writeSheet({ sheetName: 'Ticket tracker', columns, rows }),
+      `ticket-tracker-${state}-${scope}-${stamp}.xlsx`,
+    );
+  };
+
   const toggleSort = (key) => setSort((s) => {
     if (s?.key !== key) return { key, dir: 'asc' };
     // asc → desc → off, so a column can be let go of without reloading.
@@ -492,6 +537,24 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
           {!sort && (
             <span className="meeting-hint">Select any column heading to sort</span>
           )}
+
+          {/* Beside the search, because what it downloads is what the search
+              left on screen. */}
+          <button
+            type="button"
+            className="meeting-export"
+            onClick={download}
+            title={query.trim()
+              ? `Download these ${visible.length.toLocaleString()} calls as Excel`
+              : `Download all ${visible.length.toLocaleString()} open calls as Excel`}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 4v11M8 11l4 4 4-4" />
+              <path d="M5 19h14" />
+            </svg>
+            Excel
+          </button>
 
           {(query || sort) && (
             <button
