@@ -12,11 +12,13 @@ import { useEffect, useState } from 'react';
  * exactly the tiles somebody opened the nav to navigate away from, and a number
  * half-hidden behind chrome is worse than a number off the edge of the screen.
  *
- * It closes itself the moment the work is touched — a section is picked, or a
- * press lands anywhere outside it — so the names are something you reach for
- * rather than a column that has to be put away by hand. Nothing is remembered
- * between visits for the same reason: a nav that shuts itself on the first click
- * has no resting open state worth restoring.
+ * It closes itself the moment the work is touched — a press anywhere outside it,
+ * or Escape — so the names are something you reach for rather than a column that
+ * has to be put away by hand. Picking a section is not that signal: it is
+ * somebody using the nav, and closing on it made moving between two sections
+ * mean reopening the thing every time. Nothing is remembered between visits, for
+ * the related reason that a nav which shuts itself has no resting open state
+ * worth restoring.
  *
  * The width lives on the root as `--nav-w` because the shell's grid is sized
  * from it, and the attribute set here is what the stylesheet transitions.
@@ -81,10 +83,18 @@ export default function SideNav({ tabs, active, onSelect }) {
     };
   }, [open]);
 
-  const select = (id) => {
-    onSelect(id);
-    if (window.matchMedia(HAS_RAIL).matches) setOpen(false);
-  };
+  /*
+   * Picking a section deliberately does *not* close it.
+   *
+   * It used to, and that made the names unusable for the thing they are for:
+   * moving between sections. Open the nav to read the labels, press Penalty, and
+   * it shut — so comparing two sections meant reopening it every single time.
+   * A press on a nav item is somebody *using* the nav, not finishing with it.
+   *
+   * Working in the page is the signal that it is finished with, and that is
+   * handled above.
+   */
+  const select = (id) => onSelect(id);
 
   return (
     <nav className={`sidenav${open ? ' is-open' : ''}`} aria-label="Sections">

@@ -509,10 +509,12 @@ no transform that pushes a grid column. Its one real expense is `MetricChart`, w
 its own width as the column moves; that is why the observer there rounds and skips
 no-op updates.
 
-**It puts itself away once used**, at every width above the strip: picking a section closes
-it, so does a press anywhere outside it, so does Escape. A press *inside* it does not, or
-the nav would shut before it could be used. Nothing is remembered between visits — a nav
-that closes itself on the first click has no resting open state worth restoring. `HAS_RAIL`
+**It puts itself away once the work is touched**, at every width above the strip: a press
+anywhere outside it, or Escape. **Picking a section does not close it** — that closes on
+somebody *using* the nav, which made the names useless for the one thing they are for.
+Open it to read the labels, press Penalty, and it shut; comparing two sections then meant
+reopening it every single time. Nothing is remembered between visits, for the related
+reason that a nav which shuts itself has no resting open state worth restoring. `HAS_RAIL`
 in `SideNav.jsx` is the one place that decides, and it gates every auto-close so the phone
 strip is never subject to rules written for a column that is not on screen.
 
