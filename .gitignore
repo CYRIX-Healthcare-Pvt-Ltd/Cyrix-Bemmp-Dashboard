@@ -22,3 +22,9 @@ BASELINE.md
 
 .vercel
 .env*
+
+# Installed agent skills (npx skills add). Third-party content, and this
+# repository is public — kept on disk, not vendored.
+.agents/
+.claude/skills/
+skills-lock.json
