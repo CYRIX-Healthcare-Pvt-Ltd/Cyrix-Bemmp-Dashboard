@@ -36,7 +36,18 @@ export default function MetricChart({ series, metric, height = 300 }) {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return undefined;
-    const ro = new ResizeObserver(([entry]) => setW(Math.max(280, entry.contentRect.width)));
+    /*
+     * Rounded, and only when it actually changed.
+     *
+     * Opening the rail animates the shell's grid column, so this fires on every
+     * frame of it and each call re-runs the whole geometry pass — the scales,
+     * the path, and the left-to-right label collision walk. Sub-pixel widths
+     * made most of those renders identical work for an identical picture.
+     */
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.max(280, Math.round(entry.contentRect.width));
+      setW((w) => (w === next ? w : next));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);

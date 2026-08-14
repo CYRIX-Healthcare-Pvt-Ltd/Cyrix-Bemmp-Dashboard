@@ -393,17 +393,38 @@ export default function App() {
       const preferShared = theirs
         && (!mine || new Date(theirs.uploaded_at) > new Date(mine.uploadedAt));
 
+      /*
+       * A shared artifact that will not load must not take the page down with
+       * it. There is very often a perfectly good copy behind it — this browser's
+       * own upload, or whatever the server build shipped — and a dead-end error
+       * screen hides all of them. It happened: a stale `tickets.bin.gz` held in
+       * one browser's HTTP cache blanked the whole deployment.
+       *
+       * Reported to the console rather than swallowed, because the next thing
+       * shown is a *different* export and silently substituting one for another
+       * is how somebody reads Monday's figures on Thursday.
+       */
+      const tryShared = async () => {
+        try {
+          const s = await fetchSharedDataset(target, theirs);
+          return s ? datasetFrom(s.meta, s.buffer, 'shared') : null;
+        } catch (e) {
+          console.error(`Shared ${target} export could not be read, falling back:`, e);
+          return null;
+        }
+      };
+
       if (preferShared) {
-        const s = await fetchSharedDataset(target, theirs.encoding);
-        if (s) return datasetFrom(s.meta, s.buffer, 'shared');
+        const s = await tryShared();
+        if (s) return s;
       }
       if (mine) {
         const u = await getUpload(target);
         if (u) return datasetFrom(u.meta, u.buffer, 'upload');
       }
       if (theirs && !preferShared) {
-        const s = await fetchSharedDataset(target, theirs.encoding);
-        if (s) return datasetFrom(s.meta, s.buffer, 'shared');
+        const s = await tryShared();
+        if (s) return s;
       }
       return loadDataset(target, dataVersion);
     })();

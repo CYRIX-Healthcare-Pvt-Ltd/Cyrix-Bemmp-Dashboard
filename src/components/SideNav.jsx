@@ -1,38 +1,33 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Vertical navigation, collapsible to a rail of icons.
+ * Vertical navigation: a rail of icons, with the section names on demand.
  *
  * The tabs were a horizontal strip, which on this dashboard cost a whole band of
  * the first screen and could not grow: six labels already filled the width, and
- * the strip scrolled sideways on a laptop. Down the side they cost a rail, and
- * the rail collapses to icons when the content wants the room.
+ * the strip scrolled sideways on a laptop. Down the side they cost a rail.
  *
- * Collapsed state is remembered, because it is a working preference rather than
- * a per-visit decision — someone on a small laptop wants it collapsed every time.
+ * Opening it **widens the column** and the work moves over to make room, rather
+ * than the names floating over the figures. A panel over the dashboard covers
+ * exactly the tiles somebody opened the nav to navigate away from, and a number
+ * half-hidden behind chrome is worse than a number off the edge of the screen.
+ *
+ * It closes itself the moment the work is touched — a section is picked, or a
+ * press lands anywhere outside it — so the names are something you reach for
+ * rather than a column that has to be put away by hand. Nothing is remembered
+ * between visits for the same reason: a nav that shuts itself on the first click
+ * has no resting open state worth restoring.
+ *
+ * The width lives on the root as `--nav-w` because the shell's grid is sized
+ * from it, and the attribute set here is what the stylesheet transitions.
  */
 
-const KEY = 'bemmp-nav-collapsed';
-
 /*
- * Below this the expanded rail is borrowing space rather than owning it, so it
- * gets out of the way once it has been used — picking a section closes it, and
- * so does a click anywhere in the working column.
- *
- * Above it the rail is a fixed column with room to spare, and closing itself
- * after every click would be a nav that keeps undoing what you asked for. The
- * remembered preference is left alone there.
- *
- * Matched to the shell's own grid: `--nav-w` is 208px and the working column
- * needs roughly 900px before a table stops scrolling sideways.
+ * Below 860px there is no rail at all — the sections become a horizontal strip,
+ * where "open" means nothing. Every auto-close is gated on this so the strip is
+ * never subject to rules written for a column that is not on screen.
  */
-/*
- * A range, not a ceiling. Below 860px there is no rail at all — the sections
- * become a horizontal strip — so collapsing there means nothing, and worse, the
- * flag is remembered: a phone that picked it up rendered a strip with its labels
- * hidden and its icons already hidden, which is to say an empty box.
- */
-const AUTO_COLLAPSE_BELOW = '(min-width: 861px) and (max-width: 1180px)';
+const HAS_RAIL = '(min-width: 861px)';
 
 /** One 24px stroke icon per tab, in the same visual weight as the rest of the UI. */
 const ICONS = {
@@ -45,43 +40,54 @@ const ICONS = {
 };
 
 export default function SideNav({ tabs, active, onSelect }) {
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(KEY) === '1',
-  );
-
-  useEffect(() => {
-    localStorage.setItem(KEY, collapsed ? '1' : '0');
-    // The main grid column is sized from this, so the attribute lives on the
-    // root rather than being threaded through every layout rule.
-    document.documentElement.dataset.nav = collapsed ? 'rail' : 'full';
-  }, [collapsed]);
+  const [open, setOpen] = useState(false);
 
   /*
-   * Clicking into the work closes an expanded rail on a narrow screen.
-   *
-   * `pointerdown` rather than `click`, so the rail is already on its way out
-   * as the press lands rather than a frame after whatever was pressed has
-   * responded. Nothing is swallowed — the event runs its normal course.
+   * The shell's grid column is sized from this, so the width lives on the root
+   * rather than being threaded through every layout rule. The rail is the
+   * absence of the attribute, which is what lets the first paint be correct
+   * without anything having to be stamped ahead of it.
    */
   useEffect(() => {
-    if (collapsed) return undefined;
-    const narrow = window.matchMedia(AUTO_COLLAPSE_BELOW);
-    if (!narrow.matches) return undefined;
+    document.documentElement.dataset.nav = open ? 'full' : 'rail';
+  }, [open]);
+
+  /*
+   * Working in the page closes the panel.
+   *
+   * `pointerdown` rather than `click`, so it is already on its way out as the
+   * press lands rather than a frame after whatever was pressed has responded.
+   * Nothing is swallowed — the event runs its normal course.
+   *
+   * The width is tested inside the handler rather than when the listener is
+   * attached: a window dragged from phone width to desktop while the panel was
+   * open would otherwise keep a listener that had already decided it did not
+   * apply.
+   */
+  useEffect(() => {
+    if (!open) return undefined;
 
     const onDown = (e) => {
-      if (!e.target.closest('.sidenav')) setCollapsed(true);
+      if (!window.matchMedia(HAS_RAIL).matches) return;
+      if (!e.target.closest('.sidenav')) setOpen(false);
     };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+
     document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [collapsed]);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   const select = (id) => {
     onSelect(id);
-    if (window.matchMedia(AUTO_COLLAPSE_BELOW).matches) setCollapsed(true);
+    if (window.matchMedia(HAS_RAIL).matches) setOpen(false);
   };
 
   return (
-    <nav className={`sidenav${collapsed ? ' is-rail' : ''}`} aria-label="Sections">
+    <nav className={`sidenav${open ? ' is-open' : ''}`} aria-label="Sections">
       <ul className="sidenav-list">
         {tabs.map((t) => (
           <li key={t.id}>
@@ -89,16 +95,19 @@ export default function SideNav({ tabs, active, onSelect }) {
               type="button"
               className="sidenav-item"
               aria-current={active === t.id ? 'page' : undefined}
-              // Collapsed, the label is gone from the page but must still reach
-              // a screen reader and a hover.
-              title={collapsed ? t.label : undefined}
+              // The label is clipped away in the rail but must still reach a
+              // screen reader and a hover.
+              title={open ? undefined : t.label}
               aria-label={t.label}
               onClick={() => select(t.id)}
             >
               {/* The icon carries the section's own colour — the same hue the
                   charts use for that measure, so the rail teaches the palette
                   rather than inventing a second one. Only the icon: a coloured
-                  label would make six competing headings. */}
+                  label would make six competing headings.
+
+                  It sits at the same x in both states, which is why the panel
+                  appears to grow out from behind it instead of shunting it. */}
               <svg
                 viewBox="0 0 24 24" width="18" height="18" fill="none"
                 stroke={`var(--nav-${t.id})`} strokeWidth="1.7"
@@ -119,13 +128,14 @@ export default function SideNav({ tabs, active, onSelect }) {
       <button
         type="button"
         className="sidenav-collapse"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-        title={collapsed ? 'Expand' : 'Collapse'}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={open ? 'Hide section names' : 'Show section names'}
+        title={open ? 'Hide names' : 'Show names'}
       >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d={collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
+          <path d={open ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} />
         </svg>
       </button>
     </nav>

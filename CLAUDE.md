@@ -462,6 +462,28 @@ nobody would notice, because numbers look like numbers. A tie goes to the local 
 tie means it is the same export and that one is already on disk. Below both is whatever the
 server build shipped, which is only ever as fresh as the last deploy.
 
+**Every publish writes a new folder** — `<state>/<version>/` — and `dataset.version` is the
+pointer. The two objects used to be overwritten at one fixed path each, and Storage serves
+them `cache-control: max-age=3600`, so for an hour after every publish a browser could hold
+the *previous* 27 MB `tickets.bin.gz` in its own HTTP cache while fetching the new
+`meta.json.gz` over the network. That is a meta describing 270,293 rows paired with a
+buffer holding 270,030: every figure read out of the wrong column. The reader's size check
+catches it, but only by refusing to load at all, and one publish took the deployment down
+for a morning that way. It was never a race — anyone who opened the dashboard in the hour
+before a publish hit it.
+
+Immutable paths remove the failure rather than narrowing the window: bytes behind a URL
+never change, so caching them for a year is correct, and switching versions is a one-row
+update, which is atomic. A publish that dies halfway leaves a folder nobody points at. The
+old flat paths are still read when `version` is null. A publish sweeps the version it
+replaced, best-effort — the upload has already succeeded by then, and a stale folder is
+housekeeping, not a failure to report.
+
+**A shared artifact that will not load must not take the page down with it.** There is
+usually a good copy behind it — this browser's own upload, or the server build — and an
+error screen hides all of them. `App.jsx` falls through and logs; it does not swallow,
+because the next thing shown is a *different* export.
+
 `dataset.uploaded_at` is re-read on focus, on `visibilitychange` and on a five-minute
 timer, so a page already open in another office picks up a publish without a reload.
 `reloadShared` compares the timestamps and keeps the previous object when nothing changed —
@@ -473,15 +495,31 @@ table would throw away the whole reason the columnar format exists.
 sections and the working column takes the rest. The tabs were a horizontal strip, but six
 labels already filled a laptop's width, so it scrolled sideways and cost a band of the
 first screen on every tab. Collapsed, the rail is 60px of icons and hands 148px back to the
-content; the state is remembered, because it is a working preference rather than a
-per-visit choice. Below 860px the rail becomes a scrolling strip along the top — a sidebar
-on a phone is either most of the screen or a hamburger nobody opens.
+content. Below 860px it becomes a scrolling strip along the top — a sidebar on a phone is
+either most of the screen or a hamburger nobody opens. The strip keeps its icons, because
+they are what carries each section's colour, and it already scrolls sideways.
 
-Below 1180px an expanded rail is borrowing space rather than owning it, so it puts itself
-away once used: picking a section closes it, and so does a press anywhere outside it. Above
-that width it stays where it was put, because a nav that keeps undoing what you asked for is
-worse than one column of chrome. `AUTO_COLLAPSE_BELOW` in `SideNav.jsx` is the one place
-that decides.
+**Opening it widens the column; it never floats over the work.** An overlay covers exactly
+the tiles somebody opened the nav to navigate away from, and a number half-hidden behind
+chrome is worse than one off the edge of the screen. So `--nav-w` is what animates and the
+working column follows it — which needs `@property` to register it as a `<length>`, since an
+untyped custom property cannot interpolate and `grid-template-columns` snapped. This is a
+layout animation, normally the thing to avoid, and it earns the cost only because there is
+no transform that pushes a grid column. Its one real expense is `MetricChart`, which re-reads
+its own width as the column moves; that is why the observer there rounds and skips
+no-op updates.
+
+**It puts itself away once used**, at every width above the strip: picking a section closes
+it, so does a press anywhere outside it, so does Escape. A press *inside* it does not, or
+the nav would shut before it could be used. Nothing is remembered between visits — a nav
+that closes itself on the first click has no resting open state worth restoring. `HAS_RAIL`
+in `SideNav.jsx` is the one place that decides, and it gates every auto-close so the phone
+strip is never subject to rules written for a column that is not on screen.
+
+The icon sits at the same x in both states — one `padding-left` puts it dead centre of the
+60px rail and at a normal indent in the 208px column — so the labels appear beside it
+rather than shunting it along. The labels fade asymmetrically: 60ms late arriving, immediate
+leaving. Text fading in while the container behind it is still moving reads as a smear.
 
 The filter panel is a right-hand drawer over the content rather than a band across it, so
 it costs nothing when closed, which is most of the time.

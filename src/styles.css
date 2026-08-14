@@ -2057,8 +2057,35 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   gap: 22px;
   align-items: start;
 }
-:root { --nav-w: 208px; }
-:root[data-nav='rail'] { --nav-w: 60px; }
+/*
+ * The rail widens the grid rather than floating over it — opening the nav must
+ * never cover a figure — so `--nav-w` is what animates, and the working column
+ * follows it.
+ *
+ * Registering it with `@property` is what makes that possible at all: a plain
+ * custom property is an untyped token and jumps from one value to the other, so
+ * `grid-template-columns` snapped and took the whole dashboard with it. Declared
+ * as a `<length>` the browser can interpolate it, and the column slides.
+ *
+ * This is a layout animation, which is normally the thing to avoid — it runs a
+ * layout pass per frame instead of staying on the compositor. It earns the cost
+ * here because the width *is* the thing being animated; there is no transform
+ * that pushes a grid column. The one real expense is the chart, which re-reads
+ * its own width as the column moves, and MetricChart coalesces that to one
+ * update a frame.
+ */
+@property --nav-w {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 60px;
+}
+:root {
+  --nav-w: 60px;
+  transition: --nav-w var(--dur) var(--ease-out);
+}
+/* Set by SideNav on open. Absent is the rail, which is why nothing has to be
+   stamped before the first paint — the initial value is already correct. */
+:root[data-nav='full'] { --nav-w: 208px; }
 
 .work { min-width: 0; }
 
@@ -2067,38 +2094,69 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   display: flex; flex-direction: column; gap: 18px;
   min-width: 0;
 }
-.sidenav-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+/* `min-width: 0` at every level, or none of the above happens: a flex item and a
+   grid item both default to `min-width: auto`, so the list refuses to shrink
+   below the widest `nowrap` label and the rail renders 195px wide however narrow
+   its column is. */
+.sidenav-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 2px; width: 100%; min-width: 0;
+}
+.sidenav-list li { min-width: 0; }
 
 .sidenav-item {
+  position: relative; min-width: 0;
   display: flex; align-items: center; gap: 11px; width: 100%;
-  padding: 9px 12px; cursor: pointer; text-align: left;
+  /* 20px, plus the 1px border, puts the icon at x=21 — which is dead centre of
+     the 60px rail and a normal indent in the 208px panel. One value for both
+     states makes the icon the one thing that never moves: the labels appear
+     beside it rather than shunting it along. */
+  padding: 9px 12px 9px 20px;
+  cursor: pointer; text-align: left; overflow: hidden;
   border: 1px solid transparent; border-radius: var(--radius-sm);
   background: none; color: var(--text-secondary);
   font-size: 13px; font-weight: 550; white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
 }
 .sidenav-item svg { flex: none; }
 .sidenav-item:hover { background: var(--hover-wash); color: var(--text-primary); }
+/* The pill takes its width from the column, so it grows with the rail rather
+   than appearing at full size. */
 .sidenav-item[aria-current='page'] {
   background: var(--surface); border-color: var(--border);
   color: var(--text-primary); box-shadow: var(--shadow-sm);
 }
 
-/* Icon only, and aligned to the rail's edge so it reads as a control on the
-   divider rather than a seventh nav item. */
+/* Icon only, and centred on the rail rather than the labels — the toggle belongs
+   to the rail, so it stays put whatever width the column is. */
 .sidenav-collapse {
   display: grid; place-items: center;
-  width: 28px; height: 28px; margin-left: auto; cursor: pointer;
+  width: 60px; height: 28px; cursor: pointer;
   border: 1px solid transparent; border-radius: var(--radius-sm);
   background: none; color: var(--text-muted);
 }
 .sidenav-collapse:hover { background: var(--hover-wash); color: var(--text-primary); }
 
-/* Collapsed: icons only, centred, labels gone from the layout entirely rather
-   than merely hidden — a zero-width label still pushes the icon off centre. */
-.sidenav.is-rail .sidenav-label { display: none; }
-.sidenav.is-rail .sidenav-item { justify-content: center; padding-left: 0; padding-right: 0; }
-.sidenav.is-rail .sidenav-collapse { margin: 0 auto; }
+/*
+ * The labels. Clipped by the item as the column narrows, and faded as well so
+ * the edge is never a hard cut.
+ *
+ * Deliberately asymmetric: coming in they wait 60ms for the column to have most
+ * of its width, going out they leave immediately. Text fading in while the
+ * container behind it is still moving reads as a smear, and text still fading as
+ * the column closes is the same fault in reverse.
+ */
+.sidenav-label {
+  opacity: 0;
+  transform: translate3d(-6px, 0, 0);
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur) var(--ease-out);
+}
+.sidenav.is-open .sidenav-label {
+  opacity: 1; transform: none;
+  transition-delay: 60ms;
+}
 
 /* Below the split the rail becomes a scrolling strip along the top — a sidebar
    on a phone is either most of the screen or a hamburger nobody opens. */
@@ -2113,20 +2171,27 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
     border-radius: var(--radius-pill);
   }
   .sidenav-list::-webkit-scrollbar { display: none; }
-  .sidenav-item { border-radius: var(--radius-pill); padding: 8px 14px; }
-  .sidenav-item svg, .sidenav-collapse { display: none; }
+  /* The icons come with, because they are what carries each section's colour —
+     without them the strip is five identical grey pills where the desktop rail
+     is colour-coded. The strip already scrolls sideways, so the width they cost
+     is width it was going to scroll through anyway. */
+  .sidenav-item {
+    border-radius: var(--radius-pill); padding: 8px 14px; overflow: visible;
+    gap: 8px;
+  }
+  .sidenav-collapse { display: none; }
 
   /*
-   * There is no collapsed state here, and saying so has to be explicit.
+   * There is no panel here, and every rule written for one has to be undone
+   * explicitly.
    *
-   * `is-rail` is remembered across widths, and on this strip it hides the
-   * labels while the rule above hides the icons — which leaves six two-pixel
-   * buttons and an empty rounded box where the navigation should be. It reads
-   * as a stray input field above the filters, which is exactly what it was
-   * reported as. A strip is already as small as this gets.
+   * The strip never opens — the toggle that would open it is hidden by the rule
+   * above — so it renders permanently in the rail state, where the labels are
+   * transparent. Left alone that is six invisible buttons in an empty rounded
+   * box, which is exactly how it was once reported. A strip is already as small
+   * as this gets.
    */
-  .sidenav.is-rail .sidenav-label { display: block; }
-  .sidenav.is-rail .sidenav-item { justify-content: flex-start; padding: 8px 14px; }
+  .sidenav-label { opacity: 1; transform: none; }
 }
 
 /* ============================================================ filter drawer == */
