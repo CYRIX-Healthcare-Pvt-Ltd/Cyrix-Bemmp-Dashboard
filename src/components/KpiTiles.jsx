@@ -87,13 +87,23 @@ const int = (n) => Math.round(n).toLocaleString();
 const pct1 = (n) => `${n.toFixed(1)}%`;
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
-/** "2 / 7 days" for Andhra, "7 days" for Kerala. */
+/**
+ * The window a call may stay open before it starts costing money.
+ *
+ * Called the **non-penalty period** throughout, which is the business's own
+ * name for it and the only one that cannot be misread here: "SLA" is not a word
+ * this company uses, and "TAT" already means the time a call actually took —
+ * the neighbouring section is literally called Closure TAT.
+ *
+ * One window for every asset in Kerala; a shorter one for critical equipment in
+ * Andhra.
+ */
 function slaNote(penaltyDays) {
   const values = [...new Set(Object.values(penaltyDays || {}))];
-  if (values.length === 1) return `Open beyond ${values[0]} days`;
+  if (values.length === 1) return `Open beyond the ${values[0]}-day non-penalty period`;
   const crit = penaltyDays.CRITICAL;
   const non = penaltyDays['NON CRITICAL'];
-  return `Open beyond ${crit}d critical / ${non}d non-critical`;
+  return `Past a non-penalty period of ${crit}d critical / ${non}d non-critical`;
 }
 
 /**

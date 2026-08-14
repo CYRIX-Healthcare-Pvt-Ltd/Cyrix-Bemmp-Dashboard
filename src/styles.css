@@ -1418,6 +1418,27 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   margin: 2px 0 0; font-size: 15px; font-weight: 650;
   letter-spacing: -0.015em; font-variant-numeric: tabular-nums;
 }
+
+/*
+ * A record's fields. One per row rather than the overview's grid: these are
+ * label/value pairs of wildly different lengths — a PO number beside a
+ * free-text remark — and a two-column grid would leave one cell empty on most
+ * rows and wrap the other.
+ */
+.answer-record {
+  display: grid; gap: 6px; margin: 10px 0 0;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--track-bg); border: 1px solid var(--track-border);
+}
+.answer-record > div { display: flex; gap: 10px; align-items: baseline; }
+.answer-record dt {
+  flex: none; min-width: 108px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.answer-record dd {
+  margin: 0; font-size: 13px; min-width: 0; overflow-wrap: anywhere;
+}
 .answer-meta {
   margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gridline);
   font-size: 11px; color: var(--text-muted);

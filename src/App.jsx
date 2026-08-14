@@ -60,12 +60,13 @@ const METRICS = [
   {
     id: 'penalty', tab: 'Penalty calls', label: 'Penalty calls',
     color: 'var(--status-critical)', value: (d) => d.penalties,
-    caption: 'Calls still open past SLA, placed in the period they were logged',
+    caption: 'Calls still open past their non-penalty period, plotted where they were logged',
     // The last days before the reference date cannot breach yet, whatever
     // happens in them, so plotting them would draw a cliff that is not there.
     through: penaltyEligibleThrough,
     note: (ds, referenceDay) =>
-      `Ends ${formatDay(penaltyEligibleThrough(ds, referenceDay))} — later calls are inside SLA`,
+      `Ends ${formatDay(penaltyEligibleThrough(ds, referenceDay))} — later calls are still `
+      + 'inside their non-penalty period',
   },
 ];
 

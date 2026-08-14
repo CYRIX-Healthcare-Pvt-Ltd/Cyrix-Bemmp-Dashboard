@@ -74,7 +74,7 @@ export const MEASURES = {
   },
   penalty: {
     label: 'Penalty calls',
-    describe: 'HOW MANY open calls have passed their SLA window — a count, not money. '
+    describe: 'HOW MANY open calls have passed their non-penalty period — a count, not money. '
       + 'Only for "how many penalty calls"; bare "penalty" means rupees, use perDayPenalty',
     kind: 'count',
     rows: (ds, idx, ctx) => penaltyRows(ds, idx, ctx.referenceDay),
@@ -118,7 +118,7 @@ export const MEASURES = {
   },
   perDayPenalty: {
     label: 'Per-day penalty',
-    describe: 'RUPEES accruing each day on open tickets past their grace window. '
+    describe: 'RUPEES accruing each day on open tickets past their non-penalty period. '
       + 'This is what "penalty" means unqualified — what the backlog is costing',
     kind: 'sum',
     needsRateCard: true,
@@ -415,8 +415,52 @@ export function datasetContext(ds) {
         + 'Use dimension "zone" when the user says zone, north or south.'
       : 'This contract has NO zone column; never use the zone dimension for it.',
     'A ticket is open only when it has no resolved date AND no ticket remark.',
-    'A penalty call is an open call past its SLA window.',
+
+    /*
+     * The contract's own vocabulary, with its own numbers in it.
+     *
+     * Asked "what is SLA" she gave the dictionary definition — "a commitment
+     * between a service provider and a client" — which is true of the phrase and
+     * says nothing about this contract. Here SLA is a specific number of days,
+     * it is written down in the state config, and it is the single thing every
+     * penalty figure on the dashboard turns on.
+     *
+     * The synonyms matter as much as the number. The business says SLA, TAT,
+     * grace period and "free days" for the same window, and somebody asking
+     * "you mean 108 past TAT?" is asking about the SLA answer they were just
+     * given, not starting a new question.
+     */
+    nonPenaltyPeriodSentence(ds),
+    'Call it the **non-penalty period**, which is what this company calls it and what '
+      + 'the dashboard says. Do not say "SLA" — the word is not used here. Do not say '
+      + '"TAT" for it either: TAT on this contract means how long a call actually took '
+      + 'to close, which is the opposite quantity and has a section of its own.',
+    'If somebody else says SLA, TAT window, grace period or free days, they mean the '
+      + 'non-penalty period — understand them, then answer in the dashboard\'s words.',
+    'A penalty call is an open call past that period. The logged date itself is not '
+      + 'counted, so a call logged on the 1st with a 7-day period breaches on the 9th.',
   ].join(' ');
+}
+
+/**
+ * The non-penalty period, in the words and numbers of the contract in front of us.
+ *
+ * Kerala runs one window for every asset; Andhra runs a shorter one for critical
+ * equipment. Reading it off `penaltyDays` rather than writing it out means the
+ * sentence cannot drift from the rule the figures are actually computed with.
+ */
+function nonPenaltyPeriodSentence(ds) {
+  const days = ds.meta.penaltyDays || {};
+  const values = [...new Set(Object.values(days))];
+  if (!values.length) return '';
+
+  if (values.length === 1) {
+    return `On ${ds.meta.name} the non-penalty period is ${values[0]} days for every `
+      + `asset: a call may stay open ${values[0]} days before it becomes a penalty call.`;
+  }
+  return `On ${ds.meta.name} the non-penalty period depends on criticality — `
+    + `${days.CRITICAL} days for critical equipment and ${days['NON CRITICAL']} for the `
+    + 'rest — and a call becomes a penalty call once it passes its own period.';
 }
 
 /* --------------------------------------------------------------- matching -- */
@@ -939,7 +983,9 @@ export function describeResult(ds, result) {
     // "1 calls are past SLA" is the kind of thing that makes a whole answer look
     // machine-written, so the one figure the sentence counts out loud agrees.
     const breached = cell('penalty')?.value ?? 0;
-    const sla = breached === 1 ? '1 call is past SLA' : `${at('penalty')} calls are past SLA`;
+    const sla = breached === 1
+      ? '1 call is past its non-penalty period'
+      : `${at('penalty')} calls are past their non-penalty period`;
 
     return `${scope}${period}: ${at('total')} calls logged, ${at('open')} still open and `
       + `${at('parked')} unresolved. First time fix rate is ${at('ftfr')} and calls take `

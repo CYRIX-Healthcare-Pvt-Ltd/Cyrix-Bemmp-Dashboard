@@ -13,10 +13,10 @@ import assert from 'node:assert/strict';
 
 import {
   applyPolarity, resolvePenaltyMeasure, explainWhy, neutralFilters, runQuery,
-  resolveSummary, describeResult,
+  resolveSummary, describeResult, datasetContext,
 } from '../src/data/assistant.js';
 import { disambiguateMonthYear } from '../src/data/openai.js';
-import { makeDataset, allFilters, day } from './fixture.mjs';
+import { makeDataset, allFilters, day, AP_PENALTY_DAYS } from './fixture.mjs';
 
 /* ------------------------------------------------------------- polarity --- */
 
@@ -328,6 +328,40 @@ test('the sentence counts one breach in the singular', () => {
   const south = runQuery(ds, neutralFilters(ds), day('2026-08-20'), {
     measure: 'overview', filterDimension: 'zone', filterValue: 'south',
   });
-  assert.match(describeResult(ds, south), /1 call is past SLA/);
+  assert.match(describeResult(ds, south), /1 call is past its non-penalty period/);
   assert.doesNotMatch(describeResult(ds, south), /1 calls/);
+});
+
+/* -------------------------------------------------------- contract facts --- */
+
+test('the SLA window in the context is the contract\'s own number', () => {
+  // Asked "what is SLA" she gave the dictionary definition of the phrase — true
+  // of the words, useless to a service manager who wants to know how many days
+  // they have. The context now carries the number the figures are computed with.
+  const kl = makeDataset([{ loggedDay: day('2026-06-01') }]);
+  const context = datasetContext(kl);
+
+  assert.match(context, /non-penalty period is 7 days/);
+  assert.match(context, /TAT/, 'the business\'s other word for the same window');
+  assert.match(context, /grace period/, "still understood when somebody types it");
+});
+
+test('a contract with two windows says so, with both numbers', () => {
+  const ap = makeDataset([{ loggedDay: day('2026-06-01') }], {
+    id: 'ap', name: 'Andhra Pradesh', penaltyDays: AP_PENALTY_DAYS, penaltyRates: null,
+  });
+  const context = datasetContext(ap);
+
+  assert.match(context, /2 days for critical/);
+  assert.match(context, /7 for the rest/);
+  assert.doesNotMatch(context, /7 days for every asset/, 'Kerala\'s wording must not leak');
+});
+
+test('the context never claims a rate card a contract does not have', () => {
+  const ap = makeDataset([{ loggedDay: day('2026-06-01') }], {
+    id: 'ap', name: 'Andhra Pradesh', penaltyDays: AP_PENALTY_DAYS, penaltyRates: null,
+  });
+  assert.match(datasetContext(ap), /NO penalty rate card/);
+  assert.match(datasetContext(makeDataset([{ loggedDay: day('2026-06-01') }])),
+    /has a penalty rate card/);
 });

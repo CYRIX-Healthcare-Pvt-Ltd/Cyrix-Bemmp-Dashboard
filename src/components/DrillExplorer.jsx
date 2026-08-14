@@ -408,7 +408,9 @@ export default function DrillExplorer({
                       <th>District</th>
                       <th>Engineer</th>
                       {showResolutionColumn && <th className="num">Resolution</th>}
-                      {showPenaltyColumn && <th className="num">Over SLA</th>}
+                      {/* Short, because it is a narrow numeric column and the figure under it is
+                          a number of days. The full name is on the tile and in the drawer. */}
+                      {showPenaltyColumn && <th className="num">Days over</th>}
                       {hasRateCard && <th className="num">Per-day ₹</th>}
                       {hasRateCard && <th className="num">Closure ₹</th>}
                     </tr>

@@ -96,11 +96,11 @@ export default function TicketDrawer({ ds, row, latestDay, onClose }) {
                   : '—'}
               </Row>
               <Row term="Down days">{cols.downDays[row]}</Row>
-              <Row term={`SLA (${slaWindow}d)`}>
+              <Row term={`Non-penalty period (${slaWindow}d)`}>
                 {bucket === BUCKET.OPEN
                   ? (onPenalty
                     ? <span className="pill pill-penalty">{openAge - slaWindow}d over</span>
-                    : <span className="pill pill-good">Within SLA</span>)
+                    : <span className="pill pill-good">Within period</span>)
                   : '—'}
               </Row>
             </dl>

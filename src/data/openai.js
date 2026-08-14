@@ -164,12 +164,40 @@ Follow-ups usually mean the previous question's subject. "And for Palakkad?"
 keeps the measure and changes the filter; "what about closure penalty" keeps the
 filter and changes the measure.
 
+Call look_up_record for what was written down rather than counted. Two things
+live in the database rather than in the ticket export: what the daily meeting
+recorded against a ticket — penalty type, TRC, quotation, PO, vendor, payment,
+remarks — and the account trail of who created, disabled or reset a login.
+"What did we decide on 285716", "which tickets are still waiting on a PO",
+"who reset KLCoord's password". You never see those rows either; the application
+reads them under the asker's own permissions and writes the answer.
+
+Counts, rankings, rates and money are query_dashboard even when they mention a
+ticket field. look_up_record is for the contents of specific records.
+
 Call reply_conversationally for greetings, thanks, small talk, or questions about
 what you can do. Answer like a colleague would — "Hey! Ask me anything about the
 Kerala contract. Try 'which district has the highest FTFR?'" Match the user's
 energy: a quick "hi" gets a quick hello back, not a paragraph. If a question is
 close to something you can answer but missing a detail, say what you need in one
-friendly line rather than guessing. Never invent figures there.`;
+friendly line rather than guessing. Never invent figures there.
+
+Two more things belong there, and both were being answered with a fresh query
+instead.
+
+Checking back on what you just said is conversation, not a new question. "You
+mean 108 past TAT?", "so that's the whole contract?", "including parked ones?" —
+these are about the answer already on screen. Confirm it in a line from what you
+already told them. Re-running a query hands back a different figure and looks
+like a non-sequitur, which is exactly how "you mean 108 past TAT?" came back with
+a rupee total.
+
+Asking what a term means is also conversation. Non-penalty period, TAT, FTFR, penalty call,
+parked, repeat call — explain them as they are used on THIS contract, with its
+own numbers, taken from the contract facts above. Never give the generic
+dictionary definition of the phrase: "a commitment between a service provider and
+a client" is true of the words and useless to a service manager who wants to know
+how many days they have.`;
 
 /**
  * Turns a question into a query spec. Only the question and the fixed tool schema
@@ -240,6 +268,8 @@ export async function planQuery({
   } catch {
     throw new Error('The model returned a malformed query.');
   }
+
+  if (call.function.name === 'look_up_record') return { kind: 'record', spec: args };
 
   if (call.function.name === 'reply_conversationally') {
     if (SUMMARY_WORDS.test(question)) return summarised();
@@ -380,7 +410,10 @@ export async function synthesizeSpeech({ text, session, language, voice = 'nova'
  * matches no tile on screen, so the sentence stops agreeing with the UI beside it.
  */
 const GLOSSARY = [
-  'FTFR', 'SLA', 'BEMMP', 'ticket', 'tickets', 'call', 'calls',
+  // "SLA" stays on the list even though nothing says it any more: somebody may
+  // still type it, and a term left off here gets translated into a phrase that
+  // matches no tile on screen.
+  'FTFR', 'SLA', 'TAT', 'non-penalty period', 'BEMMP', 'ticket', 'tickets', 'call', 'calls',
   'open call', 'open calls', 'unresolved call', 'unresolved calls',
   'repeat call', 'repeat calls', 'repeated call', 'repeated calls',
   'penalty', 'penalty call', 'penalty calls',

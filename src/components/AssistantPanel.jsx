@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   QUERY_TOOL, CHAT_TOOL, datasetContext, runQuery, describeResult, neutralFilters,
 } from '../data/assistant.js';
+import { RECORD_TOOL, runRecordQuery } from '../data/records.js';
 import { formatDay } from '../data/store.js';
 import { firstName } from '../data/supabase.js';
 import {
@@ -91,6 +92,35 @@ function Answer({ entry }) {
     return (
       <div className="chat-answer chat-reply">
         <p className="answer-text">{entry.translated || entry.reply}</p>
+      </div>
+    );
+  }
+
+  /*
+   * A record lookup — what the meeting wrote down, or the account trail.
+   *
+   * Deliberately never `entry.translated`: these rows carry free text somebody
+   * typed into a purchasing field, and translation is the one path that would
+   * put it in front of the model. The English is what was written; it is shown
+   * as written.
+   */
+  if (entry.record) {
+    return (
+      <div className="chat-answer">
+        <p className="answer-text">{entry.sentence}</p>
+        {entry.record.length > 0 && (
+          <dl className="answer-record">
+            {entry.record.map((r) => (
+              <div key={r.label}>
+                <dt>{r.label}</dt>
+                <dd>{r.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <div className="answer-meta">
+          <span>From the meeting record · visible to you only</span>
+        </div>
       </div>
     );
   }
@@ -229,7 +259,7 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
       const plan = await planQuery({
         question: trimmed,
         context: datasetContext(ds),
-        tools: [QUERY_TOOL, CHAT_TOOL],
+        tools: [QUERY_TOOL, CHAT_TOOL, RECORD_TOOL],
         session,
         history,
         /*
@@ -255,6 +285,25 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
        * matches the tiles beside it — and the figures never pass through a
        * translation step that could reformat them.
        */
+      /*
+       * A record lookup. The rows are fetched under this user's own session, so
+       * row-level security decides what comes back — and nothing fetched is sent
+       * to the model. `sensitive` rides along so the answer can never be handed
+       * to the translator, which is the one path that would put free-text
+       * purchasing remarks in front of it.
+       */
+      if (plan.kind === 'record') {
+        const found = await runRecordQuery(ds, plan.spec, profile);
+        setEntries((prev) => [...prev, {
+          question: trimmed,
+          sentence: found.sentence,
+          record: found.rows,
+          sensitive: found.sensitive,
+          at: Date.now(),
+        }].slice(-HISTORY_LIMIT));
+        return;
+      }
+
       if (plan.kind === 'chat') {
         setEntries((prev) => [...prev, {
           question: trimmed, reply: plan.reply, at: Date.now(),
