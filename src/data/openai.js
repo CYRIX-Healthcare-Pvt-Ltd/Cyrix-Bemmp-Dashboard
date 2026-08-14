@@ -13,7 +13,9 @@
  * shared key given away.
  */
 
-import { applyPolarity, explainWhy, resolvePenaltyMeasure } from './assistant.js';
+import {
+  applyPolarity, explainWhy, resolvePenaltyMeasure, resolveSummary, SUMMARY_WORDS,
+} from './assistant.js';
 import { supabase } from './supabase.js';
 
 /**
@@ -211,10 +213,23 @@ export async function planQuery({
   const message = data.choices?.[0]?.message;
   const call = message?.tool_calls?.[0];
 
+  /*
+   * A request for a summary is a query however the model answered it.
+   *
+   * "Give a summary about the Kerala project" came back as prose — a true
+   * paragraph about what the contract is, with no figures in it — because
+   * answering conversationally is a perfectly reasonable reading of the word.
+   * It is not the one anybody means here.
+   */
+  const summarised = () => ({
+    kind: 'query', spec: resolveSummary({ dimension: 'none' }, question),
+  });
+
   // No tool call means the model answered in prose; treat that as conversation
   // rather than failing, since the reply is usually perfectly good.
   if (!call) {
     const text = message?.content?.trim();
+    if (SUMMARY_WORDS.test(question)) return summarised();
     if (text) return { kind: 'chat', reply: text };
     throw new Error('I could not turn that into a query. Try rephrasing it.');
   }
@@ -226,15 +241,19 @@ export async function planQuery({
     throw new Error('The model returned a malformed query.');
   }
 
-  if (call.function.name === 'reply_conversationally') return { kind: 'chat', reply: args.reply };
+  if (call.function.name === 'reply_conversationally') {
+    if (SUMMARY_WORDS.test(question)) return summarised();
+    return { kind: 'chat', reply: args.reply };
+  }
 
   /*
-   * Three corrections, applied in this order and all after the model has spoken.
-   * Each fixes a convention the model reads the common way rather than the way
-   * this business does; see the notes on each. Polarity runs last because it
-   * depends on which measure the spec ended up with.
+   * Corrections, applied in this order and all after the model has spoken. Each
+   * fixes a convention the model reads the common way rather than the way this
+   * business does; see the notes on each. Polarity runs last because it depends
+   * on which measure the spec ended up with.
    */
   let spec = disambiguateMonthYear(args, question);
+  spec = resolveSummary(spec, question);
   spec = resolvePenaltyMeasure(spec, question, hasRateCard);
   spec = explainWhy(spec, question);
   spec = applyPolarity(spec, question);

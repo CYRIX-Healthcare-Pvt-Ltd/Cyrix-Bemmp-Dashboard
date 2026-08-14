@@ -391,12 +391,20 @@ th {
  * the destructive one, and a row that reflows on a phone would put them on
  * separate lines for no reason — they are read as a pair.
  */
+/* `auto-fit` so the single-button state fills the row rather than sitting in
+   half of it — the same trick `.field-pair` uses. */
 .filter-actions {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
   margin-top: 18px;
 }
 .filter-actions .filter-reset { width: 100%; }
 
+/*
+ * Three states, three colours, and none of them share one with another control
+ * on this panel. Reset is red because it discards; saving is blue because it
+ * keeps; clearing a saved view is amber because it is neither — it is undoing a
+ * preference, which is a smaller thing than either.
+ */
 .filter-default {
   padding: 8px 15px; cursor: pointer; font-size: 12.5px; font-weight: 600;
   border-radius: var(--radius-pill);
@@ -404,16 +412,29 @@ th {
   background: var(--control-bg); color: var(--text-secondary);
   transition: background 0.2s, color 0.2s, transform 0.2s var(--ease);
 }
-/* Saving a view is the deliberate half of the pair, so it carries the accent.
-   Clearing one is housekeeping and stays quiet. */
-.filter-default.is-set {
+.filter-default.is-save {
   border-color: color-mix(in srgb, var(--series-1) 55%, transparent);
   background: color-mix(in srgb, var(--series-1) 14%, transparent);
   color: var(--series-1);
 }
+.filter-default.is-clear {
+  border-color: color-mix(in srgb, var(--status-warning) 55%, transparent);
+  background: color-mix(in srgb, var(--status-warning) 14%, transparent);
+  color: var(--status-warning);
+}
 .filter-default:hover:not(:disabled) { transform: translateY(-1px); }
-.filter-default.is-set:hover:not(:disabled) {
+.filter-default.is-save:hover:not(:disabled) {
   background: color-mix(in srgb, var(--series-1) 24%, transparent);
+}
+.filter-default.is-clear:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-warning) 24%, transparent);
+}
+
+/* The badge takes the saved view's colour when one is in force, so the closed
+   bar says *why* it is narrowed without being opened. */
+.filter-count.is-saved {
+  background: var(--status-warning);
+  color: #1a1205;
 }
 
 /* Nothing selected means nothing to reset and nothing worth saving. Dimmed
@@ -1376,6 +1397,27 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   margin: 0 0 10px; font-size: 12px; color: var(--text-muted); font-style: italic;
 }
 .answer-chart { margin-top: 12px; }
+
+/*
+ * A summary's figures, in a grid rather than a bar chart — they are eight
+ * different units, so a shared axis would be meaningless. `auto-fit` keeps two
+ * columns in the drawer and one on a narrow phone without a second breakpoint.
+ */
+.answer-overview {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 1px; margin: 0 0 12px;
+  background: var(--glass-ring); border: 1px solid var(--glass-ring);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.answer-overview > div { padding: 8px 10px; background: var(--surface); }
+.answer-overview dt {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.answer-overview dd {
+  margin: 2px 0 0; font-size: 15px; font-weight: 650;
+  letter-spacing: -0.015em; font-variant-numeric: tabular-nums;
+}
 .answer-meta {
   margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gridline);
   font-size: 11px; color: var(--text-muted);

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
     "build:data": "node scripts/build-data.mjs",
     "refresh": "npm run build:data && npm run build",
     "dev": "vite",

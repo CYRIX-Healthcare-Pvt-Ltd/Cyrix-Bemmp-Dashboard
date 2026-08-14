@@ -299,7 +299,10 @@ function LogDialog({ state, ticket, onClose }) {
 function exportColumns(hasZone) {
   return [
     { key: 'ticket', label: 'Ticket', type: 'text' },
-    { key: 'age', label: 'Age', type: 'num', align: 'num' },
+    /* "Down days", which is what the business calls it. On this tab it is exact:
+       the tracker is open calls only, so days since logging is days the
+       equipment has been down. */
+    { key: 'age', label: 'Down Days', type: 'num', align: 'num' },
     ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text' }] : []),
     { key: 'district', label: 'District', type: 'text' },
     { key: 'facility', label: 'Facility', type: 'text' },
@@ -311,8 +314,10 @@ function exportColumns(hasZone) {
      * has run up more than a ₹1,000/d one logged on Tuesday, and ranking on the
      * rate alone hides exactly that — which is the reason the column is here.
      */
-    { key: 'rate', label: 'Penalty ₹', type: 'num', align: 'num' },
-    { key: 'accrued', label: 'Accrued ₹', type: 'num', align: 'num' },
+    /* The heading carries the unit, so the cells do not repeat it. A column of
+       "₹50/d" spends its width saying "per day" on every row. */
+    { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num' },
+    { key: 'accrued', label: 'Penalty', type: 'num', align: 'num' },
   ];
 }
 
@@ -540,7 +545,7 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                     <td>{r.equipment}</td>
                     <td className="num">
                       {r.rate > 0
-                        ? `₹${r.rate.toLocaleString('en-IN')}/d`
+                        ? `₹${r.rate.toLocaleString('en-IN')}`
                         : <span className="money-nil">—</span>}
                     </td>
                     <td className="num">

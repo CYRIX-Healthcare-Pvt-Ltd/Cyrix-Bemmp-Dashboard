@@ -281,7 +281,7 @@ export default function DrillExplorer({
               <div className="panel" style={{ '--i': 1 }}>
                 <div className="panel-head">
                   <div>
-                    <h2>Ageing</h2>
+                    <h2>Down Days</h2>
                     <p className="caption">
                       How long these calls have been sitting, as of {formatDay(referenceDay)}
                     </p>
@@ -402,7 +402,7 @@ export default function DrillExplorer({
                 <table>
                   <thead>
                     <tr>
-                      <th>Ticket</th><th className="num">Age</th><th>Logged</th>
+                      <th>Ticket</th><th className="num">Down Days</th><th>Logged</th>
                       <th>Equipment</th><th>Facility</th>
                       {hasZone && <th>Zone</th>}
                       <th>District</th>

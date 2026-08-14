@@ -12,7 +12,7 @@ import { BUCKET, monthStart, parseEngineer, formatDay, serialToISO } from './sto
 import {
   filterRows, summarize, rowsInBucket, penaltyRows, accruingRows, closedInRange,
   closurePenalty, analyzeRepeats, resolvedRows, aggregateBy, countBy, topN,
-  FTFR_MAX_DAYS,
+  FTFR_MAX_DAYS, ftfrSettledThrough, maxResolvedDay,
 } from './query.js';
 
 /* --------------------------------------------------------------- measures -- */
@@ -137,6 +137,26 @@ export const MEASURES = {
     format: inr,
     unit: '',
   },
+  /*
+   * Every headline figure at once, for "how are we doing".
+   *
+   * Asked for a summary, the model either wrote prose about what the contract
+   * *is* — true, and containing no numbers — or picked one measure and answered
+   * with total calls alone. Neither is what somebody means by "give me an
+   * overview", and neither could be fixed by prompting: a summary is not a
+   * measure with a dimension, it is a different shape of answer.
+   *
+   * Computed here like everything else, so the figures are the dashboard's own.
+   */
+  overview: {
+    label: 'Contract summary',
+    describe: 'EVERY headline figure at once — total, open, unresolved, resolved, '
+      + 'penalty calls, FTFR and average resolution. Use this for "summary", '
+      + '"overview", "how are we doing", or any request for the overall picture '
+      + 'rather than one number',
+    kind: 'overview',
+    unit: '',
+  },
 };
 
 export const DIMENSIONS = {
@@ -151,6 +171,28 @@ export const DIMENSIONS = {
   engineer: 'engineer',
   department: 'department',
   facilityType: 'facilityType',
+  /*
+   * The rest of the artifact's dictionaries. Every categorical column the
+   * export carries is reachable, so a question about a field nobody thought to
+   * expose is answerable rather than met with "I can't do that".
+   *
+   * Two columns are deliberately absent, and they are absent from the artifact
+   * itself rather than merely from this list: `Customer mobile`, which is
+   * personal data the dashboard has no use for, and Kerala's `AH Last Remark`,
+   * which embeds names and timestamps. Neither is in `tickets.bin`, so there is
+   * nothing here to leak even by mistake.
+   *
+   * `engineer` is the one that needs care and already has it — the raw value is
+   * `CODE - Name - phone`, and `dimensionLabel` strips everything but the name
+   * before it reaches an answer or the voice output.
+   */
+  model: 'model',
+  deviceGroup: 'deviceGroup',
+  status: 'status',
+  lifecycle: 'lifecycle',
+  reason: 'parkedReason',
+  criticality: 'equipmentType',
+  asset: 'barcode',
 };
 
 /** Singular and plural, so the summary sentence does not say "5 equipments". */
@@ -163,6 +205,13 @@ const DIM_NOUN = {
   engineer: ['engineer', 'engineers'],
   department: ['department', 'departments'],
   facilityType: ['facility type', 'facility types'],
+  model: ['model', 'models'],
+  deviceGroup: ['device group', 'device groups'],
+  status: ['status', 'statuses'],
+  lifecycle: ['lifecycle state', 'lifecycle states'],
+  reason: ['reason', 'reasons'],
+  criticality: ['criticality', 'criticalities'],
+  asset: ['asset', 'assets'],
 };
 
 /**
@@ -580,6 +629,37 @@ export function resolvePenaltyMeasure(spec, question, hasRateCard) {
  */
 const WHY = /\bwhy\b|what(?:'s| is| are)?\s+(?:causing|driving|behind)|reason|because of|due to/i;
 
+/*
+ * "Summary" means the whole picture, not one number and not an essay.
+ *
+ * Asked "give a summary about the Kerala project" the model answered in prose —
+ * a true paragraph about what the contract *is*, containing no figures at all.
+ * Asked again "share overall summary with values" it picked a single measure and
+ * answered with total calls. Both are reasonable readings of an ambiguous word
+ * and neither is what anybody means, so the word is resolved here rather than
+ * argued with on every turn.
+ */
+export const SUMMARY_WORDS = new RegExp([
+  'summar(y|ies|ise|ize|ising|izing)', 'overview', 'overall',
+  'how (are|is) (we|it|things|the contract|the project)',
+  'full picture', 'brief me', 'tell me about',
+  // The five other languages the panel speaks.
+  'സംഗ്രഹം', 'സംക്ഷിപ്ത', 'సారాంశం', 'சுருக்கம்', 'ಸಾರಾಂಶ', 'सारांश',
+].join('|'), 'i');
+
+/**
+ * Forces the overview measure when the question asks for one.
+ *
+ * Left alone when the question also names a specific measure — "summary of
+ * penalty by district" is a ranking somebody asked for, and replacing it with
+ * eight unrelated figures would be the same failure in the other direction.
+ */
+export function resolveSummary(spec, question) {
+  if (!question || !SUMMARY_WORDS.test(question)) return spec;
+  if (spec?.dimension && spec.dimension !== 'none') return spec;
+  return { ...spec, measure: 'overview', dimension: 'none' };
+}
+
 export function explainWhy(spec, question) {
   if (!question || !WHY.test(question)) return spec;
   if (spec?.dimension && spec.dimension !== 'none') return spec;
@@ -602,6 +682,45 @@ const ENGINE_FILTERS = new Set([
  * Executes a spec against the dataset and returns everything needed to render
  * an answer — the figure, the ranked breakdown, and a plain-English sentence.
  */
+/**
+ * Every headline figure for a row set, in the order a service review reads them.
+ *
+ * Deliberately the same computations the KPI tiles use, from the same module —
+ * a second implementation here would drift, and the whole reason the model never
+ * sees ticket data is so the sentence and the tiles cannot disagree.
+ *
+ * FTFR takes the settled cutoff for the same reason the tile does: a call logged
+ * yesterday still has today to be fixed in, and counting it as a miss reports an
+ * unfinished figure as a low one.
+ */
+function overviewOf(ds, idx, referenceDay, ctx) {
+  const through = ftfrSettledThrough(referenceDay, maxResolvedDay(ds));
+  const s = summarize(ds, idx, referenceDay, { ftfrThrough: through });
+  const repeats = analyzeRepeats(ds, idx);
+
+  const pct = (n) => (s.total ? `${((n / s.total) * 100).toFixed(1)}%` : '—');
+  const out = [
+    { key: 'total', label: 'Total calls', display: int(s.total) },
+    { key: 'open', label: 'Open', display: `${int(s.open)} (${pct(s.open)})` },
+    { key: 'parked', label: 'Unresolved', display: `${int(s.parked)} (${pct(s.parked)})` },
+    { key: 'resolved', label: 'Resolved', display: `${int(s.resolved)} (${pct(s.resolved)})` },
+    { key: 'penalty', label: 'Penalty calls', display: int(s.penalty), value: s.penalty },
+    { key: 'ftfr', label: 'FTFR', display: `${s.ftfrPct.toFixed(1)}%` },
+    { key: 'tat', label: 'Avg resolution', display: `${s.avgResolutionDays.toFixed(1)} d` },
+    { key: 'repeats', label: 'Repeat calls', display: int(repeats.followUps) },
+  ];
+
+  // Only where there is a rate card. Andhra has none, and a confident ₹0 is
+  // worse than the figure simply not being there.
+  if (ds.meta.penaltyRates) {
+    const rows = accruingRows(ds, ctx.undatedIdx, ctx.dayFrom, ctx.dayTo);
+    const perDay = rows.reduce((sum, i) => sum + ds.cols.dayRate[i], 0);
+    out.push({ key: 'perDay', label: 'Per-day penalty', display: `${inr(perDay)}/day`, value: perDay });
+  }
+
+  return out;
+}
+
 export function runQuery(ds, filters, referenceDay, rawSpec) {
   const spec = {
     measure: 'calls',
@@ -697,6 +816,29 @@ export function runQuery(ds, filters, referenceDay, rawSpec) {
     closedIdx: filterRows(ds, effective, { dateField: 'resolvedDay' }),
   };
 
+  /*
+   * A summary is a different shape of answer, not a measure with a dimension,
+   * so it returns before any of the ranking machinery below.
+   *
+   * It reads the same filtered rows as everything else, which is what makes
+   * "tell me about South zone" work without a line of its own: the zone filter
+   * has already narrowed `idx` by the time this runs.
+   */
+  if (measure.kind === 'overview') {
+    // A dimension the engine cannot narrow by is applied after the fact, the
+    // same way the ranked path does it below.
+    const scoped = appliedFilter?.postFilter
+      ? idx.filter((i) => ds.cols[appliedFilter.postFilter.col][i] === appliedFilter.postFilter.id)
+      : idx;
+    return {
+      spec, measure, appliedFilter, effective,
+      headline: null,
+      items: [],
+      overview: overviewOf(ds, scoped, referenceDay, ctx),
+      total: summarize(ds, scoped, referenceDay).total,
+    };
+  }
+
   let rows = measure.rows(ds, idx, ctx);
   if (appliedFilter?.postFilter) {
     const { col, id } = appliedFilter.postFilter;
@@ -782,6 +924,28 @@ export function describeResult(ds, result) {
   const period = asked
     ? ` from ${formatDay(effective.dayFrom)} to ${formatDay(effective.dayTo)}`
     : '';
+
+  /*
+   * A summary reads as a sentence, not as a list of labels — the figures are
+   * drawn beside it anyway, and repeating them in the same order with the same
+   * words would be the same thing said twice.
+   */
+  if (result.overview) {
+    const cell = (key) => result.overview.find((o) => o.key === key);
+    const at = (key) => cell(key)?.display ?? '—';
+    const scope = appliedFilter ? appliedFilter.label : contract;
+    const money = cell('perDay');
+
+    // "1 calls are past SLA" is the kind of thing that makes a whole answer look
+    // machine-written, so the one figure the sentence counts out loud agrees.
+    const breached = cell('penalty')?.value ?? 0;
+    const sla = breached === 1 ? '1 call is past SLA' : `${at('penalty')} calls are past SLA`;
+
+    return `${scope}${period}: ${at('total')} calls logged, ${at('open')} still open and `
+      + `${at('parked')} unresolved. First time fix rate is ${at('ftfr')} and calls take `
+      + `${at('tat')} on average to close. ${sla}`
+      + `${money && money.value > 0 ? `, costing ${money.display}` : ''}.`;
+  }
 
   if (headline) {
     const size = measure.kind === 'rate' || measure.kind === 'mean'

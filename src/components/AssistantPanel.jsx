@@ -76,6 +76,7 @@ function toView(result, describeRange) {
     // the tiles beside it may well be showing a different one.
     range: describeRange,
     filterLabel: result.appliedFilter?.label ?? null,
+    overview: result.overview ?? null,
   };
 }
 
@@ -103,6 +104,19 @@ function Answer({ entry }) {
           <div className="answer-figure">{view.headline.display}</div>
           <div className="answer-measure">{view.measureLabel}</div>
         </div>
+      )}
+
+      {/* A summary's figures lead, because that is the whole of the answer —
+          the sentence below is the reading of them, not the other way round. */}
+      {view.overview && (
+        <dl className="answer-overview">
+          {view.overview.map((o) => (
+            <div key={o.key}>
+              <dt>{o.label}</dt>
+              <dd>{o.display}</dd>
+            </div>
+          ))}
+        </dl>
       )}
 
       <p className="answer-text">{translated || sentence}</p>
@@ -291,7 +305,7 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
             </span>
             <div>
               <h2>Cyra</h2>
-              <div className="assistant-sub">{ds.meta.name} · remembers this chat</div>
+              <div className="assistant-sub">{ds.meta.name}</div>
             </div>
           </div>
           <div className="drawer-head-right">

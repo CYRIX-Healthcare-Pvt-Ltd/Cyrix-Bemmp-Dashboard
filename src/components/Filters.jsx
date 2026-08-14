@@ -225,7 +225,9 @@ export default function Filters({ ds, filters, setFilters }) {
             <path d="M3 6h18M7 12h10M11 18h2" />
           </svg>
           Filters
-          {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
+          {activeCount > 0 && (
+            <span className={`filter-count${saved ? ' is-saved' : ''}`}>{activeCount}</span>
+          )}
           <svg
             className={`chev${open ? ' up' : ''}`} viewBox="0 0 24 24" width="16" height="16"
             fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
@@ -237,10 +239,11 @@ export default function Filters({ ds, filters, setFilters }) {
         <span className="filter-summary">{summary}</span>
 
         {/* Only once something is applied — a reset that is always there invites
-            the question of what it would undo. */}
+            the question of what it would undo. Named for where it lands, since
+            with a saved view that is not "nothing selected". */}
         {activeCount > 0 && (
           <button type="button" className="filter-reset" onClick={reset}>
-            Reset all filters
+            {saved ? 'Back to saved view' : 'Reset all filters'}
           </button>
         )}
       </div>
@@ -361,41 +364,45 @@ export default function Filters({ ds, filters, setFilters }) {
         </div>
 
         {/*
-          * The two things you can do to a selection once you have made one, at
-          * the bottom where you finish rather than in the collapsed bar where
-          * you started. Reset is the quiet one; making this the view the page
-          * opens on is the deliberate one, so it takes the filled button.
+          * At the bottom, where a selection is finished, rather than in the
+          * collapsed bar where it is started.
+          *
+          * One control at a time, because with a default saved the two overlap:
+          * "Clear saved view" already returns the page to all time, so a Reset
+          * beside it offering to return the page to all time was two buttons for
+          * one outcome and the pair had to be read carefully to tell apart.
           */}
         <div className="filter-actions">
-          <button
-            type="button"
-            className="filter-reset"
-            onClick={reset}
-            disabled={activeCount === 0 && !saved}
-          >
-            Reset filters
-          </button>
           {saved ? (
-            <button type="button" className="filter-default" onClick={forgetDefault}>
-              Reset default filter
+            <button type="button" className="filter-default is-clear" onClick={forgetDefault}>
+              Clear saved view
             </button>
           ) : (
-            <button
-              type="button"
-              className="filter-default is-set"
-              onClick={setAsDefault}
-              disabled={activeCount === 0}
-            >
-              Set as default
-            </button>
+            <>
+              <button
+                type="button"
+                className="filter-reset"
+                onClick={reset}
+                disabled={activeCount === 0}
+              >
+                Reset filters
+              </button>
+              <button
+                type="button"
+                className="filter-default is-save"
+                onClick={setAsDefault}
+                disabled={activeCount === 0}
+              >
+                Save as default view
+              </button>
+            </>
           )}
         </div>
         <p className="caption">
           {saved
-            ? 'This contract opens on your saved filters. Reset default filter puts it '
-              + 'back to all time.'
-            : 'Set as default and this contract opens on what is selected here, on this '
-              + 'device.'}
+            ? 'This contract opens on your saved view. Clearing it puts the page back on '
+              + 'all time.'
+            : 'Save a view and this contract opens on it every time, on this device.'}
         </p>
       </div>
     </>
