@@ -256,6 +256,27 @@ export function defaultFiltersFor(ds) {
 }
 
 /**
+ * Whether two selections would produce the same figures.
+ *
+ * Needed because "is anything narrowed" and "is anything *changed*" stopped
+ * being the same question once a view could be saved. With one saved, the page
+ * opens narrowed — so a Reset offered on the strength of the narrowing alone sat
+ * there permanently and did nothing when pressed, which reads as a broken
+ * control rather than a satisfied one.
+ */
+export function sameFilters(a, b) {
+  if (!a || !b) return false;
+  if (a.dayFrom !== b.dayFrom || a.dayTo !== b.dayTo || a.preset !== b.preset) return false;
+  for (const key of [...FILTER_DIMS, 'bucket']) {
+    const x = a[key] ?? new Set();
+    const y = b[key] ?? new Set();
+    if (x.size !== y.size) return false;
+    for (const v of x) if (!y.has(v)) return false;
+  }
+  return true;
+}
+
+/**
  * Applies the active filters and returns the matching row indices.
  * `filters.district` etc. are Sets of dictionary ids; an empty Set means "all".
  */

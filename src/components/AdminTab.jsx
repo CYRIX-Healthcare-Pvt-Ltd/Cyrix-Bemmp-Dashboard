@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { STATES } from '../../shared/schema.mjs';
 import {
-  ROLES, ROLE_LABEL, createUser, listUsers, resetPassword, setDisabled, updateUser,
+  ROLES, ROLE_LABEL, createUser, listUsers, listAccountLog, resetPassword, setDisabled,
+  updateUser,
 } from '../data/users.js';
 
 /**
@@ -312,6 +313,102 @@ export default function AdminTab({ profile }) {
           </table>
         </div>
       </div>
+
+      <AccountLog refreshKey={users.length + (notice ?? '')} />
+    </div>
+  );
+}
+
+const ACTION_LABEL = {
+  create: 'created',
+  update: 'changed',
+  reset: 'password reset',
+  disable: 'disabled',
+  enable: 'enabled',
+};
+
+/** `{ role: { from: 'coordinator', to: 'project_head' } }` as one readable line. */
+function changeSummary(detail, action) {
+  if (!detail) return '';
+  if (action === 'create') {
+    const scope = Array.isArray(detail.scope) && detail.scope.length
+      ? detail.scope.join(', ').toUpperCase()
+      : 'every contract';
+    return `${ROLE_LABEL[detail.role] ?? detail.role} · ${scope}`;
+  }
+  return Object.entries(detail)
+    .map(([field, { from, to }]) => {
+      const show = (v) => (Array.isArray(v) ? (v.join(', ').toUpperCase() || 'none')
+        : (v ?? 'none'));
+      return `${field}: ${show(from)} → ${show(to)}`;
+    })
+    .join(' · ');
+}
+
+/**
+ * Who did what to which account.
+ *
+ * Written server-side by `/api/users` with the service key, which is the only
+ * credential that can write to the table at all — it has a read policy for
+ * admins and no write policy whatsoever, so nobody can add a line here, amend
+ * one or remove one from a browser. An audit trail the audited party can edit is
+ * not one.
+ *
+ * Never holds a password: a reset records that it happened and by whom.
+ */
+function AccountLog({ refreshKey }) {
+  const [entries, setEntries] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAccountLog()
+      .then((e) => { if (!cancelled) { setEntries(e); setError(null); } })
+      .catch((e) => { if (!cancelled) { setError(e.message); setEntries([]); } });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>Account history</h2>
+          <p className="caption">
+            Every account change, newest first. Written by the server as it happens and
+            not editable from here — not by an administrator either. Passwords are never
+            recorded, only that a reset took place.
+          </p>
+        </div>
+      </div>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {entries && entries.length === 0 && !error && (
+        <p className="caption">Nothing recorded yet.</p>
+      )}
+
+      {entries && entries.length > 0 && (
+        <div className="table-scroll" style={{ maxHeight: 420, overflowY: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>When</th><th>Who</th><th>Action</th><th>Account</th><th>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id}>
+                  <td>{when(e.at)}</td>
+                  <td>{e.actor_code}</td>
+                  <td>{ACTION_LABEL[e.action] ?? e.action}</td>
+                  <td>{e.target_code}</td>
+                  <td className="muted">{changeSummary(e.detail, e.action)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

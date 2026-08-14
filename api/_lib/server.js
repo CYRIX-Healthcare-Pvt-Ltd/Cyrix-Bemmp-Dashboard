@@ -97,6 +97,50 @@ export async function requireAdmin(req, res) {
 }
 
 /**
+ * Records one account-administration action.
+ *
+ * Written with the service key, which is the only credential that can write to
+ * `account_audit` at all — the table has a read policy for admins and no write
+ * policy whatsoever, so the browser cannot add a line, amend one or remove one
+ * however the request is shaped. An audit trail the audited party can edit is
+ * not one.
+ *
+ * Both parties are stored by code as well as by uuid. `profile` is readable only
+ * for your own row, so a log keyed on uuids alone would need a security-definer
+ * function per row to become legible — which is exactly what happened to the
+ * meeting log — and the codes also keep a row meaningful if its subject is ever
+ * removed.
+ *
+ * Never called with a password. `reset` records that a reset happened and by
+ * whom; the value is the employee code and already known, and writing secrets
+ * into a log is how logs become the thing that leaks.
+ *
+ * Deliberately returns rather than throws. It runs after the action has already
+ * succeeded, so throwing here would report a failure that did not happen and
+ * invite the admin to try again — the caller surfaces the miss as a warning
+ * instead, which is honest about what is and is not recorded.
+ */
+export async function recordAction({ action, actor, targetId, targetCode, detail = null }) {
+  try {
+    await db('account_audit', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        action,
+        actor_id: actor?.id ?? null,
+        actor_code: actor?.code ?? 'unknown',
+        target_id: targetId ?? null,
+        target_code: targetCode ?? 'unknown',
+        detail,
+      }),
+    });
+    return null;
+  } catch (e) {
+    return `The change was made but could not be recorded in the audit log: ${e.message}`;
+  }
+}
+
+/**
  * A secret from `app_secret`.
  *
  * Cached for the life of the warm instance so a conversation is not a database

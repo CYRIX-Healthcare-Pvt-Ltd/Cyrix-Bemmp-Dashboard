@@ -70,3 +70,14 @@ export const resetPassword = (id) => call('POST', { id }, '?do=reset');
 export const setDisabled = (id, disabled) => call(
   'POST', { id }, disabled ? '?do=disable' : '?do=enable',
 );
+
+/**
+ * The account audit trail, newest first.
+ *
+ * Read through the same endpoint as everything else here rather than straight
+ * from PostgREST — `account_audit` does have a select policy for admins, but
+ * routing it through `requireAdmin` keeps one place deciding who may see account
+ * history instead of a policy and a component having to agree.
+ */
+export const listAccountLog = (limit = 200) => call('GET', null, `?do=log&limit=${limit}`)
+  .then((d) => d.entries ?? []);

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { serialToISO, dateToSerial, monthStart, formatDay, BUCKET_LABEL } from '../data/store.js';
 import {
   FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, clearDefaultFilters, hasDefaultFilters,
+  sameFilters,
 } from '../data/query.js';
 
 /** Presets are anchored to the latest logged date in the data, not today —
@@ -189,6 +190,17 @@ export default function Filters({ ds, filters, setFilters }) {
   const reset = () => setFilters(defaultFiltersFor(ds));
 
   /*
+   * Whether pressing Reset would actually change anything.
+   *
+   * `activeCount` answers "is the page narrowed", which stopped being the same
+   * question once a view could be saved: with one saved the page *opens*
+   * narrowed, so a Reset offered on the count alone sat in the bar permanently
+   * and did nothing when pressed. A control that is always there and never does
+   * anything is worse than no control.
+   */
+  const dirty = !sameFilters(filters, defaultFiltersFor(ds));
+
+  /*
    * A saved default, so somebody who only ever looks at one district does not
    * select it every morning.
    *
@@ -241,7 +253,7 @@ export default function Filters({ ds, filters, setFilters }) {
         {/* Only once something is applied — a reset that is always there invites
             the question of what it would undo. Named for where it lands, since
             with a saved view that is not "nothing selected". */}
-        {activeCount > 0 && (
+        {dirty && (
           <button type="button" className="filter-reset" onClick={reset}>
             {saved ? 'Back to saved view' : 'Reset all filters'}
           </button>
@@ -383,7 +395,7 @@ export default function Filters({ ds, filters, setFilters }) {
                 type="button"
                 className="filter-reset"
                 onClick={reset}
-                disabled={activeCount === 0}
+                disabled={!dirty}
               >
                 Reset filters
               </button>

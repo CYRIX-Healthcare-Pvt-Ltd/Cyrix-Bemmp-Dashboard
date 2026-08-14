@@ -1,5 +1,5 @@
 import {
-  auth, codeToEmail, configured, db, json, readBody, requireAdmin,
+  auth, codeToEmail, configured, db, json, readBody, requireAdmin, recordAction,
 } from './_lib/server.js';
 
 /**
@@ -53,14 +53,15 @@ export default async function handler(req, res) {
   if (!admin) return;
 
   try {
+    if (req.method === 'GET' && (req.query?.do || '') === 'log') { await auditLog(res, req); return; }
     if (req.method === 'GET') { await list(res); return; }
 
     const body = readBody(req);
     const action = req.query?.do || body.do;
 
-    if (req.method === 'POST' && action === 'reset') { await reset(res, body); return; }
-    if (req.method === 'POST' && action === 'disable') { await setBan(res, body, true); return; }
-    if (req.method === 'POST' && action === 'enable') { await setBan(res, body, false); return; }
+    if (req.method === 'POST' && action === 'reset') { await reset(res, body, admin); return; }
+    if (req.method === 'POST' && action === 'disable') { await setBan(res, body, true, admin); return; }
+    if (req.method === 'POST' && action === 'enable') { await setBan(res, body, false, admin); return; }
     if (req.method === 'POST') { await create(res, body, admin); return; }
     if (req.method === 'PATCH') { await update(res, body, admin); return; }
 
@@ -157,14 +158,25 @@ async function create(res, body, admin) {
         scope,
       }),
     });
+    const missed = await recordAction({
+      action: 'create',
+      actor: admin,
+      targetId: profile.id,
+      targetCode: code,
+      detail: { role: body.role, scope, full_name: body.full_name || null },
+    });
+
     json(res, 201, {
       user: profile,
       defaultPassword: code,
-      warning: shortCode
-        ? `"${code}" is under ${MIN_PASSWORD} characters. It works as the password now, `
-          + 'but the policy will refuse it on a later reset — use a longer code if you '
-          + 'want "reset to default" to keep working.'
-        : null,
+      warning: [
+        shortCode
+          ? `"${code}" is under ${MIN_PASSWORD} characters. It works as the password now, `
+            + 'but the policy will refuse it on a later reset — use a longer code if you '
+            + 'want "reset to default" to keep working.'
+          : null,
+        missed,
+      ].filter(Boolean).join(' ') || null,
     });
   } catch (e) {
     await auth(`admin/users/${user.id}`, { method: 'DELETE' }).catch(() => {});
@@ -193,18 +205,40 @@ async function update(res, body, admin) {
   }
   if (!Object.keys(patch).length) { json(res, 400, { error: 'Nothing to change.' }); return; }
 
+  // Read before writing, so the audit row can say what it changed *from*. A log
+  // that records only the new value answers "what is it now", which is a
+  // question the account list already answers.
+  const [before] = await db(`profile?id=eq.${body.id}&select=code,full_name,role,scope`);
+
   const rows = await db(`profile?id=eq.${body.id}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(patch),
   });
   if (!rows?.length) { json(res, 404, { error: 'No such account.' }); return; }
-  json(res, 200, { user: rows[0] });
+
+  const changed = Object.fromEntries(
+    Object.keys(patch)
+      .filter((k) => JSON.stringify(before?.[k]) !== JSON.stringify(rows[0][k]))
+      .map((k) => [k, { from: before?.[k] ?? null, to: rows[0][k] }]),
+  );
+
+  const missed = Object.keys(changed).length
+    ? await recordAction({
+      action: 'update',
+      actor: admin,
+      targetId: body.id,
+      targetCode: rows[0].code,
+      detail: changed,
+    })
+    : null;
+
+  json(res, 200, { user: rows[0], warning: missed });
 }
 
 /* ----------------------------------------------------------------- reset -- */
 
-async function reset(res, body) {
+async function reset(res, body, admin) {
   if (!body.id) { json(res, 400, { error: 'Which account?' }); return; }
   const rows = await db(`profile?id=eq.${body.id}&select=code`);
   const code = rows?.[0]?.code;
@@ -234,7 +268,14 @@ async function reset(res, body) {
     }
     throw e;
   }
-  json(res, 200, { ok: true, password: code });
+
+  // That it happened and who did it. Never the value — it is the employee code,
+  // it is already known, and a log holding passwords is a log worth stealing.
+  const missed = await recordAction({
+    action: 'reset', actor: admin, targetId: body.id, targetCode: code,
+  });
+
+  json(res, 200, { ok: true, password: code, warning: missed });
 }
 
 /* --------------------------------------------------------------- disable -- */
@@ -244,11 +285,43 @@ async function reset(res, body) {
  * the account would either orphan that history or take it with it — neither is a
  * thing to do to an audit trail because somebody left.
  */
-async function setBan(res, body, disabled) {
+async function setBan(res, body, disabled, admin) {
   if (!body.id) { json(res, 400, { error: 'Which account?' }); return; }
   await auth(`admin/users/${body.id}`, {
     method: 'PUT',
     body: JSON.stringify({ ban_duration: disabled ? '876000h' : 'none' }),
   });
-  json(res, 200, { ok: true, disabled });
+
+  const [row] = await db(`profile?id=eq.${body.id}&select=code`);
+  const missed = await recordAction({
+    action: disabled ? 'disable' : 'enable',
+    actor: admin,
+    targetId: body.id,
+    targetCode: row?.code ?? 'unknown',
+  });
+
+  json(res, 200, { ok: true, disabled, warning: missed });
+}
+
+/* ------------------------------------------------------------------- log -- */
+
+/**
+ * The trail, newest first.
+ *
+ * Read with the service key after `requireAdmin`, like everything else here.
+ * It could equally be read from the browser — `account_audit` has a select
+ * policy for admins — but routing it through the same guard means one place
+ * decides who may see account history, rather than a policy and a component
+ * having to agree.
+ */
+async function auditLog(res, req) {
+  const limit = Math.min(500, Math.max(1, Number(req.query?.limit) || 200));
+  const target = req.query?.target;
+  const where = target ? `&target_id=eq.${encodeURIComponent(target)}` : '';
+
+  const rows = await db(
+    `account_audit?select=id,at,action,actor_code,target_code,target_id,detail`
+    + `${where}&order=at.desc&limit=${limit}`,
+  );
+  json(res, 200, { entries: rows ?? [] });
 }

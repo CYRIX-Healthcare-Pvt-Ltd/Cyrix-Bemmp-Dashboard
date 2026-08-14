@@ -16,6 +16,7 @@ loads into typed arrays; all filtering, aggregation and drill-down happen client
 
 ```
 npm install
+npm test                    # unit tests, no deps, ~250ms
 npm run build:data          # rebuild every state
 npm run build:data kl       # rebuild one state
 npm run refresh             # build:data + build
@@ -36,6 +37,18 @@ The browser parser in `src/data/workbook.js` and the Node script in
 produce **byte-identical** `tickets.bin` and dictionaries. That equivalence is the thing to
 protect when changing either one — a regression test that parses both workbooks and
 compares against `public/data/*` catches it immediately.
+
+`npm test` runs `test/*.test.mjs` on **`node:test`** — no runner, no config, no dev
+dependency, which suits a project whose whole toolchain is Vite and one Postgres driver.
+The fixtures are synthetic (`test/fixture.mjs` builds the same concatenated `Int32Array`
+columns `datasetFrom` slices), so the suite runs on a fresh clone with no workbooks and no
+`BASELINE.md` — both are gitignored. What it covers is the set of rules this file calls
+easy to get wrong, and every case is one that *was* got wrong at least once: the three
+buckets and the literal `" "`, FTFR's Sunday rule and settled cutoff and logged
+denominator, penalty's strictly-greater window, the money clamps and the two disjoint
+measures, barcode padding and case folding, the saved view's label round trip, and each of
+the assistant's after-the-fact corrections. Add to it when fixing a figure — a rule with a
+test is a rule that stays fixed.
 
 Publishing routes and the data-sensitivity warning are in `DEPLOY.md`. Setting
 `BEMMP_PASSWORD` turns on a shared-password gate over the whole server, including
@@ -423,6 +436,31 @@ to leave open. The model is pinned server-side for the same reason.
 
 `/api/users` re-checks `role = 'admin'` against the database on every request. The hidden
 tab is a courtesy; `profile_admin_write` is the control.
+
+**Every account action is audited.** `meeting_note` had a trail since 0001 and nothing else
+did, which left the operations that matter most unrecorded: an admin could create a login,
+reset anybody's password to their employee code, change a role or revoke access, and
+"who reset my password on Tuesday" had no answer. `account_audit` is written by
+`recordAction` in `api/_lib/server.js` on every path through `api/users.js`, and read back
+at `GET /api/users?do=log`.
+
+Three properties hold it up, and all three are worth keeping:
+
+- **Append-only by construction.** The table has a select policy for admins and **no
+  insert, update or delete policy at all** — the same technique `app_secret` uses. Only the
+  service key can write, and only `api/users.js` holds it. Verified against the live
+  database with an admin session: select returns rows, insert is refused 403, and
+  update/delete affect zero rows. The party being audited cannot edit their own trail.
+- **Codes as well as uuids.** `profile` is readable only for your own row, so a log keyed
+  on uuids alone would need a definer function per row to be legible — which is exactly
+  what happened to `meeting_log`. The codes also keep a row meaningful if its subject is
+  ever removed, which is why `target_id` is deliberately not a foreign key.
+- **Never a password.** `reset` records that a reset happened and by whom. The value is the
+  employee code and already known; a log holding credentials is a log worth stealing.
+
+`recordAction` returns a message rather than throwing. It runs after the action has already
+succeeded, so throwing would report a failure that did not happen — the caller surfaces the
+miss as a `warning` on the response instead.
 
 **The OpenAI key lives in `app_secret`**, not in a deploy variable. That table has RLS on
 and **no policy at all**, which is the whole design: with none, anon and authenticated match

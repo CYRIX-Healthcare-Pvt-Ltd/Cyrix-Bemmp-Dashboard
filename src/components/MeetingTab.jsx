@@ -543,14 +543,17 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
                     <td>{r.district}</td>
                     <td>{r.facility}</td>
                     <td>{r.equipment}</td>
+                    {/* Bare numbers. Both columns are rupees, both say so in
+                        their heading, and a ₹ on nine hundred rows is nine
+                        hundred repetitions of a fact stated at the top. */}
                     <td className="num">
                       {r.rate > 0
-                        ? `₹${r.rate.toLocaleString('en-IN')}`
+                        ? r.rate.toLocaleString('en-IN')
                         : <span className="money-nil">—</span>}
                     </td>
                     <td className="num">
                       {r.accrued > 0
-                        ? `₹${r.accrued.toLocaleString('en-IN')}`
+                        ? r.accrued.toLocaleString('en-IN')
                         : <span className="money-nil">—</span>}
                     </td>
                     <td>
