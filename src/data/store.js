@@ -43,6 +43,23 @@ export function monthStart(serial) {
   return serial - (d.getUTCDate() - 1);
 }
 
+/**
+ * First day of the financial year containing `serial` — 1 April to 31 March.
+ *
+ * Not January. Both contracts are with Indian state health departments, so the
+ * year the penalty accounts close on, and the one every review is written
+ * against, starts in April. Deliberately not configurable: a second convention
+ * would mean two answers to "this year" and no way to tell from a figure which
+ * one produced it.
+ */
+export function financialYearStart(serial) {
+  const d = serialToDate(serial);
+  // Months are 0-indexed, so 3 is April. January to March still belong to the
+  // year that began the previous April.
+  const year = d.getUTCFullYear() - (d.getUTCMonth() >= 3 ? 0 : 1);
+  return dateToSerial(new Date(Date.UTC(year, 3, 1)));
+}
+
 /** The states that have been built, newest artifact wins. */
 export async function loadStates(version = '') {
   const r = await fetch(`data/states.json${version ? `?v=${version}` : ''}`);

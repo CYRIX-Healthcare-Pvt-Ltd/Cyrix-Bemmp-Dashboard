@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { serialToISO, dateToSerial, monthStart, formatDay, BUCKET_LABEL } from '../data/store.js';
+import {
+  serialToISO, dateToSerial, monthStart, financialYearStart, formatDay, BUCKET_LABEL,
+} from '../data/store.js';
 import {
   FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, clearDefaultFilters, hasDefaultFilters,
   sameFilters,
@@ -12,6 +14,10 @@ const PRESETS = [
   { id: '30', label: 'Last 30 days', range: (r) => [r.maxDay - 29, r.maxDay] },
   { id: '90', label: 'Last 90 days', range: (r) => [r.maxDay - 89, r.maxDay] },
   { id: '365', label: 'Last 12 months', range: (r) => [r.maxDay - 364, r.maxDay] },
+  /* April to March, and distinct from "Last 12 months": in August those are two
+     different windows — five months against twelve — and it is the April one the
+     penalty accounts and the contract reviews are written against. */
+  { id: 'fy', label: 'This financial year', range: (r) => [financialYearStart(r.maxDay), r.maxDay] },
   { id: 'all', label: 'All time', range: (r) => [r.minDay, r.maxDay] },
 ];
 

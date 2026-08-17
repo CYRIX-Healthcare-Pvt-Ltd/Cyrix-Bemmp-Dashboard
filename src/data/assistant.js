@@ -8,7 +8,9 @@
  * numbers quoted back are the same ones the dashboard shows rather than
  * something a language model estimated.
  */
-import { BUCKET, monthStart, parseEngineer, formatDay, serialToISO } from './store.js';
+import {
+  BUCKET, monthStart, financialYearStart, parseEngineer, formatDay, serialToISO,
+} from './store.js';
 import {
   filterRows, summarize, rowsInBucket, penaltyRows, accruingRows, closedInRange,
   closurePenalty, analyzeRepeats, resolvedRows, aggregateBy, countBy, topN,
@@ -242,6 +244,7 @@ const RANGES = {
   last30: (r) => [r.maxDay - 29, r.maxDay],
   last90: (r) => [r.maxDay - 89, r.maxDay],
   last365: (r) => [r.maxDay - 364, r.maxDay],
+  fy: (r) => [financialYearStart(r.maxDay), r.maxDay],
   all: (r) => [r.minDay, r.maxDay],
 };
 
@@ -291,8 +294,11 @@ export const QUERY_TOOL = {
             'Date window. Use "current" ONLY when the user names no period at all — it '
             + 'keeps whatever the dashboard is already filtered to. If the user says '
             + '"this month" use month, "last 30 days" use last30, "last 90 days" or '
-            + '"last quarter" use last90, "this year" or "last 12 months" use last365, '
-            + '"all time"/"ever"/"overall" use all.',
+            + '"last quarter" use last90, "last 12 months" or "last one year" use '
+            + 'last365, "this year"/"this financial year"/"this FY"/"year to date" use '
+            + 'fy, "all time"/"ever"/"overall" use all. The financial year runs April '
+            + 'to March, so fy and last365 are different windows and only match in '
+            + 'March — a bare "this year" means the financial one here.',
         },
         lastMonths: {
           type: 'integer',

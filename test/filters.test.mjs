@@ -14,7 +14,8 @@ import {
   filterRows, blankFilters, defaultFiltersFor, saveDefaultFilters,
   clearDefaultFilters, hasDefaultFilters, FILTER_DIMS,
 } from '../src/data/query.js';
-import { makeDataset, allFilters, day } from './fixture.mjs';
+import { financialYearStart } from '../src/data/store.js';
+import { makeDataset, allFilters, day, iso } from './fixture.mjs';
 
 /* `localStorage` does not exist under Node. The production code already guards
    every access in try/catch — that is what lets it run in private-mode Safari —
@@ -177,4 +178,34 @@ test('clearing the default puts the page back on all time', () => {
     assert.equal(hasDefaultFilters('kl'), false);
     assert.deepEqual(defaultFiltersFor(ds), blankFilters(ds.meta));
   });
+});
+
+/*
+ * The financial year, which is April to March here and not January to December.
+ *
+ * The boundary is the whole rule: a date in January belongs to the year that
+ * began the *previous* April, and getting that backwards moves every figure in
+ * Q4 into the wrong year — silently, because the answer still looks like a year.
+ */
+test('the financial year runs April to March', () => {
+  const fy = (d) => iso(financialYearStart(day(d)));
+
+  assert.equal(fy('2026-04-01'), '2026-04-01', 'the first day is its own start');
+  assert.equal(fy('2026-08-17'), '2026-04-01');
+  assert.equal(fy('2026-12-31'), '2026-04-01');
+  assert.equal(fy('2027-03-31'), '2026-04-01', 'March still belongs to the year that opened in April');
+  assert.equal(fy('2027-04-01'), '2027-04-01', 'and the next day starts the new one');
+  assert.equal(fy('2026-03-31'), '2025-04-01', 'a day before the boundary rolls back a whole year');
+  assert.equal(fy('2026-01-01'), '2025-04-01');
+});
+
+test('"this financial year" and "last 12 months" are different windows', () => {
+  // They coincide only in March, which is why one cannot stand in for the other.
+  const august = day('2026-08-17');
+  assert.equal(iso(financialYearStart(august)), '2026-04-01');
+  assert.equal(iso(august - 364), '2025-08-18');
+
+  const march = day('2027-03-31');
+  assert.equal(iso(financialYearStart(march)), '2026-04-01');
+  assert.equal(iso(march - 364), '2026-04-01', 'in March the two agree');
 });
