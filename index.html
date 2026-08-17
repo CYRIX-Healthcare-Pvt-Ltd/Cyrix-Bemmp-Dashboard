@@ -6,6 +6,17 @@
     <title>BEMMP Service Dashboard</title>
 
     <!--
+      The tab mark. Three files rather than one, and the order is deliberate:
+      `.ico` is declared first so a browser that ignores `type` takes it, and the
+      SVG second so every modern one overrides with the crisp copy. Only the
+      artwork lives in `public/` — the in-app logo is `Logo.jsx` and is a
+      different drawing for a different size; neither is generated from the other.
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!--
       Space Grotesk, with the system sans as fallback. `display=swap` means text
       paints immediately in the fallback and reflows when the font lands, so an
       office machine with no internet still shows a readable dashboard rather than
