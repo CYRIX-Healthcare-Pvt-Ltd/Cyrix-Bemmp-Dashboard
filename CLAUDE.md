@@ -46,9 +46,9 @@ columns `datasetFrom` slices), so the suite runs on a fresh clone with no workbo
 easy to get wrong, and every case is one that *was* got wrong at least once: the three
 buckets and the literal `" "`, FTFR's Sunday rule and settled cutoff and logged
 denominator, penalty's strictly-greater window, the money clamps and the two disjoint
-measures, barcode padding and case folding, the saved view's label round trip, and each of
-the assistant's after-the-fact corrections. Add to it when fixing a figure — a rule with a
-test is a rule that stays fixed.
+measures, barcode padding and case folding, the saved view's label round trip, the
+financial year's April boundary, and each of the assistant's after-the-fact corrections.
+Add to it when fixing a figure — a rule with a test is a rule that stays fixed.
 
 Publishing routes and the data-sensitivity warning are in `DEPLOY.md`. Setting
 `BEMMP_PASSWORD` turns on a shared-password gate over the whole server, including
@@ -381,6 +381,34 @@ names the count keeps the count ("how many penalty **calls**", and the equivalen
 five languages), and a contract with no rate card keeps it too — Andhra has none, so
 swapping there would turn a real answer into "this cannot be calculated".
 
+**She can read two Postgres tables, and only two.** `meeting_note` and `account_audit` get a
+second tool, `look_up_record` in `src/data/records.js`, because they genuinely live in the
+database, are small and are relational — everything else she answers comes out of
+`tickets.bin` in this browser. It handles "what did we decide on ticket 285716", "which
+tickets are waiting on a PO", "who reset KLCoord's password".
+
+The boundary is the ticket side's, unchanged. **The model never sees a row**: it returns a
+spec — which table, which ticket, which field — and `runRecordQuery` runs it, with the
+sentence composed here exactly as `describeResult` does for figures.
+
+**RLS decides what is visible, not this file.** Every query goes through the browser's own
+Supabase client carrying the signed-in session, so `meeting_note_read` (`in_scope(state)`)
+and `account_audit_read` (`is_admin()`) apply as they do everywhere else. There is
+deliberately **no service key** and no `api/` route: putting one there would mean
+re-implementing scope in JavaScript that the database already enforces, and the copy is what
+would eventually be wrong. Verified live — a Kerala coordinator sees 5 Kerala notes, 0
+Andhra, 0 audit rows; an Andhra coordinator sees none of Kerala's.
+
+A ticket with nothing recorded and a ticket outside your contracts get the **same** answer,
+on purpose. Distinguishing them would confirm which tickets exist outside your scope, which
+is the thing the policy is there to withhold.
+
+Answers carry `sensitive: true`. Purchasing remarks are free text and could say anything
+somebody typed, and `translateSentence` is the one path that would put a composed sentence
+in front of a model — the flag is what stops that being wired up over this later.
+`ticketInQuestion` pulls a ticket number straight out of the text, so "285716" needs no
+model round trip at all.
+
 Engineer labels go through `parseEngineer` before display, or the answer reads a phone
 number aloud.
 
@@ -653,6 +681,28 @@ they are the rows with nothing decided yet, and floating them to the top of a de
 sort buries the ones that carry an answer. The row count beside the box appears only when
 it differs from the caption above it.
 
+**Export takes the search with it.** The Excel button sits at the end of that same tools
+row and downloads exactly what is on screen — post-search, post-sort — with all twenty-one
+purchasing fields alongside the visible columns. The filename says which it was
+(`ticket-tracker-kl-filtered-2026-08-14.xlsx`), because a spreadsheet that left the
+building with three of nine hundred rows in it and no way to tell is worse than no
+spreadsheet.
+
+It is a real `.xlsx`, written by `src/data/xlsx.js`, and **CSV is not an option here**:
+Excel reads `0123456` as 123456 and `285716` as a number, so a CSV silently destroys the
+leading zero the whole pipeline works to preserve and stops ticket ids matching the ones on
+screen. Writing a sheet lets each column say whether it is text or a number — barcodes and
+ids as text, the money columns as numbers so they still sum.
+
+No library, for the same reason there is no test runner: an `.xlsx` is a ZIP of five small
+XML parts, and the browser already supplies the hard half. `CompressionStream('deflate-raw')`
+emits exactly what ZIP method 8 wants — the same API the dataset publisher uses for gzip —
+and entries fall back to stored where it is missing, which is a larger file and an equally
+valid one. Strings are inline (`t="inlineStr"`), so there is no shared-string table to build
+or index. Dates export as the text the page shows rather than as date cells; a true date
+cell needs a number-format table this writer does not carry, and a raw serial would be an
+unreadable number.
+
 The twenty-one purchasing fields open in a **dialog**, not an expanded row. As a `colSpan`
 cell they were a form wearing a table's clothes: contents lining up with nothing above them,
 every following row shoved down the page, and the ticket they belonged to scrolled out of
@@ -705,12 +755,37 @@ first paint. That is what lets the stylesheet carry **one** dark palette: the ea
 `prefers-color-scheme` copy had already drifted out of step with the `[data-theme='dark']`
 one, which is the failure mode a duplicated token list always has.
 
+**The tab mark is the X, not the wordmark** — at 16px `CYRIX HEALTH CARE PVT LTD` is four
+grey smears, and the X is the brand's own device anyway. Red on the left half, black on the
+right, split through the crossing so each half keeps its own round caps; the halves overlap
+slightly because two clip regions sharing an edge leave an anti-aliased hairline between
+them. The disc is white because the mark uses black and black needs a light ground, which
+makes the hairline round it load-bearing rather than decorative — without it the tile
+dissolves into a light tab strip. `public/favicon.svg` is the source; the `.ico` and
+`apple-touch-icon.png` beside it are **derived** from that geometry and should be
+regenerated, not hand-edited. It is a different drawing from `Logo.jsx` for a different
+size, and neither is generated from the other. Colours there are fixed rather than
+theme-aware: a favicon that follows the OS theme can go white-on-white in a context neither
+branch anticipated.
+
 **Date range**: the dashboard opens on **all time**. It opened on the current month, on the
 reasoning that a service review is a monthly conversation — but the first thing anyone asks
 of a contract dashboard is what the contract has done, and a landing figure of 2,591 under
 a masthead reading 270,293 tickets looks like a fault rather than a date range. Presets are
 still anchored to `meta.dateRange.maxDay` rather than to today, because the export lags
 reality and a calendar month can be empty.
+
+**The financial year is April to March**, and `This financial year` is a preset of its own
+rather than a rename of `Last 12 months` — the two are different windows and coincide only
+in March. On the Kerala export, whose newest logged date is 23 Jul 2026, the financial year
+holds 21,018 calls against the trailing twelve months' 69,692. The April window is the one
+the penalty accounts close on and the one every contract review is written against, so
+reading year-to-date off a rolling window answers a different question in the same shape.
+`financialYearStart` sits beside `monthStart` in `store.js` because the panel and the
+assistant both need it; a second copy is how two definitions of "this year" start
+disagreeing. The boundary is the whole rule — January to March belong to the year that
+opened the *previous* April — and getting it backwards moves every Q4 figure into the wrong
+year without changing how the answer looks, which is why it is tested.
 
 `blankFilters` lives in `query.js` and is the **only** definition of that resting state.
 It was a copy in `App.jsx` and another in the panel's Reset, and the copies drifted: one
