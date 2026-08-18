@@ -280,6 +280,54 @@ export function sameFilters(a, b) {
  * Applies the active filters and returns the matching row indices.
  * `filters.district` etc. are Sets of dictionary ids; an empty Set means "all".
  */
+/*
+ * The signed-in account's area scope, as a floor under every query.
+ *
+ * Module state rather than an argument on purpose. This has to hold for every
+ * caller — the tiles, the drill, the tracker, the export and Cyra — and an
+ * option that each one has to remember to pass is an option one of them will
+ * eventually forget, which fails open. Set once when the profile loads.
+ *
+ * It restricts what the dashboard *shows*, not what the browser holds: the whole
+ * state's tickets.bin is downloaded either way. A real confidentiality boundary
+ * needs one artifact per area, which is a build change and not this.
+ */
+let areaLimit = null;
+
+/** `{ key, ids }`, or null for an account with no area restriction. */
+export function setAreaLimit(limit) { areaLimit = limit?.ids?.size ? limit : null; }
+export function getAreaLimit() { return areaLimit; }
+
+/**
+ * Resolves an account's zone or district names against this export's dictionary.
+ *
+ * Names, not ids — dictionaries are interned in first-seen order, so an id saved
+ * against an account would mean a different district the next time the export is
+ * rebuilt. Matched case-insensitively, since `KASARGODE` is title-cased at build
+ * time and somebody typing the scope will not know that.
+ *
+ * A zone wins: whoever works a zone works every district in it, and zone is
+ * one-to-one with district in Kerala, so testing the zone column is both simpler
+ * and cheaper than expanding it to a district list.
+ */
+export function areaLimitFor(ds, profile) {
+  if (!ds || !profile) return null;
+  const norm = (s) => String(s ?? '').trim().toLowerCase();
+  const idsOf = (dict, names) => {
+    const want = new Set(names.map(norm));
+    const out = new Set();
+    dict.forEach((name, i) => { if (want.has(norm(name))) out.add(i); });
+    return out;
+  };
+  if (profile.zones?.length && ds.dict.zone.length) {
+    return { key: 'zone', names: profile.zones, ids: idsOf(ds.dict.zone, profile.zones) };
+  }
+  if (profile.districts?.length) {
+    return { key: 'district', names: profile.districts, ids: idsOf(ds.dict.district, profile.districts) };
+  }
+  return null;
+}
+
 export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
   const { dayFrom, dayTo, bucket } = filters;
@@ -298,6 +346,10 @@ export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
     const set = filters[key];
     if (set?.size) active.push([cols[key], set]);
   }
+  // The account's area, pushed on as one more column test. It rides the same
+  // loop rather than a second pass, and because it is appended here it cannot be
+  // widened by anything the filter panel sends.
+  if (areaLimit) active.push([cols[areaLimit.key], areaLimit.ids]);
   const nActive = active.length;
 
   const out = new Int32Array(rows);

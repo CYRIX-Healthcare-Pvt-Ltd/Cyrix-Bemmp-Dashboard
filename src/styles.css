@@ -2240,6 +2240,27 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .admin-when { color: var(--text-muted); white-space: nowrap; }
 /* Wide enough for a full name before it scrolls inside itself; the placeholder
    is muted so an unnamed account reads as blank rather than as filled in. */
+/* Area scope, under the contract chips — the same question one level down. */
+.admin-area { margin-top: 8px; display: grid; gap: 5px; }
+.admin-area-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 320px; }
+.admin-area-label {
+  font-size: 9.5px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); width: 100%;
+}
+.admin-area .chip {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+  padding: 2px 8px; font-size: 11px; border-radius: var(--radius-pill);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+  color: var(--text-secondary);
+}
+.admin-area .chip.is-on {
+  border-color: color-mix(in srgb, var(--series-1) 60%, transparent);
+  background: color-mix(in srgb, var(--series-1) 15%, transparent);
+  color: var(--series-1); font-weight: 620;
+}
+.admin-area .chip input { width: 11px; height: 11px; margin: 0; }
+.admin-area-note { margin: 0 !important; font-size: 10.5px; color: var(--text-muted); }
+
 .admin-name { min-width: 152px; }
 .admin-name::placeholder { color: var(--text-muted); }
 .admin-actions { display: flex; gap: 6px; justify-content: flex-end; }

@@ -87,7 +87,7 @@ export async function loadProfile() {
    */
   const { data, error } = await supabase
     .from('profile')
-    .select('id, code, full_name, role, scope')
+    .select('id, code, full_name, role, scope, zones, districts')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;

@@ -10,7 +10,7 @@ import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
   accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
-  maxResolvedDay, defaultFiltersFor, isFirstTimeFix,
+  maxResolvedDay, defaultFiltersFor, isFirstTimeFix, areaLimitFor, setAreaLimit,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
 import LoginPage from './components/LoginPage.jsx';
@@ -497,9 +497,25 @@ export default function App() {
     if (ds) document.title = `BEMMP Dashboard — ${ds.meta.name}`;
   }, [ds]);
 
+  /*
+   * The account's area scope, resolved against this export's dictionaries.
+   *
+   * Set before anything queries, and recomputed when either the profile or the
+   * dataset changes — the names are stored per account but the ids they resolve
+   * to belong to whichever export is loaded. `useMemo` rather than an effect so
+   * it is in place for the very first `filterRows` below rather than one render
+   * late, which would flash the whole contract's figures at somebody scoped to
+   * one district.
+   */
+  const area = useMemo(() => {
+    const limit = areaLimitFor(ds, profile);
+    setAreaLimit(limit);
+    return limit;
+  }, [ds, profile]);
+
   const idx = useMemo(
     () => (ds && filters ? filterRows(ds, filters) : null),
-    [ds, filters],
+    [ds, filters, area],
   );
   /*
    * The newest logged date whose fix verdict is final — the same cutoff the FTFR
@@ -577,14 +593,14 @@ export default function App() {
   // Logged Date. The dimension filters apply either way.
   const closedIdx = useMemo(
     () => (ds && filters ? filterRows(ds, filters, { dateField: 'resolvedDay' }) : []),
-    [ds, filters],
+    [ds, filters, area],
   );
 
   // Accrual ignores the logged-date window on purpose: a call logged in May is
   // still running up penalty in July, which is what the workbook's AN clamp does.
   const undatedIdx = useMemo(
     () => (ds && filters ? filterRows(ds, filters, { dateField: null }) : []),
-    [ds, filters],
+    [ds, filters, area],
   );
 
   /*
@@ -605,7 +621,7 @@ export default function App() {
 
   const accruing = useMemo(
     () => (idx ? accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo) : []),
-    [ds, idx, undatedIdx, filters],
+    [ds, idx, undatedIdx, filters, area],
   );
 
   // Both money figures feed the KPI tiles, so they are computed whichever tab is
@@ -1198,7 +1214,13 @@ export default function App() {
           />
         )}
 
-        {tab === 'accounts' && isAdmin(profile) && <AdminTab profile={profile} />}
+        {tab === 'accounts' && isAdmin(profile) && <AdminTab
+                profile={profile}
+                areaOptions={{
+                  zones: ds?.dict.zone ?? [],
+                  districts: [...(ds?.dict.district ?? [])].sort((x, y) => x.localeCompare(y)),
+                }}
+              />}
         </div>
         </div>
         </div>

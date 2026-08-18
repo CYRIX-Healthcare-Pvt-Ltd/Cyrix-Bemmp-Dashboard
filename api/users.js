@@ -48,6 +48,37 @@ function cleanScope(scope) {
   return [...new Set(scope.filter((s) => CONTRACTS.has(s)))];
 }
 
+/**
+ * Zone and district names, as free text.
+ *
+ * Deliberately not validated against a list. Districts live in the dictionary of
+ * whichever export was last built, not in this function's world — a whitelist
+ * here would be a copy that silently drops an account's scope the first time a
+ * contract adds a district, and it would drop it *quietly*, which is the worst
+ * way for an access rule to fail. Trimmed, de-duplicated and capped instead.
+ */
+function cleanNames(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(
+    list.map((s) => String(s ?? '').trim()).filter((s) => s && s.length <= 80),
+  )].slice(0, 60);
+}
+
+/**
+ * A zone wins over districts, which is the rule the picker enforces too.
+ *
+ * Somebody who works a whole zone works every district in it, so holding both
+ * would leave two answers to "what can they see" and no way to tell which the
+ * page used. Resolving it here as well means a hand-made API call cannot create
+ * the state the UI refuses to.
+ */
+function cleanArea(body, previous = {}) {
+  const zones = body.zones === undefined ? (previous.zones ?? []) : cleanNames(body.zones);
+  const districts = body.districts === undefined
+    ? (previous.districts ?? []) : cleanNames(body.districts);
+  return { zones, districts: zones.length ? [] : districts };
+}
+
 export default async function handler(req, res) {
   if (!configured()) {
     json(res, 503, { error: 'SUPABASE_URL and SUPABASE_SERVICE_KEY are not set on this deployment.' });
@@ -79,7 +110,7 @@ export default async function handler(req, res) {
 /* ------------------------------------------------------------------ list -- */
 
 async function list(res) {
-  const profiles = await db('profile?select=id,code,full_name,role,scope,created_at&order=code');
+  const profiles = await db('profile?select=id,code,full_name,role,scope,zones,districts,created_at&order=code');
 
   /*
    * Last sign-in comes from GoTrue rather than the profile, because it is the
@@ -120,6 +151,9 @@ async function create(res, body, admin) {
     json(res, 400, { error: 'Assign at least one contract.' });
     return;
   }
+  // Empty on both means every area, the same way an admin's empty scope means
+  // every contract — so a new account is unrestricted unless somebody says so.
+  const area = cleanArea(body);
 
   let user;
   try {
@@ -161,6 +195,7 @@ async function create(res, body, admin) {
         full_name: body.full_name || null,
         role: body.role,
         scope,
+        ...area,
       }),
     });
     const missed = await recordAction({
@@ -168,7 +203,7 @@ async function create(res, body, admin) {
       actor: admin,
       targetId: profile.id,
       targetCode: code,
-      detail: { role: body.role, scope, full_name: body.full_name || null },
+      detail: { role: body.role, scope, full_name: body.full_name || null, ...area },
     });
 
     json(res, 201, {
@@ -201,6 +236,12 @@ async function update(res, body, admin) {
     patch.role = body.role;
   }
   if (body.scope !== undefined) patch.scope = cleanScope(body.scope);
+  if (body.zones !== undefined || body.districts !== undefined) {
+    // Read what is there first: sending only `districts` must not silently drop
+    // a zone that is already set, and `cleanArea` needs both to apply the rule.
+    const [prev] = await db(`profile?id=eq.${body.id}&select=zones,districts`);
+    Object.assign(patch, cleanArea(body, prev ?? {}));
+  }
 
   // An admin removing their own admin role locks the last door behind them, and
   // nothing in the app can undo it — only the database directly.
@@ -213,7 +254,7 @@ async function update(res, body, admin) {
   // Read before writing, so the audit row can say what it changed *from*. A log
   // that records only the new value answers "what is it now", which is a
   // question the account list already answers.
-  const [before] = await db(`profile?id=eq.${body.id}&select=code,full_name,role,scope`);
+  const [before] = await db(`profile?id=eq.${body.id}&select=code,full_name,role,scope,zones,districts`);
 
   const rows = await db(`profile?id=eq.${body.id}`, {
     method: 'PATCH',

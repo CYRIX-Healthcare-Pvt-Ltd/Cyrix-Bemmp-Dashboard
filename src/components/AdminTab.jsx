@@ -50,6 +50,77 @@ function ScopePicker({ value, onChange, disabled }) {
 }
 
 /**
+ * Zone or districts, never both.
+ *
+ * A zone is a whole set of districts, so holding both would leave two answers to
+ * "what does this person see" and no way to tell which the page used — picking a
+ * zone therefore clears the districts and hides them. The server applies the
+ * same rule, so a hand-made API call cannot create the state this refuses to.
+ *
+ * Nothing ticked means everything, exactly as an admin's empty contract list
+ * means every contract. That is what leaves all thirteen existing accounts
+ * unrestricted without a backfill.
+ *
+ * The lists come from the loaded export's own dictionaries rather than a
+ * constant: districts are a property of the data, and a hard-coded fourteen
+ * would go stale the day a contract gains one.
+ */
+function AreaPicker({ zones, districts, options, disabled, onChange }) {
+  const hasZone = options.zones.length > 0;
+  const zoneMode = zones.length > 0;
+
+  const toggle = (list, value) => (list.includes(value)
+    ? list.filter((v) => v !== value)
+    : [...list, value]);
+
+  return (
+    <div className="admin-area">
+      {hasZone && (
+        <div className="admin-area-row">
+          <span className="admin-area-label">Zone</span>
+          {options.zones.map((z) => (
+            <label key={z} className={`chip${zones.includes(z) ? ' is-on' : ''}`}>
+              <input
+                type="checkbox"
+                checked={zones.includes(z)}
+                disabled={disabled}
+                onChange={() => onChange({ zones: toggle(zones, z), districts: [] })}
+              />
+              {z}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {!zoneMode && (
+        <div className="admin-area-row">
+          <span className="admin-area-label">District</span>
+          {options.districts.map((d) => (
+            <label key={d} className={`chip${districts.includes(d) ? ' is-on' : ''}`}>
+              <input
+                type="checkbox"
+                checked={districts.includes(d)}
+                disabled={disabled}
+                onChange={() => onChange({ zones: [], districts: toggle(districts, d) })}
+              />
+              {d}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <p className="admin-area-note">
+        {zoneMode
+          ? `Sees ${zones.join(' and ')} only. Districts follow the zone.`
+          : (districts.length
+            ? `Sees ${districts.length} district${districts.length === 1 ? '' : 's'}.`
+            : 'Nothing ticked — sees every zone and district.')}
+      </p>
+    </div>
+  );
+}
+
+/**
  * The person's name, editable where it is displayed.
  *
  * Saved on leaving the field rather than behind an edit button, which is the
@@ -194,7 +265,7 @@ function NewUserForm({ onCreated, onCancel }) {
   );
 }
 
-export default function AdminTab({ profile }) {
+export default function AdminTab({ profile, areaOptions = { zones: [], districts: [] } }) {
   const [users, setUsers] = useState(null);
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -328,6 +399,26 @@ export default function AdminTab({ profile }) {
                           `${u.code} now sees ${next.length ? next.join(' and ').toUpperCase() : 'nothing'}.`,
                         )}
                       />
+                      {/* Area sits under the contracts because it is the same
+                          question one level down: which contracts, then which
+                          part of them. An admin has neither. */}
+                      {!isAdminRole && (areaOptions.zones.length || areaOptions.districts.length) ? (
+                        <AreaPicker
+                          zones={u.zones ?? []}
+                          districts={u.districts ?? []}
+                          options={areaOptions}
+                          disabled={busyId === u.id}
+                          onChange={(next) => act(
+                            u.id,
+                            () => updateUser(u.id, next),
+                            next.zones.length
+                              ? `${u.code} now sees ${next.zones.join(' and ')} only.`
+                              : (next.districts.length
+                                ? `${u.code} now sees ${next.districts.length} district(s).`
+                                : `${u.code} now sees every zone and district.`),
+                          )}
+                        />
+                      ) : null}
                     </td>
                     <td className="admin-when">{when(u.last_sign_in_at)}</td>
                     <td className="admin-actions">
