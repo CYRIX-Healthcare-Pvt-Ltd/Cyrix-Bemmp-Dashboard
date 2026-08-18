@@ -587,6 +587,22 @@ export default function App() {
     [ds, filters],
   );
 
+  /*
+   * Every row still without a resolved date — open and parked both.
+   *
+   * The tracker's grid stays open-only, but its Summary counts both, because the
+   * meeting's own workbook does: the sheet's "Total Open Calls" column is really
+   * "everything unresolved", and its penalty columns then narrow to the open
+   * ones. Kerala has roughly ten parked calls for every open one, so which of
+   * the two a column means is the difference between 8,516 and 986.
+   */
+  const unresolvedRows = useMemo(
+    () => (ds && undatedIdx.length
+      ? Array.from(undatedIdx).filter((r) => ds.cols.bucket[r] !== BUCKET.RESOLVED)
+      : []),
+    [ds, undatedIdx],
+  );
+
   const accruing = useMemo(
     () => (idx ? accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo) : []),
     [ds, idx, undatedIdx, filters],
@@ -1037,6 +1053,7 @@ export default function App() {
                 key={`tracker-${stateId}`}
                 ds={ds}
                 rows={rowsInBucket(ds, undatedIdx, BUCKET.OPEN)}
+                unresolvedRows={unresolvedRows}
                 referenceDay={referenceDay}
                 canEdit={canEditMeeting(profile)}
                 onSelectRow={setDrawerRow}

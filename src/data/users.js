@@ -13,9 +13,21 @@ import { supabase } from './supabase.js';
 
 const BASE = (import.meta.env?.VITE_ADMIN_URL || '/api/users').replace(/\/+$/, '');
 
+/*
+ * Order is seniority-ish rather than alphabetical, because the picker is read
+ * top to bottom by somebody deciding what to give a new joiner.
+ *
+ * Only two of these ids are load-bearing anywhere: `admin` gates the Accounts
+ * tab, and `director` is the one role that cannot type in the meeting grid.
+ * Everything else is a designation, which is why adding the three field roles
+ * needed no permission code — see `canEditMeeting` in supabase.js.
+ */
 export const ROLES = [
   { id: 'admin', label: 'Administrator', hint: 'Manages accounts. Sees every contract.' },
   { id: 'project_head', label: 'Project head', hint: 'Full working access to their contracts.' },
+  { id: 'divisional_manager', label: 'Divisional manager', hint: 'Works the meeting across their division.' },
+  { id: 'zonal_manager', label: 'Zonal manager', hint: 'Works the meeting across their zone.' },
+  { id: 'district_incharge', label: 'District incharge', hint: 'Works the meeting for their district.' },
   { id: 'coordinator', label: 'Coordinator', hint: 'Runs the daily penalty meeting.' },
   { id: 'purchase', label: 'Purchase', hint: 'Fills the purchasing fields on open calls.' },
   { id: 'director', label: 'Director', hint: 'Reads every figure. Cannot edit the meeting.' },

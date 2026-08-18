@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDay, label, ticketLabel } from '../data/store.js';
-import { penaltyAmountIn } from '../data/query.js';
 import { writeSheet, saveBlob } from '../data/xlsx.js';
 import { supabase } from '../data/supabase.js';
+import { trackerSummary } from '../data/summary.js';
+import TrackerSummary from './TrackerSummary.jsx';
 import {
   MEETING_FIELDS, ensureRows, loadLog, loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
@@ -322,11 +323,15 @@ function exportColumns(hasZone) {
   ];
 }
 
-export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRow }) {
+export default function MeetingTab({
+  ds, rows, unresolvedRows = null, referenceDay, canEdit, onSelectRow,
+}) {
   const { cols, dict } = ds;
   const state = ds.meta.id;
   const hasZone = dict.zone.length > 0;
+  const grace = ds.meta.graceDays ?? 7;
 
+  const [view, setView] = useState('tickets');
   const [notes, setNotes] = useState(null);
   const [types, setTypes] = useState([]);
   const [error, setError] = useState(null);
@@ -355,18 +360,27 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
     return {
       row,
       ticket,
-      age: referenceDay - cols.loggedDay[row],
+      /*
+       * The export's own Down Days, not `referenceDay - loggedDay`.
+       *
+       * The meeting reconciles this grid against `KL Ticket Wise - Tracker.xlsx`,
+       * which drives every figure off column AI. The two disagree by exactly one
+       * day on 667 of 807 open Kerala rows — the export does not count the day a
+       * call was logged — and that one day moves 13 calls across the penalty
+       * threshold. A tracker that cannot be tied back to the workbook it is
+       * checked against is a tracker nobody trusts, so the tracker follows the
+       * workbook and the dashboard keeps its own rule.
+       */
+      age: cols.downDays[row],
       zone,
       district,
       facility,
       equipment,
       rate: cols.dayRate[row],
-      /* Everything this ticket has run up, from the day its grace window closed
-         to the reference date. `0` as the lower bound rather than the selected
-         range: the tracker is the whole backlog and ignores the date window, so
-         scoping the money to it would understate the oldest calls — the ones
-         that have accrued the most. */
-      accrued: penaltyAmountIn(ds, row, 0, referenceDay),
+      /* `(Down Days - grace) x rate`, floored — the workbook's own column R,
+         for the same reason. Floored because a ticket still inside its grace
+         window owes nothing and the subtraction would otherwise go negative. */
+      accrued: Math.max(0, cols.downDays[row] - grace) * cols.dayRate[row],
       haystack: `${ticket} ${zone} ${district} ${facility} ${equipment}`.toLowerCase(),
     };
   }), [ds, rows, cols, dict, referenceDay, hasZone]);
@@ -474,6 +488,26 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
     return <div className="panel"><div className="loader" aria-hidden="true" /></div>;
   }
 
+  /*
+   * The Summary, computed only while it is on screen.
+   *
+   * It walks every *unresolved* row — open and parked both, because the
+   * workbook's "Total Open Calls" column counts both — where the grid above
+   * walks open ones only. Penalty types are read off `records`, which covers the
+   * open rows, and that is enough: a penalty call is open by definition.
+   */
+  const summary = useMemo(() => {
+    if (view !== 'summary' || !notes) return null;
+    const typeByRow = new Map();
+    for (const r of records) {
+      const name = notes.get(r.ticket)?.penalty_type;
+      if (name) typeByRow.set(r.row, name);
+    }
+    return trackerSummary(
+      ds, unresolvedRows ?? rows, (row) => typeByRow.get(row) ?? null, types,
+    );
+  }, [view, notes, records, ds, unresolvedRows, rows, types]);
+
   const detailRecord = detail && records.find((r) => r.ticket === detail);
 
   return (
@@ -493,10 +527,29 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
               {sync?.closed ? ` ${sync.closed.toLocaleString()} closed since the last export.` : ''}
             </p>
           </div>
-          {!canEdit && <span className="drill-badge">read only</span>}
+          <div className="meeting-views">
+            {/* Two readings of one backlog, so a segmented control rather than a
+                tab of its own: the meeting works the list and checks the totals
+                in the same sitting, and the sub-tabs above already carry the
+                choice between the three buckets. */}
+            <div className="segmented">
+              {[['tickets', 'Tickets'], ['summary', 'Summary']].map(([id, text]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={view === id}
+                  onClick={() => setView(id)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+            {!canEdit && <span className="drill-badge">read only</span>}
+          </div>
         </div>
         {error && <p className="upload-error">{error}</p>}
 
+        {view === 'tickets' && (
         <div className="meeting-tools">
           <div className="meeting-search">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
@@ -566,8 +619,14 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
             </button>
           )}
         </div>
+        )}
       </div>
 
+      {view === 'summary' && summary && (
+        <TrackerSummary summary={summary} referenceDay={referenceDay} formatDay={formatDay} />
+      )}
+
+      {view === 'tickets' && (
       <div className="panel">
         <div className="table-scroll meeting-scroll">
           <table className="meeting-table is-sortable">
@@ -655,6 +714,7 @@ export default function MeetingTab({ ds, rows, referenceDay, canEdit, onSelectRo
           )}
         </div>
       </div>
+      )}
 
       {detail && (
         <EntryDialog

@@ -514,6 +514,22 @@ special claim on the data. Their `scope` column is left **empty** and `in_scope(
 every contract from the role — writing `{'kl','ap'}` there would be a copy that goes stale
 the day a third contract is added. `canSeeState` makes the same test on the client.
 
+**Only two role ids are load-bearing**, which is what makes adding a designation cheap.
+`admin` gates the Accounts tab, and `director` is the one role that cannot type in the
+meeting grid — `canEditMeeting` is `role !== 'director'` and `meeting_note_write` leans on
+`is_director()`. Everything else is a job title, so `zonal_manager`, `district_incharge` and
+`divisional_manager` (migration 0008) needed an enum value and two label lists and no policy
+at all. If one of them ever has to be read-only, that is a change to `is_director()` **and**
+to `canEditMeeting`, and it must be made in both or the client and the database will
+disagree about who may edit. The role list lives in three places that must stay in step:
+the `app_role` enum, `ROLES` in `src/data/users.js`, and the `ROLES` set in `api/users.js` —
+the server's is the one that decides, since the page can send anything.
+
+The account list edits **name** in place, saved on blur like the meeting grid, because
+correcting a spelling should not need a second control. The employee code is not editable:
+it is what `account_audit` records, what the seed sheet calls the account and what the
+default password is, so it is an identity rather than a detail.
+
 **The default password is the employee code.** There is an asymmetry in GoTrue worth knowing
 before changing any of this: creating a user with the admin key *bypasses* the password
 policy, while updating one *enforces* it. So a code shorter than the minimum can be given
@@ -702,6 +718,49 @@ valid one. Strings are inline (`t="inlineStr"`), so there is no shared-string ta
 or index. Dates export as the text the page shows rather than as date cells; a true date
 cell needs a number-format table this writer does not carry, and a raw serial would be an
 unreadable number.
+
+**The tracker measures penalty differently from the dashboard, on purpose.** The meeting
+reconciles this grid against its own `KL Ticket Wise - Tracker.xlsx`, which drives every
+figure off the export's own `Down Days` column; the dashboard derives age as
+`referenceDay - loggedDay`. Those disagree by exactly one day on 667 of 807 open Kerala
+rows — the export does not count the day a call was logged — which moves 13 calls across
+the threshold, 184 penalty calls here against the dashboard's 197. A tracker whose numbers
+cannot be tied back to the workbook it is checked against in the meeting is a tracker
+nobody trusts, so the tracker follows the workbook and the Penalty tab keeps the rule in
+*Penalty calls* above. Accrued here is `(downDays - grace) x rate` floored at zero, which
+is the workbook's column R, not `penaltyAmountIn`.
+
+**The Summary sub-view** is that workbook's `Summary` sheet, in `src/data/summary.js` and
+`TrackerSummary.jsx`. Two blocks over one backlog: by district, and by penalty type. Its
+translation is worth keeping straight, because one of the sheet's column letters is a trap:
+
+| Summary | The sheet | Here |
+|---|---|---|
+| Total open calls | `COUNTIFS(Final!D:D, district)` | every **unresolved** row |
+| Penalty calls | `+ P>7 + N=""` | open bucket AND `downDays > window` |
+| Penalty | `SUMIFS(Final!R:R, …)` | `(downDays - grace) x rate`, floored |
+| Per day | `SUMIFS(Final!Q:Q, …)` | `dayRate` |
+| Cont % | `D/SUM(D$21:D$40)` | share of the **per-day** total, not of the count |
+
+`Final!N` is **Ticket Remark, not Resolved Date**. The Final sheet already holds only
+unresolved rows — 0 of its 8,516 carry a resolved date — so `N=""` is not a redundant test,
+it is exactly this project's OPEN bucket. Which means "Total open calls" counts parked
+calls and every penalty column excludes them; that one column is the reason the tracker's
+Summary needs `unresolvedRows` from `App.jsx` while its grid takes open rows only, and the
+difference between the two is 8,516 and 986.
+
+**Penalty type comes from the meeting, not the export**, so a penalty call nobody has
+categorised is in the district block and in no type row. The sheet has that gap and says
+nothing about it — its two totals read 420 and 354 — so `untyped` is returned and shown,
+because two totals that disagree on one screen otherwise read as a fault. The same applies
+to the 4 rows carrying a blank district, which the sheet's `SUM(C4:C17)` drops silently and
+which appear here under `—`.
+
+Verified cell by cell against the workbook: feeding its own `Final` rows through
+`trackerSummary` reproduces 101 of its 102 Summary cells exactly, the 102nd being that
+dropped-district total. Note when checking by hand that Excel's `COUNTIFS` is
+case-insensitive and a JS `Map` lookup is not — `KASARGODE` matches `Kasargode` there and
+would not here, which is why the pipeline title-cases it at build time.
 
 The twenty-one purchasing fields open in a **dialog**, not an expanded row. As a `colSpan`
 cell they were a form wearing a table's clothes: contents lining up with nothing above them,

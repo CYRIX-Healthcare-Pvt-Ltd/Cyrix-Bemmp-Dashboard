@@ -18,7 +18,12 @@ import {
  *   POST   /api/users?do=disable   revoke access without deleting the record
  */
 
-const ROLES = new Set(['admin', 'director', 'project_head', 'coordinator', 'purchase']);
+/* Must stay in step with `ROLES` in src/data/users.js and with the `app_role`
+   enum. The server list is the one that decides — the page can send anything. */
+const ROLES = new Set([
+  'admin', 'director', 'project_head', 'coordinator', 'purchase',
+  'divisional_manager', 'zonal_manager', 'district_incharge',
+]);
 const CONTRACTS = new Set(['kl', 'ap']);
 
 /**

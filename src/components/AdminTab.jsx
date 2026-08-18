@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STATES } from '../../shared/schema.mjs';
 import {
   ROLES, ROLE_LABEL, createUser, listUsers, listAccountLog, resetPassword, setDisabled,
@@ -46,6 +46,49 @@ function ScopePicker({ value, onChange, disabled }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The person's name, editable where it is displayed.
+ *
+ * Saved on leaving the field rather than behind an edit button, which is the
+ * idiom the meeting grid already uses — somebody correcting a spelling should
+ * not have to find a second control first. The employee code stays fixed: it is
+ * what `account_audit` records, what the seed sheet calls the account, and what
+ * the default password is, so it is an identity rather than a detail.
+ *
+ * Escape has to cancel through a ref. `setValue` is asynchronous, so resetting
+ * the state and then blurring would still hand the blur handler the typed value
+ * and save the thing the user just abandoned.
+ */
+function NameCell({ user, busy, onSave }) {
+  const original = user.full_name ?? '';
+  const [value, setValue] = useState(original);
+  const cancelled = useRef(false);
+
+  // A reload after any save re-renders every row; without this the cell would
+  // keep whatever it had before somebody else's change landed.
+  useEffect(() => { setValue(user.full_name ?? ''); }, [user.full_name]);
+
+  return (
+    <input
+      className="cell admin-name"
+      value={value}
+      disabled={busy}
+      placeholder="Add a name"
+      aria-label={`Name for ${user.code}`}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        if (cancelled.current) { cancelled.current = false; setValue(original); return; }
+        const next = value.trim();
+        if (next !== original.trim()) onSave(next);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur(); }
+      }}
+    />
   );
 }
 
@@ -250,7 +293,17 @@ export default function AdminTab({ profile }) {
                       {self && <span className="admin-you">you</span>}
                       {u.disabled && <span className="admin-off">disabled</span>}
                     </td>
-                    <td>{u.full_name || <span className="money-nil">—</span>}</td>
+                    <td>
+                      <NameCell
+                        user={u}
+                        busy={busyId === u.id}
+                        onSave={(name) => act(
+                          u.id,
+                          () => updateUser(u.id, { full_name: name }),
+                          name ? `${u.code} is now ${name}.` : `${u.code}'s name was cleared.`,
+                        )}
+                      />
+                    </td>
                     <td>
                       <select
                         className="cell"

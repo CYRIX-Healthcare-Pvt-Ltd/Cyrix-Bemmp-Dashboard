@@ -780,8 +780,15 @@ th {
 }
 /* The option list is painted by the OS, not the page. It inherits the select's
    text colour but not its background — which here is a near-transparent tint —
-   so in dark mode the popup came out white with white text on it. Pin both. */
-.field select option, .lang-select option {
+   so in dark mode the popup came out white with white text on it. Pin both.
+
+   Deliberately every `select`, not a list of the ones that have been noticed.
+   This started as `.field select option, .lang-select option`, and the role
+   picker on the Accounts tab carries `.cell` instead — so it matched nothing and
+   its popup was unreadable until hovered. A selector list here is a list that
+   goes stale the next time a select is added under a new class, and the symptom
+   is invisible text rather than anything that looks like a mistake. */
+select option {
   background: var(--surface);
   color: var(--text-primary);
 }
@@ -1940,6 +1947,53 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 }
 .meeting-hint { font-size: 12px; color: var(--text-muted); }
 
+/* ------------------------------------------------------- tracker summary -- */
+
+.meeting-views { display: flex; align-items: center; gap: 10px; }
+.summary { display: grid; gap: 16px; }
+
+/* The cross-tab is twenty penalty types wide. It scrolls inside its own panel;
+   the page body must never scroll sideways. */
+.summary-scroll { overflow-x: auto; }
+
+.summary-grid, .summary-types { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.summary-grid th, .summary-grid td,
+.summary-types th, .summary-types td {
+  padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.summary-grid th, .summary-types th {
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); text-align: left; vertical-align: bottom;
+}
+.summary-grid .num, .summary-types .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The penalty-type group heading spans its Count/Value pair, so it needs a rule
+   under it to show which two columns it owns — twenty of them side by side are
+   otherwise an unreadable ribbon of words. */
+.summary-type {
+  text-align: center !important;
+  border-bottom: 2px solid var(--baseline) !important;
+  color: var(--text-secondary) !important;
+}
+.summary-sub { color: var(--text-muted) !important; font-size: 10px !important; }
+
+/* The first columns are the ones read down; the type columns are read across.
+   Keeping the district in place makes the second possible at all. */
+.summary-grid tbody td:nth-child(-n + 2),
+.summary-grid tfoot td:nth-child(-n + 2) { position: sticky; left: 0; background: var(--surface); }
+.summary-grid tbody td:nth-child(2) { left: auto; }
+
+.summary-grid tfoot td, .summary-types tfoot td {
+  border-top: 2px solid var(--baseline); border-bottom: none;
+  background: var(--hover-wash);
+}
+
+/* A type with nothing against it is still worth a row — the meeting reads the
+   list to check nothing has been missed — but it should not compete. */
+.summary-types tbody tr.is-empty td { color: var(--text-muted); }
+
+.summary-gap { margin-top: 12px !important; color: var(--status-warning); }
+
 /* The whole header is the control, so the hit area is the cell rather than a
    caret a few pixels wide. */
 .meeting-table.is-sortable th { padding: 0; }
@@ -2113,6 +2167,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .admin-table td { vertical-align: middle; }
 .admin-table tr.is-disabled td { opacity: 0.5; }
 .admin-when { color: var(--text-muted); white-space: nowrap; }
+/* Wide enough for a full name before it scrolls inside itself; the placeholder
+   is muted so an unnamed account reads as blank rather than as filled in. */
+.admin-name { min-width: 152px; }
+.admin-name::placeholder { color: var(--text-muted); }
 .admin-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 .admin-you, .admin-off {
