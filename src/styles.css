@@ -2611,7 +2611,21 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
  * App.jsx so React remounts the wrapper and the animation actually replays —
  * a CSS animation on a persistent node fires only on first mount.
  */
-.tabview { animation: tabIn var(--dur) var(--ease-out) both; }
+/*
+ * No `both`, and that is the whole point.
+ *
+ * `both` includes *backwards* fill, so between mount and the animation actually
+ * starting the element is pinned to the `from` frame — `opacity: 0`. When the
+ * animation did not get to run on first paint, the dashboard sat there fully
+ * laid out and completely invisible, and the only way to get it back was to
+ * press a tab, which remounts this through `key={tab}` and plays it. A blank
+ * page on sign-in, from a decoration.
+ *
+ * Without the fill the resting state is the element's own — visible. If the
+ * animation runs it animates; if it never runs, nothing is lost but the fade.
+ * Content must never depend on an animation to become visible.
+ */
+.tabview { animation: tabIn var(--dur) var(--ease-out); }
 @keyframes tabIn {
   from { opacity: 0; transform: translate3d(0, 6px, 0); }
   to   { opacity: 1; transform: none; }
@@ -2630,3 +2644,7 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   from { opacity: 0; transform: translate3d(0, 8px, 0); }
   to   { opacity: 1; transform: none; }
 }
+
+/* Select all / Clear sit above the district chips, separated so they do not
+   read as two more districts. */
+.admin-area-bulk { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }

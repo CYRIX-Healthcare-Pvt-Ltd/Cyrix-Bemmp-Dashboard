@@ -133,6 +133,22 @@ function AreaPicker({ zones, districts, options, disabled, onChange }) {
               </p>
             </div>
             <div className="modal-body">
+              {/* All and None, because ticking fourteen boxes to say "all of
+                  them" is the same work the dialog exists to remove. Note that
+                  every district selected and none selected mean the same thing
+                  to the query — both are "the whole contract" — so All is a
+                  convenience, not a different answer. */}
+              <div className="admin-area-row admin-area-bulk">
+                <button
+                  type="button" className="row-more"
+                  onClick={() => setPicking([...options.districts])}
+                >
+                  Select all
+                </button>
+                <button type="button" className="row-more" onClick={() => setPicking([])}>
+                  Clear
+                </button>
+              </div>
               <div className="admin-area-row">
                 {options.districts.map((d) => (
                   <label key={d} className={`chip${picking.includes(d) ? ' is-on' : ''}`}>
