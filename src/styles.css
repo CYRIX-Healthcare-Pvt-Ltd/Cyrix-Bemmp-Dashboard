@@ -2242,11 +2242,16 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
    is muted so an unnamed account reads as blank rather than as filled in. */
 /* Area scope, under the contract chips — the same question one level down. */
 .admin-area { margin-top: 8px; display: grid; gap: 5px; }
-.admin-area-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 320px; }
+.admin-area-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 340px; }
 .admin-area-label {
   font-size: 9.5px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--text-muted); width: 100%;
 }
+/* The dialog is the one place the full district list appears, so it is allowed
+   the width the row is not. */
+.modal .admin-area-row { max-width: none; gap: 6px; }
+.admin-area .chip-button { font: inherit; font-size: 11px; }
+.admin-area .chip-button:hover:not(:disabled) { color: var(--text-primary); }
 .admin-area .chip {
   display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
   padding: 2px 8px; font-size: 11px; border-radius: var(--radius-pill);

@@ -66,56 +66,108 @@ function ScopePicker({ value, onChange, disabled }) {
  * would go stale the day a contract gains one.
  */
 function AreaPicker({ zones, districts, options, disabled, onChange }) {
-  const hasZone = options.zones.length > 0;
-  const zoneMode = zones.length > 0;
+  const [picking, setPicking] = useState(null); // the draft list while the dialog is open
+  const mode = zones.length ? 'zone' : (districts.length ? 'district' : 'all');
 
-  const toggle = (list, value) => (list.includes(value)
-    ? list.filter((v) => v !== value)
-    : [...list, value]);
+  /*
+   * Radios, not checkboxes, and districts behind a dialog.
+   *
+   * Both were checkbox rows to begin with, which was wrong twice over. The
+   * choice is genuinely exclusive — a whole zone, some districts, or everything
+   * — and checkboxes offered combinations the server then silently rewrote, so
+   * the control described a state it could not produce. And fourteen district
+   * chips on every one of thirteen rows put six hundred controls on the page,
+   * each of which saved and reloaded the whole account list on click; ticking
+   * four districts meant four round trips and four full reloads.
+   *
+   * The dialog collects the whole set and saves once.
+   */
+  const choose = (next) => { if (!disabled) onChange(next); };
 
   return (
     <div className="admin-area">
-      {hasZone && (
-        <div className="admin-area-row">
-          <span className="admin-area-label">Zone</span>
-          {options.zones.map((z) => (
-            <label key={z} className={`chip${zones.includes(z) ? ' is-on' : ''}`}>
-              <input
-                type="checkbox"
-                checked={zones.includes(z)}
-                disabled={disabled}
-                onChange={() => onChange({ zones: toggle(zones, z), districts: [] })}
-              />
-              {z}
-            </label>
-          ))}
-        </div>
+      <div className="admin-area-row" role="radiogroup" aria-label="Area">
+        <label className={`chip${mode === 'all' ? ' is-on' : ''}`}>
+          <input
+            type="radio" checked={mode === 'all'} disabled={disabled}
+            onChange={() => choose({ zones: [], districts: [] })}
+          />
+          All
+        </label>
+
+        {options.zones.map((z) => (
+          <label key={z} className={`chip${zones.includes(z) ? ' is-on' : ''}`}>
+            <input
+              type="radio" checked={zones.includes(z)} disabled={disabled}
+              onChange={() => choose({ zones: [z], districts: [] })}
+            />
+            {z}
+          </label>
+        ))}
+
+        <button
+          type="button"
+          className={`chip chip-button${mode === 'district' ? ' is-on' : ''}`}
+          disabled={disabled}
+          onClick={() => setPicking(districts)}
+        >
+          {mode === 'district' ? `${districts.length} district${districts.length === 1 ? '' : 's'}` : 'District…'}
+        </button>
+      </div>
+
+      {mode === 'district' && (
+        <p className="admin-area-note">{districts.join(', ')}</p>
       )}
 
-      {!zoneMode && (
-        <div className="admin-area-row">
-          <span className="admin-area-label">District</span>
-          {options.districts.map((d) => (
-            <label key={d} className={`chip${districts.includes(d) ? ' is-on' : ''}`}>
-              <input
-                type="checkbox"
-                checked={districts.includes(d)}
-                disabled={disabled}
-                onChange={() => onChange({ zones: [], districts: toggle(districts, d) })}
-              />
-              {d}
-            </label>
-          ))}
+      {picking && (
+        <div
+          className="modal-scrim"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPicking(null); }}
+        >
+          <div className="modal" role="dialog" aria-label="Choose districts">
+            <div className="modal-head">
+              <h2>Districts</h2>
+              <p className="caption">
+                Pick one or more. Saved when you press Save — nothing is written while
+                you tick.
+              </p>
+            </div>
+            <div className="modal-body">
+              <div className="admin-area-row">
+                {options.districts.map((d) => (
+                  <label key={d} className={`chip${picking.includes(d) ? ' is-on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={picking.includes(d)}
+                      onChange={() => setPicking(picking.includes(d)
+                        ? picking.filter((v) => v !== d)
+                        : [...picking, d])}
+                    />
+                    {d}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="modal-foot">
+              <p className="caption">
+                {picking.length
+                  ? `${picking.length} selected`
+                  : 'None selected — saving this means every zone and district.'}
+              </p>
+              <button type="button" className="row-more" onClick={() => setPicking(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal-done"
+                onClick={() => { onChange({ zones: [], districts: picking }); setPicking(null); }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      <p className="admin-area-note">
-        {zoneMode
-          ? `Sees ${zones.join(' and ')} only. Districts follow the zone.`
-          : (districts.length
-            ? `Sees ${districts.length} district${districts.length === 1 ? '' : 's'}.`
-            : 'Nothing ticked — sees every zone and district.')}
-      </p>
     </div>
   );
 }
