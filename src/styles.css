@@ -1952,47 +1952,115 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .meeting-views { display: flex; align-items: center; gap: 10px; }
 .summary { display: grid; gap: 16px; }
 
-/* The cross-tab is twenty penalty types wide. It scrolls inside its own panel;
-   the page body must never scroll sideways. */
-.summary-scroll { overflow-x: auto; }
+/*
+ * The cross-tab is twenty penalty types wide and has to stay readable while
+ * scrolled in both directions, so zone and district pin to the left and both
+ * header rows pin to the top. A figure in the fortieth column is meaningless
+ * without the district that starts its row and the type that heads its pair.
+ *
+ * Sticky cells are transparent by default and would show the scrolling content
+ * sliding underneath, so **every** cell here is given an opaque background —
+ * that, not the `position` rule, is what actually makes the pinning work. It is
+ * also why the zebra is painted per cell rather than on the row.
+ */
+.summary-scroll {
+  overflow: auto;
+  max-height: min(72vh, 720px);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
 
-.summary-grid, .summary-types { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.summary-grid, .summary-types {
+  width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px;
+  --row-a: var(--surface);
+  --row-b: color-mix(in srgb, var(--surface) 93%, var(--text-primary));
+  --row-hot: color-mix(in srgb, var(--series-1) 13%, var(--surface));
+  --row-foot: color-mix(in srgb, var(--surface) 86%, var(--text-primary));
+}
 .summary-grid th, .summary-grid td,
 .summary-types th, .summary-types td {
-  padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  padding: 7px 11px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  background: var(--row-a);
 }
 .summary-grid th, .summary-types th {
-  font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--text-muted); text-align: left; vertical-align: bottom;
+  background: var(--row-foot);
 }
 .summary-grid .num, .summary-types .num { text-align: right; font-variant-numeric: tabular-nums; }
+.summary-grid .strong { font-weight: 640; color: var(--text-primary); }
 
-/* The penalty-type group heading spans its Count/Value pair, so it needs a rule
-   under it to show which two columns it owns — twenty of them side by side are
-   otherwise an unreadable ribbon of words. */
+/* -- pinned header ------------------------------------------------------- */
+/* Row one is 30px, so row two parks directly beneath it rather than over it. */
+.summary-grid thead th { position: sticky; z-index: 3; }
+.summary-grid thead tr:first-child th { top: 0; height: 30px; }
+.summary-grid thead tr:nth-child(2) th { top: 30px; }
+
+/* -- pinned zone and district -------------------------------------------- */
+.summary-grid .col-zone { width: 76px; }
+.summary-grid .col-district { width: 154px; }
+.summary-grid .col-zone, .summary-grid .col-district {
+  position: sticky; z-index: 2; left: 0;
+}
+.summary-grid.has-zone .col-district { left: 76px; }
+/* The corner sits in both bands and must outrank each of them. */
+.summary-grid thead .col-zone, .summary-grid thead .col-district { z-index: 4; }
+/* One shadow marking where the frozen pane ends, on the last pinned column. */
+.summary-grid.has-zone .col-district,
+.summary-grid:not(.has-zone) .col-zone,
+.summary-grid:not(.has-zone) .col-district {
+  box-shadow: 6px 0 8px -7px rgba(0, 0, 0, 0.55);
+}
+
+/* -- the totals band ------------------------------------------------------ */
+/* The four figures the meeting actually works from, closed off with a heavier
+   rule so the twenty type pairs after them read as detail rather than as more
+   of the same. */
+.summary-grid .band-end { border-right: 2px solid var(--baseline); }
+.summary-grid .group-start { border-left: 1px solid var(--border); }
+
 .summary-type {
   text-align: center !important;
   border-bottom: 2px solid var(--baseline) !important;
+  border-left: 1px solid var(--border);
   color: var(--text-secondary) !important;
 }
-.summary-sub { color: var(--text-muted) !important; font-size: 10px !important; }
+.summary-sub { font-size: 9.5px !important; }
 
-/* The first columns are the ones read down; the type columns are read across.
-   Keeping the district in place makes the second possible at all. */
-.summary-grid tbody td:nth-child(-n + 2),
-.summary-grid tfoot td:nth-child(-n + 2) { position: sticky; left: 0; background: var(--surface); }
-.summary-grid tbody td:nth-child(2) { left: auto; }
-
+/* -- rows ----------------------------------------------------------------- */
+.summary-grid tbody tr:nth-child(even) td { background: var(--row-b); }
+.summary-grid tbody tr:hover td { background: var(--row-hot); }
 .summary-grid tfoot td, .summary-types tfoot td {
-  border-top: 2px solid var(--baseline); border-bottom: none;
-  background: var(--hover-wash);
+  position: sticky; bottom: 0; z-index: 2;
+  background: var(--row-foot); border-top: 2px solid var(--baseline); border-bottom: none;
+  font-weight: 640;
 }
+.summary-grid tfoot .col-zone, .summary-grid tfoot .col-district { z-index: 3; }
 
-/* A type with nothing against it is still worth a row — the meeting reads the
+/* -- the penalty-type table ----------------------------------------------- */
+.summary-types thead th { position: sticky; top: 0; z-index: 2; }
+.summary-types tbody tr:nth-child(even) td { background: var(--row-b); }
+.summary-types tbody tr:hover td { background: var(--row-hot); }
+/* A type with nothing against it still keeps its row — the meeting reads the
    list to check nothing has been missed — but it should not compete. */
 .summary-types tbody tr.is-empty td { color: var(--text-muted); }
+.summary-types .strong { font-weight: 640; color: var(--text-primary); }
+
+.summary-barhead { width: 40%; }
+.summary-barcell { padding-right: 16px !important; }
+.summary-bar {
+  display: block; height: 9px; min-width: 2px; border-radius: var(--radius-pill);
+  background: var(--series-1);
+}
 
 .summary-gap { margin-top: 12px !important; color: var(--status-warning); }
+
+/* On a phone the frozen pane would leave almost nothing to scroll into, so the
+   table simply scrolls as one. */
+@media (max-width: 860px) {
+  .summary-grid .col-zone, .summary-grid .col-district { position: static; box-shadow: none; }
+  .summary-scroll { max-height: none; }
+}
 
 /* The whole header is the control, so the hit area is the cell rather than a
    caret a few pixels wide. */

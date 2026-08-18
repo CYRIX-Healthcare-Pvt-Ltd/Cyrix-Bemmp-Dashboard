@@ -484,10 +484,6 @@ export default function MeetingTab({
     return null;
   });
 
-  if (!notes) {
-    return <div className="panel"><div className="loader" aria-hidden="true" /></div>;
-  }
-
   /*
    * The Summary, computed only while it is on screen.
    *
@@ -495,6 +491,11 @@ export default function MeetingTab({
    * workbook's "Total Open Calls" column counts both — where the grid above
    * walks open ones only. Penalty types are read off `records`, which covers the
    * open rows, and that is enough: a penalty call is open by definition.
+   *
+   * Above the `!notes` return below, and it has to stay there. A hook after an
+   * early return is called on some renders and not others, so the first paint
+   * (notes still loading) runs one fewer than the next one and React tears the
+   * whole tree down — a blank page, not a broken panel.
    */
   const summary = useMemo(() => {
     if (view !== 'summary' || !notes) return null;
@@ -507,6 +508,10 @@ export default function MeetingTab({
       ds, unresolvedRows ?? rows, (row) => typeByRow.get(row) ?? null, types,
     );
   }, [view, notes, records, ds, unresolvedRows, rows, types]);
+
+  if (!notes) {
+    return <div className="panel"><div className="loader" aria-hidden="true" /></div>;
+  }
 
   const detailRecord = detail && records.find((r) => r.ticket === detail);
 

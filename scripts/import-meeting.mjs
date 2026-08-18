@@ -142,12 +142,37 @@ function readMeeting(file) {
     }
   }
 
-  // Resolve the sheet named "meeting" rather than assuming sheet1.xml.
+  /*
+   * Find the ticket sheet by name, then by size.
+   *
+   * This used to look only for a tab called "meeting" and fall back to
+   * sheet1.xml, which silently read the wrong tab the moment the workbook grew
+   * companions: `KL Ticket Wise - Tracker.xlsx` keeps its rows in "Final" and
+   * puts a 20-row "Dropdown" first, so the import read twenty blank rows and
+   * reported success. Falling back to the *largest* worksheet is what makes that
+   * impossible — the ticket list is megabytes where a lookup or summary tab is
+   * kilobytes.
+   */
   const book = entry('xl/workbook.xml').toString('utf8');
-  const rid = /<sheet[^>]*name="meeting"[^>]*r:id="([^"]+)"/i.exec(book)?.[1];
   const rels = entry('xl/_rels/workbook.xml.rels').toString('utf8');
-  const target = new RegExp(`Id="${rid}"[^>]*Target="([^"]+)"`).exec(rels)?.[1] ?? 'worksheets/sheet1.xml';
-  const sheet = entry(`xl/${target.replace(/^\/?xl\//, '')}`).toString('utf8');
+  const sheets = [...book.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)]
+    .map(([, name, rid]) => ({
+      name,
+      target: new RegExp(`Id="${rid}"[^>]*Target="([^"]+)"`).exec(rels)?.[1],
+    }))
+    .filter((s) => s.target);
+
+  let chosen = sheets.find((s) => /^(meeting|final)$/i.test(s.name));
+  if (!chosen) {
+    let biggest = -1;
+    for (const s of sheets) {
+      const size = entry(`xl/${s.target.replace(/^\/?xl\//, '')}`).length;
+      if (size > biggest) { biggest = size; chosen = s; }
+    }
+  }
+  if (!chosen) throw new Error('no worksheet found in the workbook');
+  console.log(`  reading sheet "${chosen.name}"`);
+  const sheet = entry(`xl/${chosen.target.replace(/^\/?xl\//, '')}`).toString('utf8');
 
   const rows = [];
   const rowRe = /<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
@@ -212,14 +237,53 @@ async function post(pathname, body, headers = {}) {
   return res;
 }
 
+/**
+ * Every ticket the tracker already knows about, for `--only-existing`.
+ *
+ * PostgREST caps a response at 1,000 rows, so this pages. Asking for the ticket
+ * column alone keeps nine thousand rows small enough not to matter.
+ */
+async function existingTickets(state) {
+  const out = new Set();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const res = await fetch(
+      `${URL_BASE}/rest/v1/meeting_note?state=eq.${state}&select=ticket`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Range: `${from}-${from + PAGE - 1}`,
+        },
+      },
+    );
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const page = await res.json();
+    for (const r of page) out.add(String(r.ticket).trim());
+    if (page.length < PAGE) return out;
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith('--'));
   const dry = args.includes('--dry');
+  /*
+   * Write only tickets that already have a row here.
+   *
+   * Without it the upsert *creates* a note for every ticket in the workbook,
+   * including several thousand the tracker has never shown — the sheet carries
+   * the whole unresolved backlog, open and parked, while `ensureRows` only ever
+   * makes rows for open calls. Those extra rows are not wrong, but they are
+   * meeting notes for calls nobody is meeting about, and once written the only
+   * way back is to work out which ones this run invented.
+   */
+  const onlyExisting = args.includes('--only-existing');
   const state = (args[args.indexOf('--state') + 1] ?? 'kl').toLowerCase();
 
   if (!file) {
-    console.error('usage: node scripts/import-meeting.mjs <Book1.xlsx> [--state kl] [--dry]');
+    console.error('usage: node scripts/import-meeting.mjs <Book1.xlsx> '
+      + '[--state kl] [--only-existing] [--dry]');
     process.exit(1);
   }
 
@@ -293,19 +357,30 @@ async function main() {
     }
   }
 
-  if (dry) { console.log('\n--dry, nothing written'); return; }
   if (!URL_BASE || !SERVICE_KEY) {
+    if (dry) { console.log('\n--dry, nothing written'); return; }
     console.error('\nSUPABASE_URL and SUPABASE_SERVICE_KEY must be set in .env.local');
     process.exit(1);
   }
 
+  let outgoing = notes;
+  if (onlyExisting) {
+    const have = await existingTickets(state);
+    outgoing = notes.filter((n) => have.has(n.ticket));
+    console.log(`\n--only-existing: the tracker holds ${have.size.toLocaleString()} tickets`);
+    console.log(`  ${outgoing.length.toLocaleString()} of ${notes.length.toLocaleString()} will be written`);
+    console.log(`  ${(notes.length - outgoing.length).toLocaleString()} skipped — not in the tracker`);
+  }
+
+  if (dry) { console.log('\n--dry, nothing written'); return; }
+
   // Chunked so a failure names the batch it happened in rather than losing the
   // whole run, and so no single request carries 7,000 rows.
   const CHUNK = 500;
-  for (let i = 0; i < notes.length; i += CHUNK) {
-    const batch = notes.slice(i, i + CHUNK);
+  for (let i = 0; i < outgoing.length; i += CHUNK) {
+    const batch = outgoing.slice(i, i + CHUNK);
     await post('meeting_note?on_conflict=state,ticket', batch, { Prefer: 'resolution=merge-duplicates' });
-    console.log(`  upserted ${Math.min(i + CHUNK, notes.length).toLocaleString()} / ${notes.length.toLocaleString()}`);
+    console.log(`  upserted ${Math.min(i + CHUNK, outgoing.length).toLocaleString()} / ${outgoing.length.toLocaleString()}`);
   }
   console.log('\ndone');
 }
