@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import {
   filterRows, blankFilters, defaultFiltersFor, saveDefaultFilters,
-  clearDefaultFilters, hasDefaultFilters, FILTER_DIMS,
+  clearDefaultFilters, hasDefaultFilters, FILTER_DIMS, facetOptions,
 } from '../src/data/query.js';
 import { financialYearStart } from '../src/data/store.js';
 import { makeDataset, allFilters, day, iso } from './fixture.mjs';
@@ -208,4 +208,50 @@ test('"this financial year" and "last 12 months" are different windows', () => {
   const march = day('2027-03-31');
   assert.equal(iso(financialYearStart(march)), '2026-04-01');
   assert.equal(iso(march - 364), '2026-04-01', 'in March the two agree');
+});
+
+/*
+ * Cascading filter lists.
+ *
+ * The subtle rule is that a dimension must not narrow *itself*. If district
+ * options were computed from rows that already passed the district filter,
+ * choosing Kannur would leave Kannur as the only district on offer and there
+ * would be no way to reach Kollam again without a reset.
+ */
+test('picking a zone narrows the district list to that zone', () => {
+  const ds = makeDataset([
+    { loggedDay: day('2026-06-10'), zone: 'South', district: 'Kollam' },
+    { loggedDay: day('2026-06-11'), zone: 'North', district: 'Kannur' },
+    { loggedDay: day('2026-06-12'), zone: 'North', district: 'Wayanad' },
+  ]);
+  const south = ds.dict.zone.indexOf('South');
+  const facets = facetOptions(ds, allFilters(ds, { zone: new Set([south]) }));
+
+  const names = [...facets.district].map((id) => ds.dict.district[id]).sort();
+  assert.deepEqual(names, ['Kollam']);
+});
+
+test('a dimension does not narrow its own list', () => {
+  const ds = makeDataset([
+    { loggedDay: day('2026-06-10'), zone: 'North', district: 'Kannur' },
+    { loggedDay: day('2026-06-11'), zone: 'North', district: 'Wayanad' },
+  ]);
+  const kannur = ds.dict.district.indexOf('Kannur');
+  const facets = facetOptions(ds, allFilters(ds, { district: new Set([kannur]) }));
+
+  const names = [...facets.district].map((id) => ds.dict.district[id]).sort();
+  assert.deepEqual(names, ['Kannur', 'Wayanad'], 'both stay reachable');
+});
+
+test('the date window narrows every list at once', () => {
+  // A range is not a dimension and never widens: a row outside it is out of
+  // every list, including the one it would otherwise have populated.
+  const ds = makeDataset([
+    { loggedDay: day('2026-06-10'), district: 'Kollam' },
+    { loggedDay: day('2026-12-01'), district: 'Kannur' },
+  ]);
+  const facets = facetOptions(ds, allFilters(ds, {
+    dayFrom: day('2026-06-01'), dayTo: day('2026-06-30'),
+  }));
+  assert.deepEqual([...facets.district].map((id) => ds.dict.district[id]), ['Kollam']);
 });

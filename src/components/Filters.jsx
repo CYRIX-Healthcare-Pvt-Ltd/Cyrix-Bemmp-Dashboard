@@ -4,7 +4,7 @@ import {
 } from '../data/store.js';
 import {
   FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, clearDefaultFilters, hasDefaultFilters,
-  sameFilters,
+  sameFilters, facetOptions,
 } from '../data/query.js';
 
 /** Presets are anchored to the latest logged date in the data, not today —
@@ -36,10 +36,16 @@ const FIELDS = {
   equipment: { label: 'Equipment', all: 'All equipment', search: true },
 };
 
-function Dropdown({ label, dict, value, onChange, allLabel }) {
+function Dropdown({ label, dict, value, onChange, allLabel, allow }) {
+  /* `allow` is what the other filters have left available. The selected value
+     is kept whatever happens, so a list that has just narrowed still shows what
+     it is set to rather than appearing blank. */
   const options = useMemo(
-    () => dict.map((name, id) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
-    [dict],
+    () => dict
+      .map((name, id) => ({ id, name }))
+      .filter((o) => !allow || allow.has(o.id) || o.id === value)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [dict, allow, value],
   );
   return (
     <div className="field">
@@ -67,7 +73,7 @@ function Dropdown({ label, dict, value, onChange, allLabel }) {
  * a name that matches nothing simply selects nothing — which is the right
  * behaviour for a half-typed word.
  */
-function Search({ label, dict, value, onChange, allLabel }) {
+function Search({ label, dict, value, onChange, allLabel, allow }) {
   const listId = useId();
   const [text, setText] = useState('');
 
@@ -79,7 +85,14 @@ function Search({ label, dict, value, onChange, allLabel }) {
     return m;
   }, [dict]);
 
-  const sorted = useMemo(() => [...dict].sort((a, b) => a.localeCompare(b)), [dict]);
+  const sorted = useMemo(
+    () => dict
+      .map((name, id) => ({ name, id }))
+      .filter((o) => !allow || allow.has(o.id) || o.id === value)
+      .map((o) => o.name)
+      .sort((a, b) => a.localeCompare(b)),
+    [dict, allow, value],
+  );
 
   // Selected, the field shows the dictionary's own spelling; otherwise whatever
   // is being typed.
@@ -160,6 +173,18 @@ export default function Filters({ ds, filters, setFilters }) {
   const activeCount = dims.reduce((n, k) => n + (filters[k].size ? 1 : 0), 0)
     + (filters.bucket.size ? 1 : 0)
     + (filters.preset === 'all' ? 0 : 1);
+
+  /*
+   * What each list can still offer, given everything else selected.
+   *
+   * Only computed while the panel is open. It is a pass over 265k rows and the
+   * bar is collapsed for most of a session, so doing it on every filter change
+   * regardless would be work nobody can see the result of.
+   */
+  const facets = useMemo(
+    () => (open ? facetOptions(ds, filters) : {}),
+    [open, ds, filters],
+  );
 
   const firstOf = (s) => (s.size ? [...s][0] : null);
 
@@ -349,6 +374,7 @@ export default function Filters({ ds, filters, setFilters }) {
               key={key}
               label={FIELDS[key].label}
               dict={dict[key]}
+              allow={facets[key]}
               allLabel={FIELDS[key].all}
               value={firstOf(filters[key])}
               onChange={single(key)}
@@ -361,6 +387,7 @@ export default function Filters({ ds, filters, setFilters }) {
             key={key}
             label={FIELDS[key].label}
             dict={dict[key]}
+            allow={facets[key]}
             allLabel={FIELDS[key].all}
             value={firstOf(filters[key])}
             onChange={single(key)}

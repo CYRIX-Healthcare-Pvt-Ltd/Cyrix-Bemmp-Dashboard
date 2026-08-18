@@ -328,6 +328,67 @@ export function areaLimitFor(ds, profile) {
   return null;
 }
 
+/**
+ * Which values each filter can still offer, given everything else selected.
+ *
+ * Picking South should leave only South's districts in the district list —
+ * otherwise the panel offers combinations that return nothing, and a person who
+ * takes one up reads an empty dashboard as a fault rather than as their own
+ * selection.
+ *
+ * The rule that makes it work is the "fails exactly one" case below. A
+ * dimension must **not** narrow its own list: if district were computed from
+ * rows that already passed the district filter, choosing Kannur would leave
+ * Kannur as the only district on offer and there would be no way back to
+ * Kollam without a reset. So a row failing only the district test still counts
+ * towards the district options, and a row failing two or more counts nowhere.
+ *
+ * One pass, not one per dimension. This runs on every filter change over 265k
+ * rows, and four passes would be four times the work for the same answer — the
+ * per-row body stays typed-array reads and Set probes for the same reason
+ * `filterRows` does.
+ */
+export function facetOptions(ds, filters, { dateField = 'loggedDay' } = {}) {
+  const { cols, rows } = ds;
+  const { dayFrom, dayTo, bucket } = filters;
+  const dateCol = dateField ? cols[dateField] : null;
+
+  const dims = FILTER_DIMS.filter((d) => ds.dict[d]?.length);
+  const cd = dims.map((d) => cols[d]);
+  const sel = dims.map((d) => filters[d]);
+  const out = dims.map(() => new Set());
+  const n = dims.length;
+
+  for (let i = 0; i < rows; i++) {
+    // The window and the bucket are not dimensions and never widen: a date range
+    // rules a row out of every list at once.
+    if (dateCol) {
+      const day = dateCol[i];
+      if (!day || day < dayFrom || day > dayTo) continue;
+    }
+    if (bucket?.size && !bucket.has(cols.bucket[i])) continue;
+    if (areaLimit && !areaLimit.ids.has(cols[areaLimit.key][i])) continue;
+
+    let failures = 0;
+    let culprit = -1;
+    for (let k = 0; k < n; k++) {
+      const set = sel[k];
+      if (set?.size && !set.has(cd[k][i])) {
+        failures += 1;
+        culprit = k;
+        if (failures > 1) break;
+      }
+    }
+    if (failures === 0) {
+      for (let k = 0; k < n; k++) out[k].add(cd[k][i]);
+    } else if (failures === 1) {
+      out[culprit].add(cd[culprit][i]);
+    }
+  }
+
+  return Object.fromEntries(dims.map((d, k) => [d, out[k]]));
+}
+
 export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
   const { dayFrom, dayTo, bucket } = filters;
