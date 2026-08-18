@@ -359,6 +359,7 @@ export default function AdminTab({ profile, areaOptions = { zones: [], districts
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [query, setQuery] = useState('');
 
   const load = useCallback(() => {
     listUsers().then((u) => { setUsers(u); setError(null); })
@@ -390,6 +391,27 @@ export default function AdminTab({ profile, areaOptions = { zones: [], districts
     [users],
   );
 
+  /*
+   * Search over code, name and role, every word having to match — the same rule
+   * the ticket tracker's box uses, so "kevin coord" narrows rather than widens.
+   *
+   * The contract and the area are searchable too, because "who can see Andhra"
+   * and "who works South" are the questions an admin actually opens this screen
+   * with, and neither is answerable by scrolling a column.
+   */
+  const visible = useMemo(() => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return sorted;
+    return sorted.filter((u) => {
+      const hay = [
+        u.code, u.full_name, ROLE_LABEL[u.role] ?? u.role,
+        ...(u.scope ?? []), ...(u.zones ?? []), ...(u.districts ?? []),
+        u.disabled ? 'disabled' : '',
+      ].join(' ').toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }, [sorted, query]);
+
   if (!users) return <div className="panel"><div className="loader" aria-hidden="true" /></div>;
 
   return (
@@ -399,10 +421,36 @@ export default function AdminTab({ profile, areaOptions = { zones: [], districts
           <div>
             <h2>Accounts</h2>
             <p className="caption">
-              {users.length} account{users.length === 1 ? '' : 's'}. Role decides what
-              somebody can do; contracts decide which data they see. The two are
-              separate on purpose.
+              {query.trim()
+                ? `${visible.length} of ${users.length} accounts`
+                : `${users.length} account${users.length === 1 ? '' : 's'}`}
+              . Role decides what somebody can do; contracts decide which data they see.
+              The two are separate on purpose.
             </p>
+            <div className="meeting-search admin-search">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.6-3.6" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                placeholder="Search code, name, role, contract or district"
+                aria-label="Search accounts"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {query && (
+                <button
+                  type="button" className="field-clear" aria-label="Clear search"
+                  onClick={() => setQuery('')}
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                       stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
           {!adding && (
             <button type="button" className="modal-done" onClick={() => setAdding(true)}>
@@ -443,7 +491,7 @@ export default function AdminTab({ profile, areaOptions = { zones: [], districts
               </tr>
             </thead>
             <tbody>
-              {sorted.map((u) => {
+              {visible.map((u) => {
                 const self = u.id === profile.id;
                 const isAdminRole = u.role === 'admin';
                 return (
