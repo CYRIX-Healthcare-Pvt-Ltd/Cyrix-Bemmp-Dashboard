@@ -163,11 +163,15 @@ function NameCell({ user, busy, onSave }) {
   );
 }
 
-function NewUserForm({ onCreated, onCancel }) {
+function NewUserForm({ onCreated, onCancel, areaOptions }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('coordinator');
   const [scope, setScope] = useState(['kl']);
+  // Empty is a real answer here and the common one — most accounts work the
+  // whole contract, so the form opens unrestricted rather than making somebody
+  // tick fourteen boxes to say "all of it".
+  const [area, setArea] = useState({ zones: [], districts: [] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -180,7 +184,12 @@ function NewUserForm({ onCreated, onCancel }) {
     setError(null);
     try {
       const res = await createUser({
-        code: code.trim(), full_name: name.trim() || null, role, scope,
+        code: code.trim(),
+        full_name: name.trim() || null,
+        role,
+        scope,
+        // An admin has every contract and so has no area to narrow.
+        ...(isAdminRole ? { zones: [], districts: [] } : area),
       });
       onCreated(res);
     } catch (err) {
@@ -236,6 +245,17 @@ function NewUserForm({ onCreated, onCancel }) {
         <div className="field">
           <span>Contracts</span>
           <ScopePicker value={scope} onChange={setScope} disabled={isAdminRole} />
+          {/* Under the contracts, as it is on the list: the same question one
+              level down. Hidden for an admin, who has every contract whole. */}
+          {!isAdminRole && (areaOptions.zones.length || areaOptions.districts.length) ? (
+            <AreaPicker
+              zones={area.zones}
+              districts={area.districts}
+              options={areaOptions}
+              disabled={busy}
+              onChange={setArea}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -328,6 +348,7 @@ export default function AdminTab({ profile, areaOptions = { zones: [], districts
 
       {adding && (
         <NewUserForm
+          areaOptions={areaOptions}
           onCancel={() => setAdding(false)}
           onCreated={(res) => {
             setAdding(false);
