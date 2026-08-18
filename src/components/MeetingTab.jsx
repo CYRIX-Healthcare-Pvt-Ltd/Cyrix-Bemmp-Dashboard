@@ -542,7 +542,7 @@ export default function MeetingTab({
                 <button
                   key={id}
                   type="button"
-                  aria-pressed={view === id}
+                  aria-selected={view === id}
                   onClick={() => setView(id)}
                 >
                   {text}

@@ -1997,12 +1997,15 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 .summary-grid thead tr:nth-child(2) th { top: 30px; }
 
 /* -- pinned zone and district -------------------------------------------- */
-.summary-grid .col-zone { width: 76px; }
-.summary-grid .col-district { width: 154px; }
+.summary-grid .col-zone { width: 88px; }
+.summary-grid .col-district { width: 190px; }
 .summary-grid .col-zone, .summary-grid .col-district {
   position: sticky; z-index: 2; left: 0;
 }
-.summary-grid.has-zone .col-district { left: 76px; }
+/* `--zone-w` is measured in TrackerSummary and set on the table. The fallback
+   only covers the first paint; a constant here is what let the two pinned
+   columns drift apart in the first place. */
+.summary-grid.has-zone .col-district { left: var(--zone-w, 88px); }
 /* The corner sits in both bands and must outrank each of them. */
 .summary-grid thead .col-zone, .summary-grid thead .col-district { z-index: 4; }
 /* One shadow marking where the frozen pane ends, on the last pinned column. */

@@ -19,6 +19,8 @@
  * across.
  */
 
+import { useLayoutEffect, useRef } from 'react';
+
 const inr = (n) => Math.round(n).toLocaleString('en-IN');
 
 /* Blank, not "0". The sheet writes `IF(COUNTIFS(...)=0,"",...)` for exactly this
@@ -36,6 +38,29 @@ const pair = (count, value) => (count
 export default function TrackerSummary({ summary, referenceDay, formatDay }) {
   const { districts, total, types, typeTotal, untyped, typeNames, hasZone } = summary;
   const top = types.reduce((a, t) => (t.value > (a?.value ?? 0) ? t : a), null);
+
+  /*
+   * Where the district column has to park, measured rather than assumed.
+   *
+   * District is pinned `left: <width of zone>`, and a hard-coded number is
+   * wrong: `width` on a table cell is a suggestion the auto layout is free to
+   * exceed, so the real zone column came out wider than the offset and the two
+   * pinned columns drifted apart — a gap with the Unresolved column showing
+   * through it. Measuring cannot drift, and it survives a font or zoom change
+   * that no constant would.
+   */
+  const grid = useRef(null);
+  useLayoutEffect(() => {
+    const table = grid.current;
+    if (!table || !hasZone) return undefined;
+    const cell = table.querySelector('tbody .col-zone');
+    if (!cell) return undefined;
+    const set = () => table.style.setProperty('--zone-w', `${cell.getBoundingClientRect().width}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(cell);
+    return () => ro.disconnect();
+  }, [hasZone, districts.length]);
 
   return (
     <div className="summary">
@@ -56,7 +81,7 @@ export default function TrackerSummary({ summary, referenceDay, formatDay }) {
         </div>
 
         <div className="summary-scroll">
-          <table className={`summary-grid${hasZone ? ' has-zone' : ''}`}>
+          <table ref={grid} className={`summary-grid${hasZone ? ' has-zone' : ''}`}>
             <thead>
               <tr>
                 {hasZone && <th rowSpan={2} className="col-zone">Zone</th>}

@@ -196,9 +196,21 @@ export default function UploadPanel({
             <path d="M12 16V4M7 9l5-5 5 5" />
             <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
           </svg>
+          {/*
+            Named from `contracts`, which is already scoped to what the signed-in
+            account may see. These were hard-coded as "TM-KL.xlsx or TM-AP.xlsx",
+            so a Kerala coordinator was told to drop an Andhra file they cannot
+            open, have no copy of, and would be refused by RLS if they did — an
+            instruction that can only be followed wrongly.
+          */}
           <p>
-            Drop <strong>TM-KL.xlsx</strong> or <strong>TM-AP.xlsx</strong> here, or use a
-            contract below. The contract is taken from the filename.
+            Drop {contracts.map((c, i) => (
+              <span key={c.id}>
+                {i > 0 && (i === contracts.length - 1 ? ' or ' : ', ')}
+                <strong>{c.file}</strong>
+              </span>
+            ))} here{contracts.length > 1 ? ', or use a contract below' : ''}.
+            {' '}The contract is taken from the filename.
           </p>
         </div>
 
@@ -291,8 +303,12 @@ export default function UploadPanel({
         </div>
 
         <p className="caption upload-foot">
-          A Kerala export is about 46 MB and takes roughly 5–15 seconds to read. Keep the
-          tab open while it runs.
+          {/* Kerala is the big one; naming it to somebody who only has Andhra
+              quotes a size and a wait that are not theirs. */}
+          {contracts.some((c) => c.id === 'kl')
+            ? 'A Kerala export is about 46 MB and takes roughly 5–15 seconds to read.'
+            : 'An export is tens of megabytes and takes a few seconds to read.'}
+          {' '}Keep the tab open while it runs.
         </p>
       </div>
     </div>
