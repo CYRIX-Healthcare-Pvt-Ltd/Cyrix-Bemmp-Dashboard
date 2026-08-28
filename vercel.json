@@ -35,17 +35,6 @@
   ],
   "redirects": [
     {
-      "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "cyrix-bemmp-dashboard.vercel.app"
-        }
-      ],
-      "destination": "https://app.cyrix.in/bemmp/$1",
-      "permanent": true
-    },
-    {
       "source": "/",
       "destination": "/bemmp/",
       "permanent": false
