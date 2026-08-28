@@ -8,10 +8,13 @@ import react from '@vitejs/plugin-react';
  */
 const base = process.env.VITE_BASE
   ? `${process.env.VITE_BASE.replace(/\/+$/, '')}/`
-  : '/';
+  : '/bemmp/';   // app.cyrix.in/bemmp — VITE_BASE still wins for GitHub Pages
 
 export default defineConfig({
   base,
+  // base only rewrites the URLs in index.html; it does not move the
+  // files. Building here puts them where the page will look for them.
+  build: { outDir: 'dist/bemmp', emptyOutDir: true },
   plugins: [react()],
   server: { port: 5173 },
 });

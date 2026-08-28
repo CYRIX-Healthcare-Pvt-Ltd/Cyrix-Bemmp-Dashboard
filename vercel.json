@@ -3,17 +3,52 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/bemmp/api/:path*",
+      "destination": "/api/:path*"
+    },
+    {
+      "source": "/bemmp/((?!api/).*)",
+      "destination": "/bemmp/index.html"
+    }
+  ],
   "headers": [
     {
-      "source": "/assets/(.*)",
+      "source": "/bemmp/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     },
     {
-      "source": "/index.html",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "source": "/bemmp/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "cyrix-bemmp-dashboard.vercel.app"
+        }
+      ],
+      "destination": "https://app.cyrix.in/bemmp/$1",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "destination": "/bemmp/",
+      "permanent": false
     }
   ]
 }
