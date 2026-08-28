@@ -784,7 +784,7 @@ export default function App() {
       <div className="status-msg">
         <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
         <p>Ask your project head to add one, then sign in again.</p>
-        <button type="button" className="reset" onClick={signOutToPortal}>Sign out</button>
+        <button type="button" className="sign-out" onClick={signOutToPortal} title="Sign out"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5" /><path d="M20 12H9" /><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" /></svg><span>Sign out</span></button>
       </div>
     );
   }
@@ -813,7 +813,7 @@ export default function App() {
                 <ThemeToggle />
               </div>
               {profile && (
-                <button type="button" className="reset" onClick={signOutToPortal}>Sign out</button>
+                <button type="button" className="sign-out" onClick={signOutToPortal} title="Sign out"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5" /><path d="M20 12H9" /><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" /></svg><span>Sign out</span></button>
               )}
             </div>
           </header>
