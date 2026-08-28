@@ -13,7 +13,6 @@ import {
   maxResolvedDay, defaultFiltersFor, isFirstTimeFix, areaLimitFor, setAreaLimit,
 } from './data/query.js';
 import Logo, { Tagline } from './components/Logo.jsx';
-import LoginPage from './components/LoginPage.jsx';
 import SideNav from './components/SideNav.jsx';
 import AdminTab from './components/AdminTab.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
@@ -30,6 +29,34 @@ import BarList from './components/BarList.jsx';
 import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
+
+/**
+ * Back to the portal, which signs people in for every module.
+ *
+ * Rendered where the login form used to be. A render-time answer to "who
+ * is this", not a redirect fired from an effect somewhere further up — the
+ * spinner is only what shows for the moment the browser takes to leave.
+ */
+function ToPortal() {
+  useEffect(() => {
+    window.location.assign('/');
+  }, []);
+  return (
+    <div className="status-msg">
+      <div className="loader" aria-hidden="true" />
+    </div>
+  );
+}
+
+/**
+ * The portal owns the session, so signing out here signs you out of every
+ * module — and the way out is its front door rather than this app's, which
+ * would only render a spinner on the way to the same place.
+ */
+async function signOutToPortal() {
+  await signOut();
+  window.location.assign('/');
+}
 
 /** The charted metrics. All read from one `buildSeries` result. */
 const METRICS = [
@@ -723,7 +750,16 @@ export default function App() {
     );
   }
 
-  if (isConfigured() && !session) return <LoginPage onSignedIn={() => {}} />;
+  /*
+   * Signing in belongs to the portal at app.cyrix.in, which shares this
+   * database — so a session made there is already a session here and there
+   * is nothing left for a login form of our own to do. Sending people back
+   * to it beats a second password for the same account.
+   *
+   * A location assignment, not a router push: the portal sits above this
+   * app's /bemmp base and is a different application entirely.
+   */
+  if (isConfigured() && !session) return <ToPortal />;
 
   if (error) {
     return (
@@ -748,7 +784,7 @@ export default function App() {
       <div className="status-msg">
         <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
         <p>Ask your project head to add one, then sign in again.</p>
-        <button type="button" className="reset" onClick={signOut}>Sign out</button>
+        <button type="button" className="reset" onClick={signOutToPortal}>Sign out</button>
       </div>
     );
   }
@@ -777,7 +813,7 @@ export default function App() {
                 <ThemeToggle />
               </div>
               {profile && (
-                <button type="button" className="reset" onClick={signOut}>Sign out</button>
+                <button type="button" className="reset" onClick={signOutToPortal}>Sign out</button>
               )}
             </div>
           </header>
@@ -855,7 +891,7 @@ export default function App() {
                 <button
                   type="button"
                   className="icon-toggle"
-                  onClick={signOut}
+                  onClick={signOutToPortal}
                   /* The code stays in the tooltip. It is what the account is
                      called in the database and on the seed sheet, so it has to
                      be recoverable — just not the thing read back at somebody on
