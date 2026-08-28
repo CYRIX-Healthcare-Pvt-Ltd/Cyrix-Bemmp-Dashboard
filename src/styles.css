@@ -2473,13 +2473,14 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   color: var(--brand-red);
 }
 
-/* Below the split the rail is a horizontal strip, and so is this. */
+/* Below the split the rail is a horizontal strip, and so is this — a
+   second pill below the sections, spaced by the column's own gap rather
+   than a margin of its own. */
 @media (max-width: 860px) {
   .sidenav-foot {
     grid-auto-flow: column; grid-auto-columns: max-content;
     justify-content: start; gap: 4px;
-    padding: 4px; margin-top: 8px;
-    border-top: 0;
+    padding: 4px;
     overflow-x: auto; scrollbar-width: none;
     background: var(--track-bg); border: 1px solid var(--track-border);
     border-radius: var(--radius-pill);
