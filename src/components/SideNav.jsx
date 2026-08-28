@@ -130,6 +130,34 @@ export default function SideNav({ tabs, active, onSelect }) {
             </button>
           </li>
         ))}
+
+        {/* The way out to the other Cyrix modules. Last, so the sections
+            above keep the positions people already reach for, and an anchor
+            rather than a button because it genuinely leaves this app — the
+            portal is above the /bemmp base and is a different application.
+            Neutral rather than tinted: the rail's colours name measures on
+            the charts, and this is not one of them. */}
+        <li>
+          <a
+            className="sidenav-item"
+            href="/"
+            title={open ? undefined : 'All Cyrix apps'}
+            aria-label="All Cyrix apps"
+          >
+            <svg
+              viewBox="0 0 24 24" width="18" height="18" fill="none"
+              stroke="currentColor" strokeWidth="1.7"
+              strokeLinecap="round" strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+            </svg>
+            <span className="sidenav-label">Apps</span>
+          </a>
+        </li>
       </ul>
 
       {/* Icon only. A labelled control and an "as of" line under six labelled

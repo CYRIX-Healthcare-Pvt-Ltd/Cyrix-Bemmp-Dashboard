@@ -65,7 +65,10 @@
   --radius-pill: 999px;
   /* Space Grotesk is loaded in index.html; the system sans carries the page until
      it arrives, and permanently if the machine is offline. */
-  --font: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* SF Pro, the stack every Cyrix module uses. Apple-licensed and so not
+     shippable; -apple-system finds it where it exists, and Inter is bundled
+     in main.jsx as the stand-in everywhere else. */
+  --font: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Inter Variable', Inter, 'Segoe UI', Roboto, sans-serif;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
   /*
