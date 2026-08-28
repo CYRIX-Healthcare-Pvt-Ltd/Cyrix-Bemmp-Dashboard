@@ -761,7 +761,11 @@ export default function App() {
         <div className="app">
           <header className="masthead">
             <div className="brand">
-              <Logo height={36} />
+              {/* Plain anchor, not a router link: the portal sits above
+                  this app's /bemmp base. */}
+              <a className="brand-home" href="/" aria-label="All Cyrix apps" title="All Cyrix apps">
+                <Logo height={36} />
+              </a>
               <div className="brand-divider" aria-hidden="true" />
               <div className="brand-text">
                 <h1>BEMMP Service Dashboard</h1>
@@ -810,7 +814,9 @@ export default function App() {
       <div className={`app${busy ? ' is-busy' : ''}`}>
         <header className="masthead">
           <div className="brand">
-            <Logo height={36} />
+            <a className="brand-home" href="/" aria-label="All Cyrix apps" title="All Cyrix apps">
+              <Logo height={36} />
+            </a>
             <div className="brand-divider" aria-hidden="true" />
             <div className="brand-text">
               <h1>BEMMP Service Dashboard</h1>

@@ -298,6 +298,10 @@ th {
    header into two stacked bands. */
 .brand { display: flex; align-items: center; gap: 14px; flex: 1 1 auto; min-width: 0; }
 .logo { display: block; color: var(--text-primary); flex: none; }
+/* The mark is the way back to the portal's tiles. Inherit the colour, or
+   the anchor's default blue reaches the SVG through currentColor. */
+.brand-home { display: flex; flex: none; color: inherit; text-decoration: none; border-radius: 8px; }
+.brand-home:focus-visible { outline: 2px solid var(--brand-red); outline-offset: 3px; }
 .brand-divider { width: 1px; align-self: stretch; background: var(--border); flex: none; }
 .brand-text { min-width: 0; }
 .brand-text h1 {
