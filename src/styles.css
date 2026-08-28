@@ -322,6 +322,36 @@ th {
 }
 .masthead-right { display: flex; align-items: center; gap: 12px; flex: none; }
 
+/*
+ * Who is signed in.
+ *
+ * The name goes at 560px rather than the photo: a face is recognisable at
+ * 32px and a name is not readable at half its length, so the half that
+ * survives the squeeze is the one still carrying meaning.
+ *
+ * `user-avatar`, not `avatar` — that one is already the 40px initials disc
+ * on the engineer cards, and quietly resizing every one of those would be
+ * a strange way to add a photograph to the masthead.
+ */
+.who { display: flex; align-items: center; gap: 9px; flex: none; }
+.who-name {
+  display: none;
+  font-size: 13px; font-weight: 550; color: var(--text-secondary);
+  white-space: nowrap;
+}
+@media (min-width: 560px) { .who-name { display: inline; } }
+
+.user-avatar {
+  width: 32px; height: 32px; flex: none;
+  border-radius: 50%; object-fit: cover;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+}
+.user-avatar-initials {
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 650; color: var(--text-secondary);
+}
+
 .toggle-group { display: flex; gap: 6px; }
 .theme-toggle, .icon-toggle {
   display: inline-flex; align-items: center; gap: 7px;
@@ -2423,6 +2453,40 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   color: var(--text-primary); box-shadow: var(--shadow-sm);
 }
 
+/*
+ * The account group at the foot of the rail.
+ *
+ * A rule rather than a gap: the sections above are one list you move
+ * through, and these are not part of it. Same row shape as those
+ * sections, so opening the panel reveals their names along with the rest
+ * and nothing in the column has two different ideas of where an icon sits.
+ */
+.sidenav-foot {
+  display: grid; gap: 2px; width: 100%; min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+/* Leaving is the one destructive thing in the column, so it warms to red
+   on approach rather than announcing itself in red at rest. */
+.sidenav-signout:hover {
+  background: color-mix(in srgb, var(--brand-red) 10%, transparent);
+  color: var(--brand-red);
+}
+
+/* Below the split the rail is a horizontal strip, and so is this. */
+@media (max-width: 860px) {
+  .sidenav-foot {
+    grid-auto-flow: column; grid-auto-columns: max-content;
+    justify-content: start; gap: 4px;
+    padding: 4px; margin-top: 8px;
+    border-top: 0;
+    overflow-x: auto; scrollbar-width: none;
+    background: var(--track-bg); border: 1px solid var(--track-border);
+    border-radius: var(--radius-pill);
+  }
+  .sidenav-foot::-webkit-scrollbar { display: none; }
+}
+
 /* Icon only, and centred on the rail rather than the labels — the toggle belongs
    to the rail, so it stays put whatever width the column is. */
 .sidenav-collapse {
@@ -2767,3 +2831,50 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 @media (prefers-reduced-motion: reduce) {
   .sign-out:hover { transform: none; }
 }
+
+/*
+ * The company lockup.
+ *
+ * Identical in all four modules, down to this block — the mark is one
+ * asset now, and the rules that place it should not be four dialects of
+ * the same idea either.
+ *
+ * Both copies of the artwork are in the markup and CSS shows one. That
+ * is what makes the swap land in the same frame as the theme: choosing
+ * a `src` in JavaScript means a paint with the old file still in place,
+ * which on the circular reveal reads as the logo lagging behind the
+ * page sweeping past it.
+ *
+ * The wrapper clips. The artwork is one image holding three stacked
+ * bands — wordmark, entity line, strapline — and a caller asking for
+ * fewer gets a shorter box over the same picture, so a header and a
+ * login page cannot disagree about the spacing between them.
+ */
+.cyrix-logo {
+  display: block;
+  overflow: hidden;
+  flex: none;
+}
+.cyrix-logo img {
+  display: block;
+  width: 100%;
+}
+.cyrix-logo-dark {
+  display: none;
+}
+
+:root[data-theme='dark'] .cyrix-logo-light { display: none; }
+:root[data-theme='dark'] .cyrix-logo-dark { display: block; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .cyrix-logo-light { display: none; }
+  :root:not([data-theme='light']) .cyrix-logo-dark { display: block; }
+}
+
+/*
+ * Last, and on purpose: these carry the same specificity as the theme
+ * rules above, so order is what lets a surface that is dark in both
+ * themes — the login hero — keep the white lockup in light mode.
+ */
+.cyrix-logo[data-on='dark'] .cyrix-logo-light { display: none; }
+.cyrix-logo[data-on='dark'] .cyrix-logo-dark { display: block; }

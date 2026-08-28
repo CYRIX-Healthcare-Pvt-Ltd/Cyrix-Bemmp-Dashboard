@@ -31,8 +31,17 @@ function initialTheme() {
  * instead of each element easing its own. Decoration, never the mechanism —
  * without the API, or with reduced motion asked for, the theme simply
  * changes.
+ *
+ * The classes are arguments because this control now appears in two
+ * shapes: a pill in the masthead on the landing screen, and a row in the
+ * side rail once there is a dashboard to put a rail beside. Same
+ * behaviour, same icons, same key — only the chrome differs, which is
+ * what stops it becoming two toggles that drift apart.
  */
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  className = 'theme-toggle',
+  labelClassName = 'theme-label',
+}) {
   const [theme, setTheme] = useState(initialTheme);
 
   useEffect(() => {
@@ -87,7 +96,7 @@ export default function ThemeToggle() {
   return (
     <button
       type="button"
-      className="theme-toggle"
+      className={className}
       onClick={toggle}
       aria-label={`Switch to ${next} theme`}
       title={`Switch to ${next} theme`}
@@ -109,7 +118,7 @@ export default function ThemeToggle() {
           <path d="M20.5 14.6A8.6 8.6 0 1 1 9.4 3.5a7 7 0 0 0 11.1 11.1Z" />
         </svg>
       </span>
-      <span className="theme-label">{dark ? 'Light' : 'Dark'}</span>
+      <span className={labelClassName}>{dark ? 'Light' : 'Dark'}</span>
     </button>
   );
 }

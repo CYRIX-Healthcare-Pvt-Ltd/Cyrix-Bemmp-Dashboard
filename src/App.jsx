@@ -20,6 +20,7 @@ import {
   supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin, firstName,
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
+import Avatar from './components/Avatar.jsx';
 import StateSwitcher from './components/StateSwitcher.jsx';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
@@ -808,7 +809,17 @@ export default function App() {
                 <Tagline />
               </div>
             </div>
+            {/* This screen has no rail to put them in — there is no dataset
+                yet, so there are no sections to navigate. The controls stay
+                in the masthead here and move into the rail on the screen
+                that has one. */}
             <div className="masthead-right">
+              {profile && (
+                <span className="who" title={`Signed in as ${profile.code}`}>
+                  <span className="who-name">{firstName(profile)}</span>
+                  <Avatar name={profile.full_name} src={profile.avatar} />
+                </span>
+              )}
               <div className="toggle-group">
                 <ThemeToggle />
               </div>
@@ -873,39 +884,21 @@ export default function App() {
             />
             <div className="toggle-group">
               <RefreshButton onRefreshed={onRefreshed} />
-              <button
-                type="button"
-                className="icon-toggle"
-                onClick={() => setShowUpload(true)}
-                title="Load a TM export from this device"
-              >
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
-                     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 15V4M8 8l4-4 4 4" />
-                  <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
-                </svg>
-                <span className="toggle-label">Data</span>
-              </button>
-              <ThemeToggle />
-              {profile && (
-                <button
-                  type="button"
-                  className="icon-toggle"
-                  onClick={signOutToPortal}
-                  /* The code stays in the tooltip. It is what the account is
-                     called in the database and on the seed sheet, so it has to
-                     be recoverable — just not the thing read back at somebody on
-                     every screen. */
-                  title={`Signed in as ${profile.code} — sign out`}
-                >
-                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
-                       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 17l5-5-5-5M20 12H9M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
-                  </svg>
-                  <span className="toggle-label is-name">{firstName(profile)}</span>
-                </button>
-              )}
+              {/* Loading data, the theme and signing out have moved into the
+                  rail. What is left here belongs to the figures on screen —
+                  which contract, and how fresh — rather than to the session. */}
             </div>
+            {/* Who is signed in, shown the way every module shows it. The
+                code stays in the tooltip: it is what the account is called
+                in the database and on the seed sheet, so it has to be
+                recoverable — just not the thing read back at somebody on
+                every screen. */}
+            {profile && (
+              <span className="who" title={`Signed in as ${profile.code}`}>
+                <span className="who-name">{firstName(profile)}</span>
+                <Avatar name={profile.full_name} src={profile.avatar} />
+              </span>
+            )}
           </div>
         </header>
 
@@ -914,6 +907,9 @@ export default function App() {
           tabs={visibleTabs}
           active={tab}
           onSelect={setTab}
+          onUpload={() => setShowUpload(true)}
+          onSignOut={signOutToPortal}
+          signedIn={Boolean(profile)}
         />
         <div className="work">
 

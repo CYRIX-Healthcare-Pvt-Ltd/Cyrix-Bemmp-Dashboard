@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ThemeToggle from './ThemeToggle.jsx';
 
 /**
  * Vertical navigation: a rail of icons, with the section names on demand.
@@ -41,7 +42,7 @@ const ICONS = {
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
 };
 
-export default function SideNav({ tabs, active, onSelect }) {
+export default function SideNav({ tabs, active, onSelect, onUpload, onSignOut, signedIn }) {
   const [open, setOpen] = useState(false);
 
   /*
@@ -159,6 +160,59 @@ export default function SideNav({ tabs, active, onSelect }) {
           </a>
         </li>
       </ul>
+
+      {/*
+        The controls that belong to the account rather than to the data.
+        They were three pills at the top right, which put loading a
+        workbook, changing the theme and signing out in the same row as
+        the contract switcher — one of those is a thing you do to the
+        dashboard and the others are things you do to your session.
+
+        Down here they read as what they are, and they are in the place
+        every other module keeps them: Spare has had exactly this group at
+        the foot of its rail all along.
+
+        Separated by a rule rather than a gap, because the sections above
+        are a list you move through and these are not part of it.
+      */}
+      <div className="sidenav-foot">
+        {onUpload && (
+          <button
+            type="button"
+            className="sidenav-item"
+            onClick={onUpload}
+            title={open ? undefined : 'Load a TM export from this device'}
+            aria-label="Load a TM export from this device"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+                 stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+                 aria-hidden="true">
+              <path d="M12 15V4M8 8l4-4 4 4" />
+              <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+            </svg>
+            <span className="sidenav-label">Data</span>
+          </button>
+        )}
+
+        <ThemeToggle className="sidenav-item" labelClassName="sidenav-label" />
+
+        {signedIn && (
+          <button
+            type="button"
+            className="sidenav-item sidenav-signout"
+            onClick={onSignOut}
+            title={open ? undefined : 'Sign out'}
+            aria-label="Sign out"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+                 stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+                 aria-hidden="true">
+              <path d="M15 17l5-5-5-5M20 12H9M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+            </svg>
+            <span className="sidenav-label">Sign out</span>
+          </button>
+        )}
+      </div>
 
       {/* Icon only. A labelled control and an "as of" line under six labelled
           controls was three kinds of text in a column that wants one, and the

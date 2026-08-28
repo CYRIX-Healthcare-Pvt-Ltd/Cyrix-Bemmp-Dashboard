@@ -85,13 +85,34 @@ export async function loadProfile() {
    * unfiltered query returns nine and `maybeSingle` fails on it — the admin
    * would be the one account unable to load its own profile.
    */
-  const { data, error } = await supabase
-    .from('profile')
-    .select('id, code, full_name, role, scope, zones, districts')
-    .eq('id', id)
-    .maybeSingle();
+  /*
+   * The photo comes from `employees`, not from here.
+   *
+   * HR uploads it in KPI and that row is the master for every module, so
+   * copying it into this table would be a second picture of the same
+   * person going stale the day somebody changes theirs. It is a data URL
+   * on the row rather than a file to fetch, so this costs one small query
+   * and nothing after it.
+   *
+   * Not fatal when it fails. An account can exist without an employee
+   * record behind it, and nobody should be unable to open the dashboard
+   * because their profile picture could not be read.
+   */
+  const [{ data, error }, employee] = await Promise.all([
+    supabase
+      .from('profile')
+      .select('id, code, full_name, role, scope, zones, districts')
+      .eq('id', id)
+      .maybeSingle(),
+    supabase
+      .from('employees')
+      .select('avatar')
+      .eq('auth_user_id', id)
+      .maybeSingle()
+      .then((r) => r, () => ({ data: null })),
+  ]);
   if (error) throw error;
-  return data;
+  return data ? { ...data, avatar: employee?.data?.avatar ?? null } : data;
 }
 
 /**

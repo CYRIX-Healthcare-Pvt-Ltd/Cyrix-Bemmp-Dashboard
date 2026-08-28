@@ -1,50 +1,62 @@
+import onLight from '../assets/cyrix-logo.png';
+import onDarkArt from '../assets/cyrix-logo-white.png';
+
 /**
- * Cyrix Healthcare wordmark, redrawn as SVG text so it inherits the theme —
- * the dark half of the logo flips to white in dark mode via `currentColor`.
+ * The Cyrix Healthcare lockup — the real artwork, not a drawing of it.
  *
- * To use the official artwork instead, drop the file at `public/cyrix-logo.svg`
- * and swap this component's body for an <img>. The proportions here match the
- * supplied lockup: CYRIX with a red X and registered mark, rule, then the
- * letterspaced entity line.
+ * Every module used to approximate this wordmark in its own SVG, which is
+ * how one company came to have four that were nearly but not quite alike.
+ * This is the supplied file, shipped as-is, so there is nothing left to
+ * drift.
+ *
+ * Two files rather than one: the artwork is black type on a transparent
+ * ground and would vanish on a dark page. The dark-page copy is the same
+ * image with its *lightness* inverted and hue left alone — a plain invert
+ * would turn the red cyan and the blue orange, which is another company's
+ * logo. Both are in the markup and CSS picks one, so the swap happens in
+ * the same frame as the theme and never flashes the wrong one.
+ *
+ * The lockup is three stacked bands, and the shorter ones are a crop of
+ * the same file rather than separate exports — `.cyrix-logo` clips, so
+ * asking for less shows less of one image.
  */
-export default function Logo({ height = 42 }) {
+
+/** Where each band's ink ends, in the artwork's own 300 x 115 grid. */
+const BAND = { wordmark: 67, entity: 92, full: 115 };
+
+export default function Logo({
+  className = '',
+  height,
+  onDark = false,
+  showSubtitle = true,
+  showTagline = false,
+}) {
+  const band = showTagline ? BAND.full : showSubtitle ? BAND.entity : BAND.wordmark;
+
   return (
-    <svg
-      className="logo"
-      viewBox="0 0 300 78"
-      height={height}
+    <span
+      className={`cyrix-logo ${className}`}
+      data-on={onDark ? 'dark' : undefined}
+      style={{
+        aspectRatio: `300 / ${band}`,
+        ...(height === undefined ? null : { height: `${height}px` }),
+      }}
       role="img"
       aria-label="Cyrix Health Care Pvt Ltd"
     >
-      <text
-        x="0" y="44"
-        fontSize="52" fontWeight="700" letterSpacing="1"
-        fill="currentColor"
-        fontFamily="var(--font)"
-      >
-        CYRI<tspan fill="var(--brand-red)">X</tspan>
-      </text>
-      <text
-        x="171" y="16"
-        fontSize="13" fontWeight="600"
-        fill="var(--brand-red)"
-        fontFamily="var(--font)"
-      >
-        ®
-      </text>
-      <text
-        x="1" y="66"
-        fontSize="13.5" fontWeight="500" letterSpacing="3.4"
-        fill="currentColor"
-        fontFamily="var(--font)"
-      >
-        HEALTH CARE PVT LTD
-      </text>
-    </svg>
+      <img className="cyrix-logo-light" src={onLight} alt="" />
+      <img className="cyrix-logo-dark" src={onDarkArt} alt="" />
+    </span>
   );
 }
 
-/** The strapline, used under the masthead heading. */
+/**
+ * The strapline, used under the masthead heading.
+ *
+ * Text rather than the strapline band of the artwork: here it belongs to
+ * "BEMMP Service Dashboard" in the column beside the logo, not to the
+ * lockup — showing the artwork's own band as well would print it twice.
+ */
 export function Tagline() {
   return (
     <span className="tagline">
