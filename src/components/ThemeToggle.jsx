@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const KEY = 'bemmp-theme';
+/* One key for every Cyrix module — same origin, one choice. */
+const KEY = 'cyrix.theme';
 
 /** Resolves the stored preference, falling back to the OS setting. */
 function initialTheme() {
@@ -16,6 +17,8 @@ export default function ThemeToggle() {
     // The stylesheet keys off data-theme on the root, and that scope is written
     // to win over the prefers-color-scheme block in both directions.
     document.documentElement.dataset.theme = theme;
+    // Spare's Tailwind is darkMode:'class', so write that too.
+    document.documentElement.classList.toggle('dark', theme === 'dark');
     localStorage.setItem(KEY, theme);
   }, [theme]);
 
