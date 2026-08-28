@@ -119,6 +119,24 @@ export async function publishDataset(state, { meta, buffer, filename }) {
     bytes: binBlob.size + metaBlob.size,
     encoding,
     version,
+    /*
+     * The zone and district names, beside the pointer.
+     *
+     * They are already in `meta.dict`, derived from this export rather than
+     * declared anywhere — which is what keeps them from going stale when a
+     * contract gains a district. Recording them here changes nothing about
+     * where they come from; it only means they can be read without
+     * downloading and decoding 5 MB of tickets first.
+     *
+     * That is what lets scope be assigned from the shared administration
+     * screen, which has no dataset loaded and no business loading one.
+     *
+     * `meta.dictionaries`, not `meta.dict`: the runtime dataset renames it
+     * on the way in, and reading the runtime name here would have quietly
+     * published two empty arrays.
+     */
+    zones: meta.dictionaries?.zone ?? [],
+    districts: meta.dictionaries?.district ?? [],
     uploaded_by: (await supabase.auth.getUser()).data.user?.id ?? null,
     uploaded_at: new Date().toISOString(),
   }, { onConflict: 'state' });

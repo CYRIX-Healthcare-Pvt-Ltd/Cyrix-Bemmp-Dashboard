@@ -2409,6 +2409,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   border: 1px solid transparent; border-radius: var(--radius-sm);
   background: none; color: var(--text-secondary);
   font-size: 13px; font-weight: 550; white-space: nowrap;
+  /* Every item here used to be a <button>, which carries no underline of
+     its own. The Apps item is a real link — it leaves the app — and picked
+     one up from the browser. */
+  text-decoration: none;
 }
 .sidenav-item svg { flex: none; }
 .sidenav-item:hover { background: var(--hover-wash); color: var(--text-primary); }
@@ -2655,3 +2659,28 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 /* Select all / Clear sit above the district chips, separated so they do not
    read as two more districts. */
 .admin-area-bulk { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+
+/*
+ * Apps, on a phone.
+ *
+ * Below the split the rail becomes a strip that scrolls sideways, and the
+ * way out of the module was the last thing in it — so on a narrow screen it
+ * sat past the right edge and simply was not there. Somebody looking for it
+ * has no reason to scroll a row of section names to find a control that is
+ * not a section.
+ *
+ * Pinned to the right edge of the strip instead: the sections scroll under
+ * it and it never leaves. The wash behind it is the strip's own background
+ * rather than a panel, so it reads as part of the row and not as something
+ * floating over it, and the hairline is what stops a section sliding
+ * underneath and looking merged with it.
+ */
+@media (max-width: 860px) {
+  .sidenav-apps {
+    position: sticky; right: 0; z-index: 1;
+    background: var(--track-bg);
+    box-shadow: -10px 0 10px -6px var(--track-bg);
+    border-left: 1px solid var(--track-border);
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  }
+}

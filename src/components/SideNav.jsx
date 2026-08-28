@@ -139,7 +139,7 @@ export default function SideNav({ tabs, active, onSelect }) {
             the charts, and this is not one of them. */}
         <li>
           <a
-            className="sidenav-item"
+            className="sidenav-item sidenav-apps"
             href="/"
             title={open ? undefined : 'All Cyrix apps'}
             aria-label="All Cyrix apps"
