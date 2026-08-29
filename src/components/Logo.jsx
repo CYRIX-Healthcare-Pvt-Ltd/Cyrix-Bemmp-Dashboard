@@ -33,14 +33,28 @@ export default function Logo({
 }) {
   const band = showTagline ? BAND.full : showSubtitle ? BAND.entity : BAND.wordmark;
 
+  /*
+   * Width stated outright, not left to `aspect-ratio`.
+   *
+   * A flex item stretches on its cross axis, and in a *column* container
+   * that axis is the width. The box grows to the container, and once both
+   * width and height are definite the ratio is ignored: the image inside
+   * is `width: 100%`, so it renders many times too tall and the wrapper
+   * clips it to a sliver of one letter.
+   *
+   * With both dimensions given there is nothing left to stretch. The
+   * ratio stays for the caller that sizes by class instead, which is
+   * always inside a row and never stretched.
+   */
+  const box = height === undefined
+    ? { aspectRatio: `300 / ${band}` }
+    : { height: `${height}px`, width: `${(height * 300) / band}px` };
+
   return (
     <span
       className={`cyrix-logo ${className}`}
       data-on={onDark ? 'dark' : undefined}
-      style={{
-        aspectRatio: `300 / ${band}`,
-        ...(height === undefined ? null : { height: `${height}px` }),
-      }}
+      style={box}
       role="img"
       aria-label="Cyrix Health Care Pvt Ltd"
     >
