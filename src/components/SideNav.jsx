@@ -42,7 +42,18 @@ const ICONS = {
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
 };
 
-export default function SideNav({ tabs, active, onSelect, onUpload, onSignOut, signedIn }) {
+export default function SideNav({
+  tabs, active, onSelect, onUpload, onSignOut, signedIn,
+  /**
+   * False on a phone, where the rail is a strip along the bottom and the
+   * account controls live in the header instead — the same place Spare
+   * keeps them at that width. They are rendered once either way: two
+   * copies of the theme switch would each hold their own idea of the
+   * current theme, and the hidden one would be wrong the moment the
+   * visible one was pressed.
+   */
+  showAccountControls = true,
+}) {
   const [open, setOpen] = useState(false);
 
   /*
@@ -138,7 +149,10 @@ export default function SideNav({ tabs, active, onSelect, onUpload, onSignOut, s
             portal is above the /bemmp base and is a different application.
             Neutral rather than tinted: the rail's colours name measures on
             the charts, and this is not one of them. */}
-        <li>
+        {/* Its own class because on a phone this cell is pinned to the
+            right edge while the sections scroll past behind it — the way
+            out should not be something you have to scroll to find. */}
+        <li className="sidenav-apps-cell">
           <a
             className="sidenav-item sidenav-apps"
             href="/"
@@ -175,6 +189,7 @@ export default function SideNav({ tabs, active, onSelect, onUpload, onSignOut, s
         Separated by a rule rather than a gap, because the sections above
         are a list you move through and these are not part of it.
       */}
+      {showAccountControls && (
       <div className="sidenav-foot">
         {onUpload && (
           <button
@@ -213,6 +228,7 @@ export default function SideNav({ tabs, active, onSelect, onUpload, onSignOut, s
           </button>
         )}
       </div>
+      )}
 
       {/* Icon only. A labelled control and an "as of" line under six labelled
           controls was three kinds of text in a column that wants one, and the

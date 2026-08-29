@@ -31,6 +31,57 @@ import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 
+/*
+ * The width where the rail becomes a strip along the bottom. The same
+ * number SideNav uses, and the stylesheet with it — below it there is no
+ * column beside the work, so the account controls have nowhere to sit but
+ * the header.
+ */
+const NARROW = '(max-width: 860px)';
+
+/**
+ * Whether the layout is in its phone shape.
+ *
+ * Asked in JavaScript rather than answered twice in CSS because these
+ * controls must be *rendered* once, not rendered twice and one copy
+ * hidden: two theme switches would each keep their own idea of the
+ * current theme, and the hidden one would be wrong the moment the visible
+ * one was pressed.
+ */
+function useNarrow() {
+  const [narrow, setNarrow] = useState(
+    () => window.matchMedia(NARROW).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW);
+    const sync = (e) => setNarrow(e.matches);
+    mq.addEventListener('change', sync);
+    // A window dragged across the split between mount and here.
+    setNarrow(mq.matches);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+  return narrow;
+}
+
+/** The upload arrow, in the two places that offer it. */
+const DataIcon = () => (
+  <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+       aria-hidden="true">
+    <path d="M12 15V4M8 8l4-4 4 4" />
+    <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+/** The door out, in the two places that offer it. */
+const SignOutIcon = () => (
+  <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+       aria-hidden="true">
+    <path d="M15 17l5-5-5-5M20 12H9M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+  </svg>
+);
+
 /**
  * Back to the portal, which signs people in for every module.
  *
@@ -241,6 +292,7 @@ function slaExample(penaltyDays) {
 }
 
 export default function App() {
+  const narrow = useNarrow();
   const [states, setStates] = useState(null);
   const [stateId, setStateId] = useState(() => localStorage.getItem(STATE_KEY) || 'kl');
   const [ds, setDs] = useState(null);
@@ -884,9 +936,9 @@ export default function App() {
             />
             <div className="toggle-group">
               <RefreshButton onRefreshed={onRefreshed} />
-              {/* Loading data, the theme and signing out have moved into the
-                  rail. What is left here belongs to the figures on screen —
-                  which contract, and how fresh — rather than to the session. */}
+              {/* On a desktop, loading data, the theme and signing out live
+                  in the rail. What stays here belongs to the figures on
+                  screen — which contract, and how fresh — not the session. */}
             </div>
             {/* Who is signed in, shown the way every module shows it. The
                 code stays in the tooltip: it is what the account is called
@@ -899,6 +951,36 @@ export default function App() {
                 <Avatar name={profile.full_name} src={profile.avatar} />
               </span>
             )}
+            {/* On a phone the rail is a strip along the bottom carrying the
+                sections, so the account controls come back up here — which
+                is where Spare keeps them at this width too. Icons only:
+                their labels are hidden below 860px, and four labelled pills
+                would be wider than the phone. */}
+            {narrow && (
+              <>
+                <ThemeToggle />
+                <button
+                  type="button"
+                  className="icon-toggle"
+                  onClick={() => setShowUpload(true)}
+                  title="Load a TM export from this device"
+                  aria-label="Load a TM export from this device"
+                >
+                  <DataIcon />
+                </button>
+                {profile && (
+                  <button
+                    type="button"
+                    className="icon-toggle"
+                    onClick={signOutToPortal}
+                    title={`Signed in as ${profile.code} — sign out`}
+                    aria-label="Sign out"
+                  >
+                    <SignOutIcon />
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </header>
 
@@ -910,6 +992,7 @@ export default function App() {
           onUpload={() => setShowUpload(true)}
           onSignOut={signOutToPortal}
           signedIn={Boolean(profile)}
+          showAccountControls={!narrow}
         />
         <div className="work">
 

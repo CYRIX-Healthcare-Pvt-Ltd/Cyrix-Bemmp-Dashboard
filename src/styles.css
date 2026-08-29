@@ -379,6 +379,36 @@ th {
  */
 @media (max-width: 860px) {
   .theme-label, .toggle-label:not(.is-name) { display: none; }
+
+  /*
+   * The header, cut down to what a phone can hold in one row.
+   *
+   * It was a card: an oversized mark, a title, a strapline and a dataset
+   * line, and then the controls wrapping onto a band of their own beneath
+   * all of it. Four stacked things before the first number.
+   *
+   * So it becomes the bar Spare has at this width — the mark, and the
+   * controls. Nothing here is lost: the dataset's own figures are the
+   * tiles immediately below, and the section you are in is named by the
+   * strip along the bottom.
+   */
+  .masthead {
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .brand { gap: 10px; }
+  .brand-divider, .brand-text { display: none; }
+  .masthead-right { gap: 6px; min-width: 0; }
+
+  /* With their labels gone these are icons, so they take a round target
+     rather than keeping the width of a pill that no longer holds a word. */
+  .theme-toggle, .icon-toggle {
+    padding: 0; width: 34px; height: 34px;
+    border-radius: 50%; justify-content: center;
+  }
+  .who { gap: 0; }
 }
 
 /* ---------------------------------------------------- collapsible filters -- */
@@ -2519,26 +2549,53 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   transition-delay: 60ms;
 }
 
-/* Below the split the rail becomes a scrolling strip along the top — a sidebar
-   on a phone is either most of the screen or a hamburger nobody opens. */
+/*
+ * Below the split the rail becomes the bottom bar, the way every other
+ * module does it on a phone.
+ *
+ * It used to be a strip in the flow directly under the header, which put
+ * the navigation at the top of a page that is mostly a long scroll of
+ * figures — so moving between sections meant scrolling back up to the
+ * thing you move between sections with. Fixed to the bottom it is always
+ * under the thumb.
+ *
+ * Six sections plus the way out will not fit across a phone, so the row
+ * scrolls sideways. Apps is pinned to the right edge rather than scrolling
+ * with them: the way out of the app should not be something you have to go
+ * looking for.
+ */
 @media (max-width: 860px) {
-  .app { padding: 14px 12px 60px; }
+  /* Room for the bar, plus whatever the phone reserves below it. */
+  .app { padding: 14px 12px calc(78px + env(safe-area-inset-bottom)); }
   .shell { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .sidenav { position: static; }
+
+  .sidenav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+    gap: 0;
+    padding: 4px 0 env(safe-area-inset-bottom);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
   .sidenav-list {
-    grid-auto-flow: column; grid-auto-columns: max-content; gap: 4px;
-    overflow-x: auto; scrollbar-width: none; padding: 4px;
-    background: var(--track-bg); border: 1px solid var(--track-border);
-    border-radius: var(--radius-pill);
+    grid-auto-flow: column; grid-auto-columns: minmax(68px, max-content);
+    gap: 0;
+    overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; padding: 0;
   }
   .sidenav-list::-webkit-scrollbar { display: none; }
-  /* The icons come with, because they are what carries each section's colour —
-     without them the strip is five identical grey pills where the desktop rail
-     is colour-coded. The strip already scrolls sideways, so the width they cost
-     is width it was going to scroll through anyway. */
+
+  /* Icon over label, at the size a thumb actually lands on. The icons come
+     with, because they are what carries each section's colour — without
+     them the bar is six identical grey words where the desktop rail is
+     colour-coded. */
   .sidenav-item {
-    border-radius: var(--radius-pill); padding: 8px 14px; overflow: visible;
-    gap: 8px;
+    flex-direction: column; justify-content: center; gap: 3px;
+    padding: 7px 6px; border-radius: var(--radius-sm);
+    font-size: 10.5px; line-height: 1.15; text-align: center;
+    overflow: visible;
+  }
+  .sidenav-item[aria-current='page'] {
+    background: none; border-color: transparent; box-shadow: none;
   }
   .sidenav-collapse { display: none; }
 
@@ -2546,13 +2603,36 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
    * There is no panel here, and every rule written for one has to be undone
    * explicitly.
    *
-   * The strip never opens — the toggle that would open it is hidden by the rule
+   * The bar never opens — the toggle that would open it is hidden by the rule
    * above — so it renders permanently in the rail state, where the labels are
-   * transparent. Left alone that is six invisible buttons in an empty rounded
-   * box, which is exactly how it was once reported. A strip is already as small
-   * as this gets.
+   * transparent. Left alone that is six invisible buttons, which is exactly
+   * how it was once reported.
    */
-  .sidenav-label { opacity: 1; transform: none; }
+  .sidenav-label {
+    opacity: 1; transform: none;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /*
+   * Apps, pinned to the right edge while the sections scroll behind it.
+   *
+   * sticky rather than a separate element outside the scroller, so it stays
+   * the last item in the list for a keyboard and a screen reader — it is
+   * still the end of the same set of destinations, just one that does not
+   * leave the screen. The shadow is what tells you something passed under
+   * it; without it a section scrolling behind reads as a glitch.
+   */
+  .sidenav-apps-cell {
+    position: sticky; right: 0;
+    background: var(--surface);
+    box-shadow: -10px 0 10px -8px rgb(0 0 0 / 0.22);
+  }
+
+  /* The account controls are in the header at this width. */
+  .sidenav-foot { display: none; }
+
+  /* Clear of the bar, or it sits on top of the last two sections. */
+  .assistant-fab { bottom: calc(78px + env(safe-area-inset-bottom)); }
 }
 
 /* ============================================================ filter drawer == */
