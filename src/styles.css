@@ -379,36 +379,6 @@ th {
  */
 @media (max-width: 860px) {
   .theme-label, .toggle-label:not(.is-name) { display: none; }
-
-  /*
-   * The header, cut down to what a phone can hold in one row.
-   *
-   * It was a card: an oversized mark, a title, a strapline and a dataset
-   * line, and then the controls wrapping onto a band of their own beneath
-   * all of it. Four stacked things before the first number.
-   *
-   * So it becomes the bar Spare has at this width — the mark, and the
-   * controls. Nothing here is lost: the dataset's own figures are the
-   * tiles immediately below, and the section you are in is named by the
-   * strip along the bottom.
-   */
-  .masthead {
-    flex-wrap: nowrap;
-    gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 12px;
-  }
-  .brand { gap: 10px; }
-  .brand-divider, .brand-text { display: none; }
-  .masthead-right { gap: 6px; min-width: 0; }
-
-  /* With their labels gone these are icons, so they take a round target
-     rather than keeping the width of a pill that no longer holds a word. */
-  .theme-toggle, .icon-toggle {
-    padding: 0; width: 34px; height: 34px;
-    border-radius: 50%; justify-content: center;
-  }
-  .who { gap: 0; }
 }
 
 /* ---------------------------------------------------- collapsible filters -- */
@@ -1653,16 +1623,36 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .presets { display: grid; grid-template-columns: repeat(2, 1fr); }
   .preset { text-align: center; }
 
-  /* `flex-wrap: wrap` from the desktop rule has to go with the direction change:
-     a wrapping *column* takes its width from the widest item rather than giving
-     items the container's width, so the header sized itself to the state
-     switcher and clipped the brand block against `overflow: hidden`. */
+  /*
+   * The header, cut down to what a phone holds in one row.
+   *
+   * It used to stack: the brand block on one line and the controls spread
+   * across a second, because it carried a title, a strapline, a dataset
+   * line, the contract switcher and three labelled pills. That was four
+   * things to scroll past before the first number.
+   *
+   * What is left is the mark and four icons, which is a row — the same row
+   * Spare has at this width. Nothing is lost by dropping the text: the
+   * dataset's own figures are the tiles immediately below it, and the
+   * section you are in is named by the bar along the bottom.
+   */
   .masthead {
-    flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 14px;
+    flex-direction: row; align-items: center; flex-wrap: nowrap;
+    gap: 10px; padding: 10px 12px; margin-bottom: 12px;
   }
-  .masthead-right { justify-content: space-between; flex-wrap: wrap; min-width: 0; }
-  .brand { gap: 12px; }
-  .brand-divider { display: none; }
+  /* Not space-between: these belong together at the end of the row, not
+     spread across the width with the sign-out against the far edge. */
+  .masthead-right { justify-content: flex-end; flex-wrap: nowrap; gap: 6px; min-width: 0; }
+  .brand { gap: 10px; min-width: 0; }
+  .brand-divider, .brand-text { display: none; }
+  .who { gap: 0; }
+
+  /* With their labels gone these are icons, so they take a round target
+     rather than keeping the width of a pill that no longer holds a word. */
+  .theme-toggle, .icon-toggle {
+    padding: 0; width: 34px; height: 34px;
+    border-radius: 50%; justify-content: center;
+  }
 
   /* Tab strips scroll rather than wrap into a tall stack. */
   .tabs, .chart-tabs {
@@ -1675,8 +1665,9 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 }
 
 @media (max-width: 640px) {
-  .app { padding: 14px 12px 60px; }
-  .masthead { padding: 14px 16px; }
+  /* Bottom padding is set with the bottom bar further down, which is what
+     decides how much room the page has to leave. */
+  .app { padding-left: 12px; padding-right: 12px; padding-top: 14px; }
   /* Full-bleed on a phone — a 12px margin round a sheet this size is wasted
      width, and a corner radius with nothing behind it is just a rounded screen. */
   .drawer, .assistant {
@@ -2549,6 +2540,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   transition-delay: 60ms;
 }
 
+/* The rail has room for the real names, so the short forms are only for
+   the phone bar. Swapped back the other way in the media query below. */
+.sidenav-short { display: none; }
+
 /*
  * Below the split the rail becomes the bottom bar, the way every other
  * module does it on a phone.
@@ -2570,7 +2565,11 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .shell { grid-template-columns: minmax(0, 1fr); gap: 14px; }
 
   .sidenav {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+    /* `top: auto` is load-bearing. The rail is sticky at `top: 20px`, and a
+       fixed box with both a top and a bottom stretches between them — so
+       without this the bar is not a bar, it is a full-height panel with the
+       page's own background painted over everything below the sections. */
+    position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 35;
     gap: 0;
     padding: 4px 0 env(safe-area-inset-bottom);
     background: var(--surface);
@@ -2612,6 +2611,10 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
     opacity: 1; transform: none;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis;
   }
+  /* Short names here, full ones in the rail. Only the sections carry both;
+     Apps has one name and is matched by neither, so it keeps its label. */
+  .sidenav-full { display: none; }
+  .sidenav-short { display: block; }
 
   /*
    * Apps, pinned to the right edge while the sections scroll behind it.

@@ -155,15 +155,21 @@ const GRANULARITIES = [
   { id: 'day', label: 'Daily' },
 ];
 
+/*
+ * `short` is what the bottom bar shows on a phone. A cell there is about
+ * nine characters wide, and "FTFR and Closure TAT" is twenty — left to
+ * truncate it reads "FTFR an…", which is not a shorter name for anything.
+ * The full label stays for the rail, where there is room for it.
+ */
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'calls', label: 'Open calls' },
-  { id: 'repeats', label: 'Repeat calls' },
-  { id: 'performance', label: 'FTFR and Closure TAT' },
+  { id: 'dashboard', label: 'Dashboard', short: 'Home' },
+  { id: 'calls', label: 'Open calls', short: 'Open' },
+  { id: 'repeats', label: 'Repeat calls', short: 'Repeats' },
+  { id: 'performance', label: 'FTFR and Closure TAT', short: 'FTFR' },
   // Penalty calls and penalty rupees are the same backlog counted two ways, so
   // they are sub-tabs of one section rather than two sections asking the same
   // question.
-  { id: 'money', label: 'Penalty' },
+  { id: 'money', label: 'Penalty', short: 'Penalty' },
 ];
 
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -784,7 +790,9 @@ export default function App() {
    * refuses anyone else.
    */
   const visibleTabs = useMemo(
-    () => (isAdmin(profile) ? [...TABS, { id: 'accounts', label: 'Accounts' }] : TABS),
+    () => (isAdmin(profile)
+      ? [...TABS, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
+      : TABS),
     [profile],
   );
 

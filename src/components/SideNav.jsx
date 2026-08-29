@@ -138,7 +138,11 @@ export default function SideNav({
               >
                 {ICONS[t.id]}
               </svg>
-              <span className="sidenav-label">{t.label}</span>
+              {/* Both names ship and CSS picks one: the rail has room for
+                  "FTFR and Closure TAT", a phone cell has room for "FTFR".
+                  aria-label above already carries the full one either way. */}
+              <span className="sidenav-label sidenav-full">{t.label}</span>
+              <span className="sidenav-label sidenav-short">{t.short ?? t.label}</span>
             </button>
           </li>
         ))}
