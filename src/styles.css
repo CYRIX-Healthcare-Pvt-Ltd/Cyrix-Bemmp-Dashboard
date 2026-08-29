@@ -2466,7 +2466,17 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   text-decoration: none;
 }
 .sidenav-item svg { flex: none; }
-.sidenav-item:hover { background: var(--hover-wash); color: var(--text-primary); }
+/*
+ * Guarded, because a phone has no pointer to leave with.
+ *
+ * Tapping a nav item on a touchscreen latches :hover on it and nothing
+ * ever clears it, so the grey wash stayed under whichever section was
+ * last pressed — which read as a half-drawn panel sitting behind the
+ * bar rather than as a hover state, and Apps wore it permanently.
+ */
+@media (hover: hover) {
+  .sidenav-item:hover { background: var(--hover-wash); color: var(--text-primary); }
+}
 /* The pill takes its width from the column, so it grows with the rail rather
    than appearing at full size. */
 .sidenav-item[aria-current='page'] {
@@ -2574,6 +2584,15 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
     padding: 4px 0 env(safe-area-inset-bottom);
     background: var(--surface);
     border-top: 1px solid var(--border);
+    /*
+     * Pinch out and the visual viewport grows past the layout viewport a
+     * fixed element is pinned to, so the page reappears in the strip below
+     * the bar — a band of half a chart under what is supposed to be the
+     * bottom of the screen. A solid shadow paints the bar's own colour
+     * down through that strip, and takes no part in layout, so nothing
+     * scrolls or reflows to pay for it.
+     */
+    box-shadow: 0 50vh 0 var(--surface);
   }
   .sidenav-list {
     grid-auto-flow: column; grid-auto-columns: minmax(68px, max-content);
@@ -2625,11 +2644,22 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
    * leave the screen. The shadow is what tells you something passed under
    * it; without it a section scrolling behind reads as a glitch.
    */
+  /*
+   * Square, and the full height of the bar.
+   *
+   * It was a soft-edged panel with rounded corners on the item inside it,
+   * which against a straight-edged bar read as a half-drawn rectangle
+   * floating on top rather than as the end of the row. A cell that never
+   * moves should look like part of the furniture: a hard edge where the
+   * sections pass under it, and nothing else.
+   */
   .sidenav-apps-cell {
     position: sticky; right: 0;
+    display: grid; align-items: stretch;
     background: var(--surface);
-    box-shadow: -10px 0 10px -8px rgb(0 0 0 / 0.22);
+    border-left: 1px solid var(--border);
   }
+  .sidenav-apps-cell .sidenav-item { border-radius: 0; }
 
   /* The account controls are in the header at this width. */
   .sidenav-foot { display: none; }
@@ -2761,7 +2791,9 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 /* The rail's icon brightens into its own colour on hover, so the section is
    identifiable before the label is read. */
 .sidenav-item svg { transition: opacity var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out); opacity: 0.62; }
-.sidenav-item:hover svg { opacity: 1; }
+@media (hover: hover) {
+  .sidenav-item:hover svg { opacity: 1; }
+}
 .sidenav-item[aria-current='page'] svg { opacity: 1; }
 .sidenav-item[aria-current='page'] { font-weight: 620; }
 
