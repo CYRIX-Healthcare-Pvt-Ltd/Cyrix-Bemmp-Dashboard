@@ -2658,6 +2658,13 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
     display: grid; align-items: stretch;
     background: var(--surface);
     border-left: 1px solid var(--border);
+    /*
+     * Raised, because it is: the sections travel underneath it. A cast
+     * shadow to the left of the edge is what says so — the hard border
+     * alone reads as a seam between two flat things, which is the one
+     * thing this cell is not.
+     */
+    box-shadow: -7px 0 14px -5px rgb(0 0 0 / 0.28);
   }
   .sidenav-apps-cell .sidenav-item { border-radius: 0; }
 
@@ -2975,7 +2982,17 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   display: block;
   width: 100%;
 }
-.cyrix-logo-dark {
+/*
+ * One class deeper than it looks like it needs to be, and that is the
+ * point: `.cyrix-logo img` is a class plus a type, which outranks a lone
+ * class, so a bare `.cyrix-logo-dark { display: none }` never applied.
+ * Both copies stayed in the layout and the second was only clipped out of
+ * sight by the wrapper — invisible, but shipped and laid out.
+ *
+ * At two classes it ties with the theme rules below, which then win on
+ * order. Which is exactly what they should do.
+ */
+.cyrix-logo .cyrix-logo-dark {
   display: none;
 }
 
