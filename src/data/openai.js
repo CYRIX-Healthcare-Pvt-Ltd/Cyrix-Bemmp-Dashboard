@@ -65,13 +65,29 @@ export function storeModel(model) {
 
 /** Is a server-side key configured? Decides whether the user is asked for one. */
 export async function probeServer() {
+  const off = (reason) => ({ mode: 'byok', model: null, tts: false, reason });
   try {
     const r = await fetch(`${BASE}/health`, { cache: 'no-store' });
-    if (!r.ok) return { mode: 'byok', model: null, tts: false };
-    const body = await r.json();
-    return { mode: 'server', model: body.model || DEFAULT_MODEL, tts: body.tts !== false };
-  } catch {
-    return { mode: 'byok', model: null, tts: false };
+    if (!r.ok) {
+      // The health endpoint names which setup step is missing, and that
+      // is the entire value of it failing. Thrown away, "no Supabase
+      // credentials on this deployment" and "no key in app_secret" and
+      // "the table is unreachable" all looked like one thing, and the
+      // panel guessed — wrongly — that a file needed editing.
+      let reason = `the server answered ${r.status}`;
+      try { reason = (await r.json())?.error || reason; } catch { /* not JSON */ }
+      return off(reason);
+    }
+    // A 200 that is not JSON means something else answered — an SPA
+    // fallback or a proxy — so the route is not actually mounted. Worth
+    // saying, because it looks like success from every other angle.
+    let body;
+    try { body = await r.json(); } catch {
+      return off('/api/assistant/health returned a page rather than JSON, so the route is not mounted here');
+    }
+    return { mode: 'server', model: body.model || DEFAULT_MODEL, tts: body.tts !== false, reason: null };
+  } catch (e) {
+    return off(e?.message || 'the request did not complete');
   }
 }
 

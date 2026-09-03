@@ -181,7 +181,9 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
    */
   const scope = useMemo(() => neutralFilters(ds), [ds]);
 
-  const [session, setSession] = useState({ mode: null, apiKey: storedKey(), model: storedModel() });
+  const [session, setSession] = useState({
+    mode: null, apiKey: storedKey(), model: storedModel(), reason: null,
+  });
   const [language, setLanguage] = useState(storedLanguage);
   const [question, setQuestion] = useState('');
   const [entries, setEntries] = useState(() => loadHistory(ds.meta.id));
@@ -201,6 +203,10 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
       ...s,
       mode: r.mode,
       model: r.model || s.model || DEFAULT_MODEL,
+      // Why it is off, in the server's own words. Kept so the panel can
+      // say which of several setups is incomplete rather than naming one
+      // at random.
+      reason: r.reason ?? null,
     })));
   }, []);
 
@@ -212,6 +218,7 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
   // one is unconfigured rather than something a user can fix by pasting a secret.
   const unavailable = session.mode === 'byok' && !session.apiKey;
   const needsKey = unavailable;
+  const reason = session.reason;
 
   async function ask(text) {
     const trimmed = text.trim();
@@ -397,10 +404,32 @@ export default function AssistantPanel({ ds, referenceDay, profile, onClose }) {
 
         {unavailable && (
           <div className="assistant-settings">
+            {/*
+              Two different setups fail into this same panel, and the old
+              wording only described one of them: "set OPENAI_API_KEY in
+              .env.local" is true on a laptop and simply false on a
+              deployment, where .env.local is gitignored, never uploaded,
+              and the key is read from the app_secret table instead. So it
+              sent whoever read it to edit a file that could not have
+              helped — which is exactly what happened.
+
+              The health endpoint already knows which failure it is and
+              says so in its error. Showing that is better than guessing
+              on the reader's behalf.
+            */}
             <p className="caption">
-              The assistant is not configured on this deployment. Set{' '}
-              <code>OPENAI_API_KEY</code> in <code>.env.local</code> and restart the
-              server, or point the build at a proxy — see DEPLOY.md.
+              The assistant is not switched on here.{' '}
+              {reason
+                ? <>The server said: <code>{reason}</code></>
+                : <>The server did not answer <code>/api/assistant/health</code>.</>}
+            </p>
+            <p className="caption">
+              On a deployment the key lives in the <code>app_secret</code> table, not
+              in a file — <code>SUPABASE_URL</code> and <code>SUPABASE_SERVICE_KEY</code>{' '}
+              have to be set on the deployment for it to be read. Running locally, use{' '}
+              <code>npm run serve</code> rather than <code>npm run dev</code>: plain Vite
+              serves no <code>/api</code> routes, so the assistant cannot work under it
+              whatever the key says. See DEPLOY.md.
             </p>
           </div>
         )}
