@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import ThemeToggle from './ThemeToggle.jsx';
+import Avatar from './Avatar.jsx';
+import { ROLE_LABEL } from '../data/users.js';
 
 /**
  * Vertical navigation: a rail of icons, with the section names on demand.
@@ -43,7 +45,7 @@ const ICONS = {
 };
 
 export default function SideNav({
-  tabs, active, onSelect, onUpload, onSignOut, signedIn,
+  tabs, active, onSelect, onUpload, onSignOut, signedIn, profile,
   /**
    * False on a phone, where the rail is a strip along the bottom and the
    * account controls live in the header instead — the same place Spare
@@ -214,6 +216,37 @@ export default function SideNav({
         )}
 
         <ThemeToggle className="sidenav-item" labelClassName="sidenav-label" />
+
+        {/*
+          Who is signed in, between the theme and the way out — the order
+          Spare has always had at the foot of its rail, so the two modules
+          are one habit rather than two.
+
+          A row of its own rather than a name with a button tucked beside
+          it, which is what keeps every cell in this column the same shape
+           and keeps signing out reachable in the rail as well as the panel.
+          Not a link: BEMMP has no account page to send anybody to, and a
+          row that looks pressable and does nothing is worse than a row
+          that plainly states who you are.
+
+          The avatar sits at the same x as the icons above it, so nothing
+          in the column steps sideways when the panel opens.
+        */}
+        {profile && (
+          <div className="sidenav-item sidenav-me" title={`Signed in as ${profile.code}`}>
+            <Avatar
+              name={profile.full_name}
+              src={profile.avatar}
+              className="sidenav-me-face"
+            />
+            <span className="sidenav-label sidenav-me-text">
+              <span className="sidenav-me-name">{profile.full_name}</span>
+              <span className="sidenav-me-role">
+                {ROLE_LABEL[profile.role] ?? profile.role}
+              </span>
+            </span>
+          </div>
+        )}
 
         {signedIn && (
           <button

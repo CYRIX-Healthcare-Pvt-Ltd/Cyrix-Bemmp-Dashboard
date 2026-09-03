@@ -1000,6 +1000,7 @@ export default function App() {
           onUpload={() => setShowUpload(true)}
           onSignOut={signOutToPortal}
           signedIn={Boolean(profile)}
+          profile={profile}
           showAccountControls={!narrow}
         />
         <div className="work">

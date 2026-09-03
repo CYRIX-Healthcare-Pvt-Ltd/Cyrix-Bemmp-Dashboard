@@ -2497,6 +2497,35 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
+/*
+ * Who is signed in.
+ *
+ * Not a button and not hoverable: it states something rather than doing
+ * something, and a row that lifts under the pointer is a row people press
+ * and are disappointed by.
+ *
+ * The avatar is 18px like the icons above it, and sits in the same
+ * 20px-plus-border gutter, so opening the panel grows the names out from
+ * beside a column of marks that never move.
+ */
+.sidenav-me { cursor: default; }
+.sidenav-me:hover { background: none; color: var(--text-secondary); }
+.sidenav-me-face {
+  width: 18px; height: 18px; flex: none;
+  font-size: 8px;
+}
+/* Two lines in a row built for one, so the row grows rather than the text
+   being squeezed into the single line's height. */
+.sidenav-me-text { display: grid; gap: 1px; line-height: 1.25; }
+.sidenav-me-name {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-primary); font-weight: 600;
+}
+.sidenav-me-role {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-muted); font-size: 11px; font-weight: 500;
+}
+
 /* Leaving is the one destructive thing in the column, so it warms to red
    on approach rather than announcing itself in red at rest. */
 .sidenav-signout:hover {
