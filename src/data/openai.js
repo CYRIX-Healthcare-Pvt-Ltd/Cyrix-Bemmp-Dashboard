@@ -47,7 +47,26 @@ export const DEFAULT_MODEL = 'gpt-4o-mini';
  * pointing at a small function elsewhere — see serverless/ — and then nobody has
  * to enter a key either.
  */
-const BASE = (import.meta.env?.VITE_ASSISTANT_URL || 'api/assistant').replace(/\/+$/, '');
+/*
+  Absolute, built from the base Vite was compiled with.
+
+  This was the relative 'api/assistant', which the browser resolves
+  against whatever URL happens to be open. At /bemmp/ that gives
+  /bemmp/api/assistant/health and works; at /bemmp -- the same page,
+  without the trailing slash -- it gives /api/assistant/health, which the
+  SPA fallback answers with HTML, and the assistant reports itself
+  unconfigured on a deployment that is configured perfectly well. One
+  character in the address bar decided it.
+
+  import.meta.env.BASE_URL is '/bemmp/' in the deployed build and '/'
+  under scripts/serve.mjs, which serves from the root -- so one
+  expression is right in both places, and neither depends on the path the
+  reader happens to be standing on.
+*/
+const BASE = (
+  import.meta.env?.VITE_ASSISTANT_URL
+  || `${String(import.meta.env?.BASE_URL || '/').replace(/\/+$/, '')}/api/assistant`
+).replace(/\/+$/, '');
 
 export function storedKey() {
   return localStorage.getItem(KEY_STORAGE) || '';

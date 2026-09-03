@@ -21,7 +21,16 @@ import { fileURLToPath } from 'node:url';
 import { STATES } from './build-data.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = path.join(ROOT, 'dist');
+/*
+ * dist/bemmp, which is where vite.config.js actually puts the build.
+ *
+ * This was dist/, so the server has been handing out whatever index.html
+ * happened to be left there by a build predating the outDir change --
+ * a stale August bundle, served confidently, with the current one
+ * sitting one directory below untouched. Testing against it proves
+ * nothing about the code you just wrote.
+ */
+const DIST = path.join(ROOT, 'dist', 'bemmp');
 const DATA = path.join(ROOT, 'public', 'data');
 const SOURCE_DIR = path.join(ROOT, 'BEMMP DATA');
 
@@ -277,7 +286,20 @@ function sendJson(res, code, body) {
 /* ----------------------------------------------------------------- files -- */
 
 const server = http.createServer((req, res) => {
-  const url = decodeURIComponent(req.url.split('?')[0]);
+  /*
+   * The /bemmp prefix comes off here, exactly as vercel.json rewrites it
+   * away in production:
+   *
+   *   "source": "/bemmp/api/:path*", "destination": "/api/:path*"
+   *
+   * The app is built with base "/bemmp/", so the page asks for
+   * /bemmp/api/assistant/health and /bemmp/assets/... . Without this the
+   * local server matched neither, and the only URL that worked was the
+   * bare root -- which is how a stale build came to be the thing everyone
+   * was testing against. Local and deployed now answer the same paths.
+   */
+  const raw = decodeURIComponent(req.url.split('?')[0]);
+  const url = raw === '/bemmp' ? '/' : (raw.startsWith('/bemmp/') ? raw.slice('/bemmp'.length) : raw);
 
   if (!authorised(req)) {
     res.writeHead(401, {
