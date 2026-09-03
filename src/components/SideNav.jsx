@@ -111,7 +111,32 @@ export default function SideNav({
   const select = (id) => onSelect(id);
 
   return (
-    <nav className={`sidenav${open ? ' is-open' : ''}`} aria-label="Sections">
+    <nav
+      className={`sidenav${open ? ' is-open' : ''}`}
+      aria-label="Sections"
+      /*
+        The rail opens on a press anywhere in it.
+        A 60px column is mostly empty space and that space is by far the
+        easiest thing to hit — asking for a 28px arrow at the foot of it
+        is asking for the hardest target in the column to be the only way
+        in. Spare has worked this way all along.
+
+        Anything that is already a control is left alone: those mean
+        something, and expanding after somebody has just chosen a section
+        is the opposite of what they asked for.
+
+        One way round only. A press inside the open panel must not shut
+        it, or picking a section would close the thing being used to pick
+        the next one — which is the mistake the comment above `select`
+        exists to record.
+      */
+      onClick={(e) => {
+        if (open) return
+        if (!window.matchMedia(HAS_RAIL).matches) return
+        if (e.target.closest('a, button')) return
+        setOpen(true)
+      }}
+    >
       <ul className="sidenav-list">
         {tabs.map((t) => (
           <li key={t.id}>

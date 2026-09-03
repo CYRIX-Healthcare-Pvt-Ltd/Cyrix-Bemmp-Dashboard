@@ -2548,6 +2548,36 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   .sidenav-foot::-webkit-scrollbar { display: none; }
 }
 
+/*
+ * The account group sits at the foot of the rail, not under the sections.
+ *
+ * Spare has had it there all along and it is the better arrangement for the
+ * same reason a page has a footer: the sections are a list you read down, and
+ * these are not part of it — putting them directly under the last section makes
+ * a seventh and eighth entry out of things that are not sections at all.
+ *
+ * `margin-top: auto` on the foot pushes it and everything after it — the
+ * toggle included — to the bottom, so the empty space lands between the two
+ * groups where it belongs rather than below both of them.
+ *
+ * Rail only. Below 860px the column is a horizontal strip with no height to
+ * push anything to the bottom of.
+ */
+@media (min-width: 861px) {
+  /* Sticky at 20px, so the same 20px is left at the foot. min-height rather
+     than height: a taller column should grow rather than overflow. */
+  .sidenav { min-height: calc(100vh - 40px); }
+  .sidenav-foot { margin-top: auto; }
+
+  /* Says the empty space is pressable. Only while closed — once it is open
+     the space does nothing, and a pointer that promises otherwise is a
+     promise the column does not keep. */
+  .sidenav:not(.is-open) { cursor: pointer; }
+  /* The rows inside are their own controls and keep their own cursor. */
+  .sidenav:not(.is-open) .sidenav-item { cursor: pointer; }
+  .sidenav:not(.is-open) .sidenav-me { cursor: default; }
+}
+
 /* Icon only, and centred on the rail rather than the labels — the toggle belongs
    to the rail, so it stays put whatever width the column is. */
 .sidenav-collapse {
