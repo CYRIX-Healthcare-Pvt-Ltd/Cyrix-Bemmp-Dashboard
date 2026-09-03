@@ -2564,9 +2564,21 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
  * push anything to the bottom of.
  */
 @media (min-width: 861px) {
-  /* Sticky at 20px, so the same 20px is left at the foot. min-height rather
-     than height: a taller column should grow rather than overflow. */
-  .sidenav { min-height: calc(100vh - 40px); }
+  /*
+   * The height comes from SideNav, not from `100vh`.
+   *
+   * `100vh - 40px` is right only once the column has stuck to the top. The
+   * masthead scrolls away above it, so at rest the rail starts that much
+   * lower and a viewport-tall column hangs off the bottom of the screen —
+   * which put the toggle below the fold and made it something you had to
+   * scroll to find.
+   *
+   * `--rail-h` is measured from where the rail actually starts, so it is the
+   * height that fits at rest. Scrolled, the sticky column has more room than
+   * this and the group simply sits a little above the bottom edge. Erring
+   * that way is deliberate: a foot slightly high is a foot you can see.
+   */
+  .sidenav { min-height: var(--rail-h, auto); }
   .sidenav-foot { margin-top: auto; }
 
   /* Says the empty space is pressable. Only while closed — once it is open

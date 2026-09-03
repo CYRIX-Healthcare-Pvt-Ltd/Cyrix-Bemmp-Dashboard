@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ThemeToggle from './ThemeToggle.jsx';
 import Avatar from './Avatar.jsx';
 import { ROLE_LABEL } from '../data/users.js';
@@ -57,6 +57,49 @@ export default function SideNav({
   showAccountControls = true,
 }) {
   const [open, setOpen] = useState(false);
+  const navRef = useRef(null);
+
+  /*
+   * How tall the rail can be without hanging off the screen.
+   *
+   * The account group is pinned to the foot of the column, so the column
+   * needs a height to pin it against — and the viewport height is the wrong
+   * one. The
+   * masthead scrolls away above the rail, so at rest the rail starts that
+   * much lower and a viewport-tall column runs off the bottom, taking the
+   * toggle with it.
+   *
+   * Measured from where the rail actually begins in the document, which is
+   * the height that fits at rest. Once it sticks there is more room than
+   * this and the group sits a little above the bottom edge instead — the
+   * safe direction to be wrong in, because a foot slightly high is a foot
+   * you can still see.
+   *
+   * Resize only, deliberately: the number is a worst case and does not
+   * change as the page scrolls, so there is nothing to recompute on a
+   * scroll listener that would read layout on every frame.
+   */
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      if (!window.matchMedia(HAS_RAIL).matches) {
+        el.style.removeProperty('--rail-h');
+        return;
+      }
+      // Distance from the top of the document, so it does not move with the
+      // scroll position it is being measured at.
+      const fromTop = el.getBoundingClientRect().top + window.scrollY;
+      // A floor, so a short window cannot collapse the column to nothing.
+      const h = Math.max(280, window.innerHeight - fromTop - 20);
+      el.style.setProperty('--rail-h', `${h}px`);
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   /*
    * The shell's grid column is sized from this, so the width lives on the root
@@ -112,6 +155,7 @@ export default function SideNav({
 
   return (
     <nav
+      ref={navRef}
       className={`sidenav${open ? ' is-open' : ''}`}
       aria-label="Sections"
       /*
