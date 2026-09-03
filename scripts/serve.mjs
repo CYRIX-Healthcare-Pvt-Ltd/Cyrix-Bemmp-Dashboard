@@ -408,7 +408,7 @@ server.listen(PORT, '0.0.0.0', () => {
     .filter((n) => n && n.family === 'IPv4' && !n.internal)
     .map((n) => n.address);
 
-  console.log(`\n  BEMMP dashboard — app from dist/, data from public/data/\n`);
+  console.log(`\n  BEMMP dashboard — app from dist/bemmp/, data from public/data/\n`);
   console.log(`  Local     http://localhost:${PORT}`);
   for (const ip of lan) console.log(`  Network   http://${ip}:${PORT}`);
   console.log(`\n  Password  ${AUTH_ON ? `on (user "${AUTH_USER}")` : 'off — anyone who can reach this port can read the data'}`);
