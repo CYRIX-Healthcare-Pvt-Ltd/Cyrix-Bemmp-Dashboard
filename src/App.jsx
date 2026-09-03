@@ -948,24 +948,28 @@ export default function App() {
                   in the rail. What stays here belongs to the figures on
                   screen — which contract, and how fresh — not the session. */}
             </div>
-            {/* Who is signed in, shown the way every module shows it. The
-                code stays in the tooltip: it is what the account is called
-                in the database and on the seed sheet, so it has to be
-                recoverable — just not the thing read back at somebody on
-                every screen. */}
-            {profile && (
-              <span className="who" title={`Signed in as ${profile.code}`}>
-                <span className="who-name">{firstName(profile)}</span>
-                <Avatar name={profile.full_name} src={profile.avatar} />
-              </span>
-            )}
             {/* On a phone the rail is a strip along the bottom carrying the
                 sections, so the account controls come back up here — which
                 is where Spare keeps them at this width too. Icons only:
                 their labels are hidden below 860px, and four labelled pills
-                would be wider than the phone. */}
+                would be wider than the phone.
+
+                The face and the name belong to this group rather than
+                sitting above it. On a desktop the rail already carries
+                both, pinned to its foot, so a second copy in the masthead
+                was the same person shown twice on one screen — and the
+                two are far enough apart that it reads as two accounts
+                before it reads as one. Below 861px .sidenav-foot is
+                display:none and this is the only copy, which is exactly
+                the condition `narrow` already describes. */}
             {narrow && (
               <>
+                {profile && (
+                  <span className="who" title={`Signed in as ${profile.code}`}>
+                    <span className="who-name">{firstName(profile)}</span>
+                    <Avatar name={profile.full_name} src={profile.avatar} />
+                  </span>
+                )}
                 <ThemeToggle />
                 <button
                   type="button"

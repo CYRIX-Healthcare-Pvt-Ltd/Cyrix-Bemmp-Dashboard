@@ -34,7 +34,11 @@ const HISTORY_LIMIT = 40;
 function loadHistory(stateId) {
   try {
     const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}');
-    return Array.isArray(all[stateId]) ? all[stateId] : [];
+    // Filtered here as well as on the way in, because the browsers that
+    // matter already have the stale ones stored. Cleaning only on save
+    // would show each of them exactly once more — to the people who have
+    // already seen it and told us about it.
+    return Array.isArray(all[stateId]) ? all[stateId].filter((e) => !e.error) : [];
   } catch {
     return [];
   }
@@ -43,7 +47,22 @@ function loadHistory(stateId) {
 function saveHistory(stateId, entries) {
   try {
     const all = JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}');
-    all[stateId] = entries.slice(-HISTORY_LIMIT);
+    /*
+     * Failed turns are not kept.
+     *
+     * An error describes a moment — the server was unreachable, the key
+     * was not configured — and that moment is over as soon as the next
+     * question works. Stored, it came back every time the panel opened:
+     * "No OpenAI key set" sat above two perfectly good answers on a
+     * deployment that had been fixed hours earlier, reading as the
+     * current state of things rather than a record of a past one.
+     *
+     * The whole turn goes, question included. Keeping the question and
+     * dropping the error would leave a dangling half-turn — something
+     * asked, nothing under it — which looks like an answer that failed
+     * to render rather than one that was never given.
+     */
+    all[stateId] = entries.filter((e) => !e.error).slice(-HISTORY_LIMIT);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(all));
   } catch { /* storage full or disabled; history is not worth failing over */ }
 }
