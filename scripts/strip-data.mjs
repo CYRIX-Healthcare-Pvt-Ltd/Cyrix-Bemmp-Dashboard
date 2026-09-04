@@ -10,13 +10,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA = path.join(ROOT, 'dist', 'data');
+/*
+ * dist/bemmp/data, which is where vite.config.js puts it.
+ *
+ * This said dist/data, and had done since before outDir moved to
+ * dist/bemmp. The failure was silent and it was the worst kind: the
+ * script's entire job is to leave a data-free bundle safe to host
+ * publicly, and it was deleting a directory that no longer exists while
+ * 42 MB of ticket data sat one level down, untouched, and it reported
+ * success either way. "dist/data not present; nothing to strip" reads
+ * like a clean bill of health.
+ *
+ * So it now refuses rather than reassures: if the directory is missing
+ * it exits non-zero, because a strip that finds nothing to strip means
+ * either the build has moved again or it was never run, and both of
+ * those should stop a release rather than pass it.
+ */
+const DATA = path.join(ROOT, 'dist', 'bemmp', 'data');
 
 if (fs.existsSync(DATA)) {
   fs.rmSync(DATA, { recursive: true, force: true });
-  console.log('stripped dist/data — bundle now ships no ticket data');
+  console.log('stripped dist/bemmp/data — bundle now ships no ticket data');
 } else {
-  console.log('dist/data not present; nothing to strip');
+  console.error(
+    `${DATA} does not exist.\n`
+    + 'Either the build has not run or its output has moved again. Refusing to\n'
+    + 'report a data-free bundle without having removed anything.',
+  );
+  process.exit(1);
 }
 
 const size = fs.existsSync(path.join(ROOT, 'dist'))
