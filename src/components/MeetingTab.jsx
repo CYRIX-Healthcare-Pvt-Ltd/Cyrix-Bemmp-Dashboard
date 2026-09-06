@@ -980,6 +980,7 @@ export default function MeetingTab({
                       // it the widest free-text column eats the table.
                       c.entry ? `entry entry-${c.entry.kind}` : null,
                     ].filter(Boolean).join(' ') || undefined}
+                    style={c.entry?.width ? { maxWidth: c.entry.width } : undefined}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
@@ -1080,7 +1081,11 @@ export default function MeetingTab({
                         behind a click each. Text until pressed — see
                         GridCell for why that matters at this row count. */}
                     {MEETING_FIELDS.map((f) => (
-                      <td key={f.key} className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}>
+                      <td
+                        key={f.key}
+                        className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}
+                        style={f.width ? { maxWidth: f.width } : undefined}
+                      >
                         {/* Four of these are arithmetic on the dates beside
                             them, so there is nothing to type and no way to
                             type it. See COMPUTED in data/meeting.js. */}

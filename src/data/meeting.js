@@ -12,31 +12,39 @@
 
 import { supabase } from './supabase.js';
 
-/** Columns S..AO, in sheet order, with how each is entered. */
+/**
+ * Columns S..AO, in sheet order, with how each is entered.
+ *
+ * A width is a ceiling in pixels, and only where the kind is not a good
+ * enough guess: a PI number and a current-status sentence are both text
+ * and want very different room, so sizing by kind alone spends the
+ * screen on the short one to be kind to the long one. Dates and numbers
+ * have no entry because their kind already says everything.
+ */
 export const MEETING_FIELDS = [
   { key: 'penalty_type', label: 'Penalty type', kind: 'select', primary: true },
-  { key: 'current_status', label: 'Current status as on date', kind: 'text', primary: true },
+  { key: 'current_status', label: 'Current status as on date', kind: 'text', primary: true , width: 320 },
   { key: 'trc_given_date', label: 'TRC given', kind: 'date' },
   { key: 'trc_spare_received_date', label: 'TRC spare received', kind: 'date' },
   { key: 'standby_given_date', label: 'Standby given', kind: 'date' },
   { key: 'standby_days', label: 'Standby days', kind: 'number' },
-  { key: 'pi_no', label: 'PI no', kind: 'text' },
+  { key: 'pi_no', label: 'PI no', kind: 'text', width: 130 },
   { key: 'pi_date', label: 'PI date', kind: 'date' },
   { key: 'pi_tat', label: 'PI TAT', kind: 'number' },
-  { key: 'pr_no', label: 'PR no', kind: 'text' },
+  { key: 'pr_no', label: 'PR no', kind: 'text', width: 130 },
   { key: 'pr_date', label: 'PR date', kind: 'date' },
   { key: 'pr_conversion_days', label: 'PR conversion days', kind: 'number' },
-  { key: 'pr_remark', label: 'PR purchase remark', kind: 'text' },
-  { key: 'po_no', label: 'PO no', kind: 'text' },
+  { key: 'pr_remark', label: 'PR purchase remark', kind: 'text', width: 260 },
+  { key: 'po_no', label: 'PO no', kind: 'text', width: 130 },
   { key: 'po_date', label: 'PO date', kind: 'date' },
   { key: 'purchase_delay_days', label: 'Purchase delay days', kind: 'number' },
-  { key: 'vendor_name', label: 'Vendor', kind: 'text' },
+  { key: 'vendor_name', label: 'Vendor', kind: 'text', width: 200 },
   { key: 'payment_request_date', label: 'Payment requested', kind: 'date' },
   { key: 'payment_date', label: 'Payment date', kind: 'date' },
   { key: 'spare_edd', label: 'Spare EDD', kind: 'date' },
-  { key: 'po_remark', label: 'PO purchase remark', kind: 'text' },
-  { key: 'payment_issue', label: 'Pending on payment?', kind: 'text' },
-  { key: 'not_in_scope_reason', label: 'Reason if out of scope', kind: 'text' },
+  { key: 'po_remark', label: 'PO purchase remark', kind: 'text', width: 260 },
+  { key: 'payment_issue', label: 'Pending on payment?', kind: 'text', width: 190 },
+  { key: 'not_in_scope_reason', label: 'Reason if out of scope', kind: 'text', width: 300 },
 ];
 
 /**
