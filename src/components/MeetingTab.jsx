@@ -39,6 +39,95 @@ function stamp(iso) {
   return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}, ${time}`;
 }
 
+
+/**
+ * The columns worth filtering: the ones that describe WHERE a call is,
+ * plus what it costs a day.
+ *
+ * Not the meeting's own fields. Those are mostly free text and mostly
+ * empty, and a list of nine hundred distinct current-status sentences is
+ * not a filter, it is a wall. Search covers those, and now reaches them.
+ */
+const FILTER_KEYS = ['zone', 'district', 'facility', 'equipment', 'rate'];
+
+/**
+ * One column's filter: what is in this column, and which of it to keep.
+ *
+ * Values come with their counts because the count is half the decision —
+ * "Cautery (3)" tells you whether narrowing to it is worth doing before
+ * you do it. The search box inside matters at facility, where a state
+ * has hundreds and scrolling a list of them is not better than the grid
+ * it was meant to save you from.
+ */
+function ColumnFilter({ label, choices, picked, onChange, onClose }) {
+  const [find, setFind] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onAway = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
+    document.addEventListener('keydown', onKey);
+    // mousedown, not click: a click listener fires on the press that
+    // opened it and closes it again in the same gesture.
+    document.addEventListener('mousedown', onAway);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onAway);
+    };
+  }, [onClose]);
+
+  const needle = find.trim().toLowerCase();
+  const shown = needle
+    ? choices.filter(([v]) => v.toLowerCase().includes(needle))
+    : choices;
+
+  const toggle = (v) => onChange(
+    picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v],
+  );
+
+  return (
+    <div className="colfilter" ref={ref} role="dialog" aria-label={`Filter ${label}`}>
+      <div className="colfilter-head">
+        <input
+          autoFocus
+          className="colfilter-find"
+          placeholder={`Find in ${label.toLowerCase()}`}
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+        />
+      </div>
+
+      <div className="colfilter-list">
+        {shown.length === 0 && <p className="colfilter-none">Nothing matches “{find}”.</p>}
+        {shown.map(([v, n]) => (
+          <label key={v} className="colfilter-row">
+            <input
+              type="checkbox"
+              checked={picked.includes(v)}
+              onChange={() => toggle(v)}
+            />
+            <span className="colfilter-value">{v}</span>
+            <span className="colfilter-count">{n}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="colfilter-foot">
+        {/* Acts on what the search left, so "All" after typing "Cautery"
+            means those, which is the only reading that is any use. */}
+        <button type="button" onClick={() => onChange([
+          ...new Set([...picked, ...shown.map(([v]) => v)]),
+        ])}>
+          Select all
+        </button>
+        <button type="button" onClick={() => onChange([])} disabled={picked.length === 0}>
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The daily penalty meeting.
  *
@@ -56,7 +145,7 @@ function stamp(iso) {
 
 /** Saved on blur rather than on every keystroke — one row per word typed would
  *  fill the audit trail with noise and hammer the connection during a meeting. */
-function Cell({ value, kind, options, disabled, onCommit }) {
+function Cell({ value, kind, options, disabled, onCommit, autoFocus, onDone }) {
   const [draft, setDraft] = useState(value ?? '');
   const [state, setState] = useState('idle'); // idle | saving | saved | error
 
@@ -82,14 +171,17 @@ function Cell({ value, kind, options, disabled, onCommit }) {
   const common = {
     value: draft,
     disabled,
+    autoFocus,
     onChange: (e) => setDraft(e.target.value),
-    onBlur: commit,
+    // Save first, then hand back — a grid cell that closed before the
+    // write went out would lose whatever was typed into it.
+    onBlur: async () => { await commit(); onDone?.(); },
     className: `cell cell-${state}`,
   };
 
   if (kind === 'select') {
     return (
-      <select {...common} onChange={(e) => { setDraft(e.target.value); }} onBlur={commit}>
+      <select {...common}>
         <option value="">—</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -101,6 +193,53 @@ function Cell({ value, kind, options, disabled, onCommit }) {
       type={kind === 'date' ? 'date' : (kind === 'number' ? 'number' : 'text')}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
     />
+  );
+}
+
+/**
+ * One meeting field in the grid: a value you can read, and an editor when
+ * you want one.
+ *
+ * Nine hundred rows times twenty-three fields is twenty thousand cells.
+ * As live inputs that is twenty thousand controlled components, which is
+ * the reason these were pulled out of the grid the first time — it does
+ * not scroll, it crawls. A span costs nothing, and the row you are
+ * actually editing is one.
+ *
+ * The editor is the same Cell the form uses, so there is one definition
+ * of how a date behaves, one save-on-blur, and one place for it to go
+ * wrong.
+ */
+function GridCell({ fieldKey, value, kind, options, disabled, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const shown = shownValue(fieldKey, value);
+
+  if (editing) {
+    return (
+      <Cell
+        value={value}
+        kind={kind}
+        options={options}
+        disabled={disabled}
+        autoFocus
+        onCommit={onCommit}
+        onDone={() => setEditing(false)}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`grid-cell${shown ? '' : ' is-nil'}`}
+      disabled={disabled}
+      onClick={() => setEditing(true)}
+      // Tabbing across a row should open each cell in turn, the way a
+      // spreadsheet does, rather than stopping at every one to be told
+      // it is a button.
+      onFocus={() => { if (!disabled) setEditing(true); }}
+    >
+      {shown || '—'}
+    </button>
   );
 }
 
@@ -298,6 +437,31 @@ function LogDialog({ state, ticket, onClose }) {
 
 /** Column definitions for the read-only half, so the header and the body cannot
  *  drift apart when one of them is conditional. */
+/**
+ * The meeting's own fields, as columns.
+ *
+ * Reversed from the note below: two of these used to be live inputs in
+ * the grid and were pulled out because a dropdown and a text box on nine
+ * hundred rows is a lot to scroll past, and because they pushed the
+ * columns that identify a row off the side. The people who fill these in
+ * asked for all twenty-three back, and the two objections are answered
+ * rather than ignored — the ticket column is pinned so the row is always
+ * identified, full screen gives the width, filters cut what you scroll
+ * past, and a cell is text until you click it, so nine hundred rows are
+ * nine hundred spans rather than twenty thousand live inputs.
+ *
+ * The low fill rate was probably the cause and not the reason: nothing
+ * below the first two clears 3%, and reaching them cost a click per row.
+ */
+const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
+  key: f.key,
+  label: f.label,
+  type: f.kind === 'number' ? 'num' : 'text',
+  align: f.kind === 'number' ? 'num' : undefined,
+  /** Present on exactly the columns that are editable. */
+  entry: f,
+}));
+
 function exportColumns(hasZone) {
   return [
     { key: 'ticket', label: 'Ticket', type: 'text' },
@@ -320,6 +484,7 @@ function exportColumns(hasZone) {
        "₹50/d" spends its width saying "per day" on every row. */
     { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num' },
     { key: 'accrued', label: 'Penalty', type: 'num', align: 'num' },
+    ...ENTRY_COLUMNS,
   ];
 }
 
@@ -334,6 +499,31 @@ export default function MeetingTab({
   const [view, setView] = useState('tickets');
   const [notes, setNotes] = useState(null);
   const [types, setTypes] = useState([]);
+  /**
+   * The tracker, filling the screen.
+   *
+   * Asked for by the people who spend the meeting in it: thirty-one
+   * columns inside a panel on a dashboard is a letterbox, and the width
+   * is the whole point once the meeting's own fields are in the grid.
+   */
+  const [full, setFull] = useState(false);
+  /** Column key -> the values kept. An absent or empty key filters nothing. */
+  const [filters, setFilters] = useState({});
+  /** Which column's list is open. One at a time. */
+  const [openFilter, setOpenFilter] = useState(null);
+
+  useEffect(() => {
+    if (!full) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setFull(false); };
+    document.addEventListener('keydown', onKey);
+    // Nothing should scroll behind it, the same way the entry form does it.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [full]);
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState(null);
   const [log, setLog] = useState(null);
@@ -417,11 +607,75 @@ export default function MeetingTab({
    * dialysis" narrows rather than widening the way a single-substring match on
    * the whole phrase would.
    */
+  /*
+   * The meeting's own answers, joined onto each row.
+   *
+   * Deliberately not folded into `records`: load() depends on records, so
+   * records depending on notes would make load a new function every time
+   * a field saved — a refetch loop rather than a join.
+   *
+   * It buys two things. Sorting on any of the twenty-three, because the
+   * sort reads the value off the row; and finding a ticket by its PO
+   * number, which is the thing people actually have in front of them
+   * when they come looking.
+   */
+  const joined = useMemo(() => {
+    if (notes.size === 0) return records;
+    return records.map((r) => {
+      const n = notes.get(r.ticket);
+      if (!n) return r;
+      const extra = {};
+      let text = '';
+      for (const f of MEETING_FIELDS) {
+        const v = n[f.key];
+        extra[f.key] = v ?? '';
+        if (v != null && v !== '') text += ` ${String(v).toLowerCase()}`;
+      }
+      return { ...r, ...extra, haystack: r.haystack + text };
+    });
+  }, [records, notes]);
+
+  /*
+   * What is actually in each filterable column, and how often.
+   *
+   * Off `records` rather than off the filtered list on purpose: a value
+   * that disappears from its own filter the moment you pick it is a
+   * list you cannot correct without starting again.
+   */
+  const choices = useMemo(() => {
+    const out = {};
+    for (const key of FILTER_KEYS) {
+      if (!columns.some((c) => c.key === key)) continue;
+      const counts = new Map();
+      for (const r of records) {
+        const v = r[key];
+        if (v == null || v === '') continue;
+        const text = String(v);
+        counts.set(text, (counts.get(text) ?? 0) + 1);
+      }
+      out[key] = [...counts].sort((a, b) => (key === 'rate'
+        ? Number(a[0]) - Number(b[0])
+        : a[0].localeCompare(b[0])));
+    }
+    return out;
+  }, [records, columns]);
+
+  const activeFilters = useMemo(
+    () => Object.entries(filters).filter(([, v]) => v && v.length),
+    [filters],
+  );
+
   const visible = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     let list = terms.length
-      ? records.filter((r) => terms.every((t) => r.haystack.includes(t)))
-      : records;
+      ? joined.filter((r) => terms.every((t) => r.haystack.includes(t)))
+      : joined;
+
+    if (activeFilters.length) {
+      list = list.filter((r) => activeFilters.every(
+        ([key, vals]) => vals.includes(String(r[key])),
+      ));
+    }
 
     if (sort) {
       const dir = sort.dir === 'asc' ? 1 : -1;
@@ -431,7 +685,7 @@ export default function MeetingTab({
         : String(a[sort.key]).localeCompare(String(b[sort.key])) * dir));
     }
     return list;
-  }, [records, query, sort, columns]);
+  }, [joined, query, sort, columns, activeFilters]);
 
   /*
    * The tracker as a spreadsheet.
@@ -516,7 +770,7 @@ export default function MeetingTab({
   const detailRecord = detail && records.find((r) => r.ticket === detail);
 
   return (
-    <div className="grid" style={{ gap: 16 }}>
+    <div className={`grid${full ? ' tracker-full' : ''}`} style={{ gap: 16 }}>
       <div className="panel">
         <div className="panel-head">
           <div>
@@ -614,13 +868,42 @@ export default function MeetingTab({
             Excel
           </button>
 
-          {(query || sort) && (
+          <button
+            type="button"
+            className="meeting-full"
+            onClick={() => setFull((v) => !v)}
+            title={full
+              ? 'Back to the dashboard (Esc)'
+              : 'Fill the screen — easier to read across thirty-one columns'}
+          >
+            {full ? (
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
+              </svg>
+            )}
+            {full ? 'Exit full screen' : 'Full screen'}
+          </button>
+
+          {/* Says what it will undo, and is not there when there is
+              nothing to undo. Filters join the same button rather than
+              growing a second one beside it. */}
+          {(query || sort || activeFilters.length > 0) && (
             <button
               type="button"
               className="filter-reset"
-              onClick={() => { setQuery(''); setSort(null); }}
+              onClick={() => { setQuery(''); setSort(null); setFilters({}); }}
             >
-              Clear {query && sort ? 'search and sort' : (query ? 'search' : 'sort')}
+              Clear {[
+                query ? 'search' : null,
+                activeFilters.length ? 'filters' : null,
+                sort ? 'sort' : null,
+              ].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')}
             </button>
           )}
         </div>
@@ -640,7 +923,11 @@ export default function MeetingTab({
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={c.align === 'num' ? 'num' : undefined}
+                    className={[
+                      c.align === 'num' ? 'num' : null,
+                      // The ticket heading rides with its column.
+                      c.key === 'ticket' ? 'col-pin' : null,
+                    ].filter(Boolean).join(' ') || undefined}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
@@ -649,9 +936,42 @@ export default function MeetingTab({
                       {c.label}
                       <SortMark active={sort?.key === c.key} dir={sort?.dir} />
                     </button>
+                    {/* Beside the sort rather than inside it: sorting and
+                        narrowing are different intentions, and one control
+                        doing both is the one people press by mistake. */}
+                    {choices[c.key] && (
+                      <span className="th-filter-wrap">
+                        <button
+                          type="button"
+                          className={`th-filter${filters[c.key]?.length ? ' is-on' : ''}`}
+                          onClick={() => setOpenFilter(openFilter === c.key ? null : c.key)}
+                          aria-label={filters[c.key]?.length
+                            ? `${c.label}: ${filters[c.key].length} selected`
+                            : `Filter by ${c.label}`}
+                          title={`Filter by ${c.label}`}
+                        >
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none"
+                               stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+                               strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 5h18l-7 8v6l-4 2v-8z" />
+                          </svg>
+                          {filters[c.key]?.length > 0 && (
+                            <span className="th-filter-n">{filters[c.key].length}</span>
+                          )}
+                        </button>
+                        {openFilter === c.key && (
+                          <ColumnFilter
+                            label={c.label}
+                            choices={choices[c.key]}
+                            picked={filters[c.key] ?? []}
+                            onChange={(next) => setFilters((f) => ({ ...f, [c.key]: next }))}
+                            onClose={() => setOpenFilter(null)}
+                          />
+                        )}
+                      </span>
+                    )}
                   </th>
                 ))}
-                <th />
                 <th>Log</th>
               </tr>
             </thead>
@@ -660,9 +980,28 @@ export default function MeetingTab({
                 const note = notes.get(r.ticket);
                 return (
                   <tr key={r.ticket}>
-                    <td>
+                    {/* Pinned. With thirty-one columns the one thing that
+                        must never scroll away is which row you are on. */}
+                    <td className="col-pin">
                       <button type="button" className="linkish" onClick={() => onSelectRow(r.row)}>
                         {r.ticket}
+                      </button>
+                      {/* The whole form, for when somebody is filling in one
+                          ticket properly rather than scanning across. Not a
+                          column of its own — an affordance on a cell that is
+                          always on screen anyway. */}
+                      <button
+                        type="button"
+                        className="row-form"
+                        onClick={() => setDetail(r.ticket)}
+                        aria-label={`${canEdit ? 'Update' : 'View'} the entry for ${r.ticket}`}
+                        title={canEdit ? 'Open the full entry form' : 'View the full entry'}
+                      >
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                             strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z" />
+                        </svg>
                       </button>
                     </td>
                     <td className="num">{r.age}d</td>
@@ -683,18 +1022,21 @@ export default function MeetingTab({
                         ? r.accrued.toLocaleString('en-IN')
                         : <span className="money-nil">—</span>}
                     </td>
-                    <td>
-                      {/* Named for what it does. "More" said there was extra
-                          reading somewhere; this is the button you press to
-                          record what the meeting just decided. */}
-                      <button
-                        type="button"
-                        className={`row-more${note ? ' has-entry' : ''}`}
-                        onClick={() => setDetail(r.ticket)}
-                      >
-                        {canEdit ? 'Update entry' : 'View entry'}
-                      </button>
-                    </td>
+                    {/* What the meeting decided, in the grid rather than
+                        behind a click each. Text until pressed — see
+                        GridCell for why that matters at this row count. */}
+                    {MEETING_FIELDS.map((f) => (
+                      <td key={f.key} className={f.kind === 'number' ? 'num' : undefined}>
+                        <GridCell
+                          fieldKey={f.key}
+                          value={note?.[f.key]}
+                          kind={f.kind}
+                          options={types}
+                          disabled={!canEdit}
+                          onCommit={commit(r.ticket, f.key)}
+                        />
+                      </td>
+                    ))}
                     {/* One label on every row. Carrying the count and the last
                         editor here made the widest column in the grid out of the
                         least urgent thing in it — the trail matters when
