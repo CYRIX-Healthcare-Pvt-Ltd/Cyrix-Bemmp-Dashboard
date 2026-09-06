@@ -231,8 +231,8 @@ export default function SideNav({
           <a
             className="sidenav-item sidenav-apps"
             href="/"
-            title={open ? undefined : 'All Cyrix apps'}
-            aria-label="All Cyrix apps"
+            title={open ? undefined : 'All Cyrix modules'}
+            aria-label="All Cyrix modules"
           >
             <svg
               viewBox="0 0 24 24" width="18" height="18" fill="none"
@@ -245,7 +245,7 @@ export default function SideNav({
               <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
               <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
             </svg>
-            <span className="sidenav-label">Apps</span>
+            <span className="sidenav-label">Modules</span>
           </a>
         </li>
       </ul>

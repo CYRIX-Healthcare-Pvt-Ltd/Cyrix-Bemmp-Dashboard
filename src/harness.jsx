@@ -50,7 +50,7 @@ function Harness() {
     <div className="app">
       <header className="masthead">
         <div className="brand">
-          <a className="brand-home" href="#" aria-label="All Cyrix apps">
+          <a className="brand-home" href="#" aria-label="All Cyrix modules">
             <Logo height={36} />
           </a>
           <div className="brand-divider" aria-hidden="true" />
