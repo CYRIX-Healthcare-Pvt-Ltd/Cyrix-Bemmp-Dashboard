@@ -5,8 +5,9 @@ import { supabase } from '../data/supabase.js';
 import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
-  MEETING_FIELDS, computeField, ensureRows, isComputed, loadLog, loadNotes,
-  reconcileOpen, saveField,
+  BLANK, BLANK_LABEL, MEETING_FIELDS, applyFilters, asChoice, buildChoices,
+  computeField, ensureRows, isComputed, loadLog, loadNotes, reconcileOpen,
+  saveField,
 } from '../data/meeting.js';
 
 /** Column keys are database names; the log has to read like the form does. */
@@ -42,14 +43,14 @@ function stamp(iso) {
 
 
 /**
- * The columns worth filtering: the ones that describe WHERE a call is,
- * plus what it costs a day.
+ * How many distinct values a list will draw before it asks you to narrow.
  *
- * Not the meeting's own fields. Those are mostly free text and mostly
- * empty, and a list of nine hundred distinct current-status sentences is
- * not a filter, it is a wall. Search covers those, and now reaches them.
+ * Ticket has nine hundred of them and current status is a sentence per
+ * row. The search box inside the list is the way through those; drawing
+ * every one first would spend a second building a list nobody reads to
+ * the end of.
  */
-const FILTER_KEYS = ['zone', 'district', 'facility', 'equipment', 'rate'];
+const CHOICE_LIMIT = 200;
 
 /**
  * One column's filter: what is in this column, and which of it to keep.
@@ -78,9 +79,13 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
   }, [onClose]);
 
   const needle = find.trim().toLowerCase();
-  const shown = needle
-    ? choices.filter(([v]) => v.toLowerCase().includes(needle))
-    : choices;
+  const named = choices.map(([v, n]) => [v, n, v === BLANK ? BLANK_LABEL : v]);
+  const matched = needle
+    ? named.filter(([, , text]) => text.toLowerCase().includes(needle))
+    : named;
+  // Everything past the cap stays filterable through the box above it.
+  const shown = matched.slice(0, CHOICE_LIMIT);
+  const hidden = matched.length - shown.length;
 
   const toggle = (v) => onChange(
     picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v],
@@ -100,14 +105,17 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
 
       <div className="colfilter-list">
         {shown.length === 0 && <p className="colfilter-none">Nothing matches “{find}”.</p>}
-        {shown.map(([v, n]) => (
-          <label key={v} className="colfilter-row">
+        {hidden > 0 && (
+          <p className="colfilter-more">{hidden} more — type to narrow</p>
+        )}
+        {shown.map(([v, n, text]) => (
+          <label key={v} className={`colfilter-row${v === BLANK ? ' is-blank' : ''}`}>
             <input
               type="checkbox"
               checked={picked.includes(v)}
               onChange={() => toggle(v)}
             />
-            <span className="colfilter-value">{v}</span>
+            <span className="colfilter-value">{text}</span>
             <span className="colfilter-count">{n}</span>
           </label>
         ))}
@@ -232,6 +240,7 @@ export function GridCell({ fieldKey, value, kind, options, disabled, onCommit })
     <button
       type="button"
       className={`grid-cell${shown ? '' : ' is-nil'}`}
+      title={shown ? String(shown) : undefined}
       disabled={disabled}
       onClick={() => setEditing(true)}
       /*
@@ -669,23 +678,38 @@ export default function MeetingTab({
    * that disappears from its own filter the moment you pick it is a
    * list you cannot correct without starting again.
    */
-  const choices = useMemo(() => {
-    const out = {};
-    for (const key of FILTER_KEYS) {
-      if (!columns.some((c) => c.key === key)) continue;
-      const counts = new Map();
-      for (const r of records) {
-        const v = r[key];
-        if (v == null || v === '') continue;
-        const text = String(v);
-        counts.set(text, (counts.get(text) ?? 0) + 1);
-      }
-      out[key] = [...counts].sort((a, b) => (key === 'rate'
-        ? Number(a[0]) - Number(b[0])
-        : a[0].localeCompare(b[0])));
-    }
-    return out;
-  }, [records, columns]);
+  /*
+   * What the search alone leaves, before any column filter.
+   *
+   * Shared on purpose: the rows below are this narrowed further by the
+   * filters, and each filter's own list is this narrowed by every filter
+   * EXCEPT its own. Computing it once is also the difference between one
+   * pass over nine hundred rows and thirty-one of them.
+   */
+  const searched = useMemo(() => {
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return terms.length
+      ? joined.filter((r) => terms.every((t) => r.haystack.includes(t)))
+      : joined;
+  }, [joined, query]);
+
+  /*
+   * Each column's list, narrowed by the other columns.
+   *
+   * Filtering to a district and then opening Facility should offer the
+   * facilities in that district, not all four hundred in the state —
+   * otherwise the second filter is a list of options that mostly return
+   * nothing.
+   *
+   * Every filter EXCEPT this column's own, which is the part that is
+   * easy to get wrong: narrowing a list by its own filter leaves it
+   * showing only what is already ticked, and there is then no way to add
+   * a second district or to see what you have excluded.
+   */
+  const choices = useMemo(
+    () => buildChoices(searched, columns, activeFilters),
+    [searched, columns, activeFilters],
+  );
 
   const activeFilters = useMemo(
     () => Object.entries(filters).filter(([, v]) => v && v.length),
@@ -693,15 +717,10 @@ export default function MeetingTab({
   );
 
   const visible = useMemo(() => {
-    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    let list = terms.length
-      ? joined.filter((r) => terms.every((t) => r.haystack.includes(t)))
-      : joined;
+    let list = searched;
 
     if (activeFilters.length) {
-      list = list.filter((r) => activeFilters.every(
-        ([key, vals]) => vals.includes(String(r[key])),
-      ));
+      list = applyFilters(list, activeFilters);
     }
 
     if (sort) {
@@ -712,7 +731,7 @@ export default function MeetingTab({
         : String(a[sort.key]).localeCompare(String(b[sort.key])) * dir));
     }
     return list;
-  }, [joined, query, sort, columns, activeFilters]);
+  }, [searched, sort, columns, activeFilters]);
 
   /*
    * The tracker as a spreadsheet.
@@ -957,11 +976,15 @@ export default function MeetingTab({
                       c.align === 'num' ? 'num' : null,
                       // The ticket heading rides with its column.
                       c.key === 'ticket' ? 'col-pin' : null,
+                      // Entry columns take a fixed ceiling and wrap; without
+                      // it the widest free-text column eats the table.
+                      c.entry ? `entry entry-${c.entry.kind}` : null,
                     ].filter(Boolean).join(' ') || undefined}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
                   >
+                    <span className="th-inner">
                     <button type="button" className="th-sort" onClick={() => toggleSort(c.key)}>
                       {c.label}
                       <SortMark active={sort?.key === c.key} dir={sort?.dir} />
@@ -1000,6 +1023,7 @@ export default function MeetingTab({
                         )}
                       </span>
                     )}
+                    </span>
                   </th>
                 ))}
                 <th>Log</th>
@@ -1056,7 +1080,7 @@ export default function MeetingTab({
                         behind a click each. Text until pressed — see
                         GridCell for why that matters at this row count. */}
                     {MEETING_FIELDS.map((f) => (
-                      <td key={f.key} className={f.kind === 'number' ? 'num' : undefined}>
+                      <td key={f.key} className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}>
                         {/* Four of these are arithmetic on the dates beside
                             them, so there is nothing to type and no way to
                             type it. See COMPUTED in data/meeting.js. */}

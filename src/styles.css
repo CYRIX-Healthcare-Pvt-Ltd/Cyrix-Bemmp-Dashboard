@@ -3186,27 +3186,48 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
  * Filtering a column from its own heading.
  * ------------------------------------------------------------------ */
 
-/* The heading holds a sort and a filter side by side, so it stops being
-   a single button and becomes a row. */
-.meeting-table th { position: sticky; }
-.th-filter-wrap { position: relative; display: inline-flex; vertical-align: middle; }
+/*
+ * A heading is a label with two controls in it, not two buttons in a row.
+ *
+ * .th-sort is width:100%, so the funnel beside it was pushed to the end
+ * of a full-width button and sat at a different place in every column —
+ * which is what made a row of them look like clutter rather than a set.
+ * The heading is a flex row now: the label takes the slack, the funnel is
+ * pinned to the right edge, and they line up down the whole table.
+ */
+.th-inner { display: flex; align-items: stretch; width: 100%; }
+.th-inner .th-sort { flex: 1; min-width: 0; }
+.meeting-table th .th-filter-wrap { position: relative; display: flex; align-items: stretch; }
 
+/*
+ * Quiet until it is wanted, and unmistakable once it is used.
+ *
+ * It had a border and a background of its own, which put a second button
+ * in every heading and made the row read as a toolbar. A funnel at low
+ * contrast is enough to find and not enough to shout — until it is on,
+ * which has to be obvious, because a filter you forget you set is a
+ * table that is quietly lying to you.
+ */
 .th-filter {
   display: inline-flex; align-items: center; gap: 3px;
-  margin-left: 4px; padding: 3px 4px;
-  color: var(--text-muted); background: none;
-  border: 1px solid transparent; border-radius: var(--radius-sm);
-  cursor: pointer; transition: color 0.12s, background 0.12s, border-color 0.12s;
+  padding: 0 9px 0 3px; cursor: pointer;
+  color: var(--text-muted); background: none; border: 0;
+  opacity: 0.5; transition: opacity 0.12s, color 0.12s;
 }
-.th-filter:hover { color: var(--ink); background: var(--control-bg); }
-/* On, and saying how many — a funnel that only changes shade is a state
-   people miss and then wonder where their rows went. */
+.meeting-table th:hover .th-filter { opacity: 1; }
+.th-filter:hover { color: var(--text-primary); opacity: 1; }
+.th-filter:focus-visible { opacity: 1; outline: 2px solid var(--focusview); outline-offset: -2px; }
+
+/* On. Full strength, in the accent, carrying how many. */
 .th-filter.is-on {
   color: var(--focusview);
-  background: color-mix(in srgb, var(--focusview) 12%, transparent);
-  border-color: color-mix(in srgb, var(--focusview) 34%, transparent);
+  opacity: 1;
 }
-.th-filter-n { font-size: 9.5px; font-weight: 700; letter-spacing: 0; }
+.th-filter.is-on svg { fill: currentColor; }
+.th-filter-n {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
 
 /* The list itself. Hung under its own heading rather than centred on the
    screen: it belongs to one column and should look like it. */
@@ -3281,4 +3302,113 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
 }
 .field-computed em {
   font-style: normal; font-size: 11px; color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ *
+ * Entry columns: a ceiling, and wrapping rather than stretching.
+ * ------------------------------------------------------------------ */
+
+/*
+ * The table lays out automatically, so any slack goes to whichever
+ * column has the most room to take it — and free text has no natural
+ * width at all. "Current status as on date" grew until it owned the
+ * grid and pushed everything else off the side, which is the opposite
+ * of the reason these columns were brought into it.
+ *
+ * A ceiling by kind rather than one number for all of them: a date is
+ * eleven characters and a status is a sentence, and giving both the
+ * same width wastes the screen on one to be kind to the other.
+ */
+.meeting-table th.entry,
+.meeting-table td.entry {
+  max-width: 220px;
+  /* The base table rule is nowrap. These are the columns that must not
+     obey it, or the ceiling above just clips them instead. */
+  white-space: normal;
+}
+.meeting-table th.entry-date,
+.meeting-table td.entry-date { max-width: 130px; }
+.meeting-table th.entry-number,
+.meeting-table td.entry-number { max-width: 110px; }
+.meeting-table th.entry-select,
+.meeting-table td.entry-select { max-width: 170px; }
+
+/*
+ * Wrapped, and stopped at three lines.
+ *
+ * Wrapping alone turns one long status into a ten-line row and the grid
+ * stops being scannable. Three lines is enough to read a status in the
+ * meeting; the rest is one click away in the cell itself, and the whole
+ * value is on the title so it can be read without opening anything.
+ */
+.grid-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-overflow: unset;
+}
+/* An editor is not clamped — you have to see all of what you are
+   changing, and it is one cell rather than nine hundred. */
+.meeting-table td.entry .cell { min-width: 0; width: 100%; }
+
+/* ------------------------------------------------------------------ *
+ * The tracker's headings.
+ * ------------------------------------------------------------------ */
+
+/*
+ * A heading row that reads as one band rather than thirty-one buttons.
+ *
+ * With a control in every heading the row was starting to look like a
+ * toolbar: a hover wash on one cell, a border on the funnel, a different
+ * baseline in each column. The label sets the tone and the controls stay
+ * under it — same muted ink as the rest of the heading, the accent kept
+ * for the one state that has to be noticed.
+ */
+.meeting-table thead th {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  /* One rule, so a heading that wraps still lines its neighbours up. */
+  vertical-align: bottom;
+}
+.meeting-table .th-inner { min-height: 34px; }
+
+/* The label. Wraps rather than stretching its column, which is what the
+   entry ceiling above is for. */
+.meeting-table .th-sort {
+  padding: 8px 4px 8px 10px;
+  white-space: normal;
+  line-height: 1.25;
+  border-radius: 0;
+}
+.meeting-table .th-sort:hover { background: var(--hover-wash); }
+
+/* The sorted column keeps a mark under it rather than a colour on it:
+   one heading in a different colour reads as an error, and the arrow
+   already says which way. */
+.meeting-table th[aria-sort='ascending'] .th-inner,
+.meeting-table th[aria-sort='descending'] .th-inner {
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+.meeting-table th[aria-sort='ascending'] .th-sort,
+.meeting-table th[aria-sort='descending'] .th-sort { color: var(--text-primary); }
+
+/* A column with a filter on it says so under the heading too, in the
+   accent — findable when you have scrolled away from the funnel. */
+.meeting-table th:has(.th-filter.is-on) .th-inner {
+  box-shadow: inset 0 -2px 0 var(--focusview);
+}
+
+/* Blank sits with the values but is not one of them. */
+.colfilter-row.is-blank .colfilter-value {
+  color: var(--text-muted); font-style: italic;
+}
+.colfilter-more {
+  margin: 0; padding: 8px; font-size: 11px; font-weight: 500;
+  text-transform: none; letter-spacing: normal;
+  color: var(--text-muted); text-align: center;
+  border-top: 1px solid var(--gridline);
 }

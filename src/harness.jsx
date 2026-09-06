@@ -100,6 +100,7 @@ function MeetingGrid() {
                 <th><button type="button" className="th-sort">District</button></th>
                 <th><button type="button" className="th-sort">Facility</button></th>
                 <th>
+                  <span className="th-inner">
                   <button type="button" className="th-sort">Equipment</button>
                   <span className="th-filter-wrap">
                     <button
@@ -123,10 +124,15 @@ function MeetingGrid() {
                       />
                     )}
                   </span>
+                  </span>
                 </th>
                 <th className="num"><button type="button" className="th-sort">Per day penalty</button></th>
                 {ENTRY.map((f) => (
-                  <th key={f.key}><button type="button" className="th-sort">{f.label}</button></th>
+                  <th key={f.key} className={`entry entry-${f.kind}`}>
+                    <span className="th-inner">
+                      <button type="button" className="th-sort">{f.label}</button>
+                    </span>
+                  </th>
                 ))}
                 <th>Log</th>
               </tr>
@@ -149,7 +155,7 @@ function MeetingGrid() {
                   <td>{r.equipment}</td>
                   <td className="num">{r.rate.toLocaleString('en-IN')}</td>
                   {ENTRY.map((f) => (
-                    <td key={f.key} className={f.kind === 'number' ? 'num' : undefined}>
+                    <td key={f.key} className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}>
                       <GridCell
                         fieldKey={f.key}
                         value={values[`${r.ticket}.${f.key}`]}

@@ -257,3 +257,68 @@ export function computeField(key, note, now = today()) {
   if (!fn) return null;
   return fn(note ?? {}, now);
 }
+
+/* ------------------------------------------------------------------ *
+ * Column filters.
+ * ------------------------------------------------------------------ */
+
+/**
+ * What "(blank)" is, and how it stays apart from a real value.
+ *
+ * Filtering on nothing is half the reason to filter these columns —
+ * "every call with no PI raised" is the agenda. It needs a token no cell
+ * could produce, so a vendor literally named "(blank)" still filters as
+ * itself. A NUL is the one character a spreadsheet cannot carry.
+ */
+export const BLANK = ' blank';
+export const BLANK_LABEL = '(blank)';
+
+/** A cell as the filter sees it: a string, or the blank token. */
+export const asChoice = (v) => (v == null || v === '' ? BLANK : String(v));
+
+/**
+ * Each column's list of values, narrowed by the OTHER columns' filters.
+ *
+ * Filtering to a district and then opening Facility should offer the
+ * facilities in that district rather than all four hundred in the state,
+ * or the second filter is mostly options that return nothing.
+ *
+ * Every filter except the column's own, and that exception is the part
+ * that is easy to get wrong: narrowing a list by its own filter leaves
+ * it showing only what is already ticked, so there is no way to add a
+ * second district or to see what you have excluded.
+ */
+export function buildChoices(rows, columns, activeFilters) {
+  const out = {};
+  for (const c of columns) {
+    const others = activeFilters.filter(([key]) => key !== c.key);
+    const base = others.length
+      ? rows.filter((r) => others.every(([key, vals]) => vals.includes(asChoice(r[key]))))
+      : rows;
+
+    const counts = new Map();
+    for (const r of base) {
+      const v = asChoice(r[c.key]);
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    const numeric = c.type === 'num';
+    out[c.key] = [...counts].sort((a, b) => {
+      // Blank last. It is the absence of a value rather than the smallest
+      // one, and sorting it among the numbers reads as a nought that is
+      // not there.
+      if (a[0] === BLANK) return 1;
+      if (b[0] === BLANK) return -1;
+      return numeric ? Number(a[0]) - Number(b[0]) : a[0].localeCompare(b[0]);
+    });
+  }
+  return out;
+}
+
+/** The rows that pass every active filter. */
+export const applyFilters = (rows, activeFilters) => (
+  activeFilters.length
+    ? rows.filter((r) => activeFilters.every(
+      ([key, vals]) => vals.includes(asChoice(r[key])),
+    ))
+    : rows
+);
