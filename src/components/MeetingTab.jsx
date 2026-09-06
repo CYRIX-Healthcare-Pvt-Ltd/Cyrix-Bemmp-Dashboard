@@ -59,7 +59,7 @@ const FILTER_KEYS = ['zone', 'district', 'facility', 'equipment', 'rate'];
  * has hundreds and scrolling a list of them is not better than the grid
  * it was meant to save you from.
  */
-function ColumnFilter({ label, choices, picked, onChange, onClose }) {
+export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
   const [find, setFind] = useState('');
   const ref = useRef(null);
 
@@ -210,7 +210,7 @@ function Cell({ value, kind, options, disabled, onCommit, autoFocus, onDone }) {
  * of how a date behaves, one save-on-blur, and one place for it to go
  * wrong.
  */
-function GridCell({ fieldKey, value, kind, options, disabled, onCommit }) {
+export function GridCell({ fieldKey, value, kind, options, disabled, onCommit }) {
   const [editing, setEditing] = useState(false);
   const shown = shownValue(fieldKey, value);
 
@@ -233,10 +233,19 @@ function GridCell({ fieldKey, value, kind, options, disabled, onCommit }) {
       className={`grid-cell${shown ? '' : ' is-nil'}`}
       disabled={disabled}
       onClick={() => setEditing(true)}
-      // Tabbing across a row should open each cell in turn, the way a
-      // spreadsheet does, rather than stopping at every one to be told
-      // it is a button.
-      onFocus={() => { if (!disabled) setEditing(true); }}
+      /*
+       * Opened by intent, never by arriving.
+       *
+       * This opened on focus, to make tabbing across a row feel like a
+       * spreadsheet. It does the opposite: committing a cell moves focus
+       * to the next button, which opened that one, which opened the next
+       * — four cells at a time left standing as live inputs, which is the
+       * cost this whole arrangement exists to avoid. Tab now moves, and
+       * Enter or a click opens, which is what a spreadsheet actually does.
+       */
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); setEditing(true); }
+      }}
     >
       {shown || '—'}
     </button>
