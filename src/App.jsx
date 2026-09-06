@@ -271,6 +271,29 @@ const PERFORMANCE = [
 ];
 
 const STATE_KEY = 'bemmp-state';
+/**
+ * Where you were, so a reload puts you back.
+ *
+ * Refreshing on Repeat calls returned to the dashboard, which is the
+ * wrong answer to every reason somebody reloads: the export has changed,
+ * the page has misbehaved, or the browser did it for them. None of those
+ * mean "take me somewhere else".
+ *
+ * localStorage rather than the URL, matching how the contract is already
+ * remembered a few lines below. A URL would also make a view linkable,
+ * which is worth doing and is a different change.
+ */
+const VIEW_KEY = 'bemmp-view';
+
+/** Reading storage throws outright in a browser with site data blocked. */
+function savedView() {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null');
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Sub-tab id for the tracker. A string, so it can never collide with a bucket. */
 const TRACKER = 'tracker';
@@ -306,10 +329,27 @@ export default function App() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState(null);
-  const [tab, setTab] = useState('dashboard');
+  /*
+   * The tab from last time, if it is still a tab.
+   *
+   * Checked against TABS rather than trusted: a saved id for a section
+   * that has since been renamed or removed would leave the bar with
+   * nothing selected and the page showing nothing, which is a worse
+   * failure than starting at the dashboard.
+   */
+  const [tab, setTab] = useState(() => {
+    const want = savedView().tab;
+    return TABS.some((t) => t.id === want) ? want : 'dashboard';
+  });
   /* Which view of the open backlog is showing. Either a bucket, or the
      tracker — the same rows in the form the daily meeting works through. */
-  const [callView, setCallView] = useState(BUCKET.OPEN);
+  const [callView, setCallView] = useState(() => {
+    const want = savedView().callView;
+    // A saved tracker is left to the effect below, which puts it back on
+    // the open bucket for anybody who may not see the tracker at all.
+    const known = want === TRACKER || Object.values(BUCKET).includes(want);
+    return known ? want : BUCKET.OPEN;
+  });
   const [drawerRow, setDrawerRow] = useState(null);
   const [metricId, setMetricId] = useState('volume');
   const [perfId, setPerfId] = useState('ftfr');
@@ -801,6 +841,19 @@ export default function App() {
   useEffect(() => {
     if (callView === TRACKER && !showMeeting) setCallView(BUCKET.OPEN);
   }, [callView, showMeeting]);
+
+  /*
+   * Remember the view, once it has settled.
+   *
+   * After the guard above, not before: a saved tracker that this account
+   * cannot open is corrected on the way in, and writing first would save
+   * the value the correction is about to throw away.
+   */
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView }));
+    } catch { /* site data blocked; the app works, it just forgets */ }
+  }, [tab, callView]);
 
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
