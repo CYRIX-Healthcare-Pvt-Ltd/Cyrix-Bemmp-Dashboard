@@ -3412,3 +3412,45 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
   color: var(--text-muted); text-align: center;
   border-top: 1px solid var(--gridline);
 }
+
+/*
+ * The edge you drag to resize a column.
+ *
+ * Its own element rather than a border on the heading: a two-pixel
+ * target is one nobody hits, so this is ten wide, sits half over the
+ * gridline, and only shows itself when the pointer is in the row.
+ */
+.th-resize {
+  position: absolute; top: 0; bottom: 0; right: -5px;
+  width: 10px; z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+}
+.th-resize::after {
+  content: ''; position: absolute; inset: 6px auto 6px 4px;
+  width: 2px; border-radius: 1px;
+  background: var(--focusview);
+  opacity: 0; transition: opacity 0.12s;
+}
+.meeting-table thead:hover .th-resize::after { opacity: 0.25; }
+.th-resize:hover::after { opacity: 1; }
+
+/* The heading has to be a positioning context for the handle, and the
+   pinned column keeps its own stacking order. */
+.meeting-table thead th { position: sticky; }
+
+/* While dragging, nothing should select and every cursor should agree. */
+body.is-resizing { cursor: col-resize; user-select: none; }
+body.is-resizing * { cursor: col-resize !important; }
+
+/*
+ * A cell must not set the floor for its column.
+ *
+ * .grid-cell carries a min-width so an empty one is still a target worth
+ * clicking. In a table that also becomes the narrowest the whole column
+ * can ever be — so dragging an edge inwards simply stopped, which reads
+ * as a broken handle rather than a limit. The cell keeps enough width to
+ * be hit and gives up the rest to whatever the column has been set to.
+ */
+.meeting-table td.entry .grid-cell,
+.meeting-table td.entry .cell { min-width: 40px; }

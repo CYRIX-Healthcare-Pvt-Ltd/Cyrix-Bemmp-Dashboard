@@ -51,6 +51,28 @@ const NARROW = '(max-width: 860px)';
  * hanging off its own heading.
  */
 function MeetingGrid() {
+  const [widths, setWidths] = useState({});
+  const startResize = (key, e) => {
+    e.preventDefault(); e.stopPropagation();
+    const th = e.currentTarget.closest('th');
+    const from = th.getBoundingClientRect().width;
+    const x0 = e.clientX;
+    const handle = e.currentTarget;
+    handle.setPointerCapture?.(e.pointerId);
+    const move = (ev) => {
+      const next = Math.max(70, Math.round(from + (ev.clientX - x0)));
+      setWidths((w) => (w[key] === next ? w : { ...w, [key]: next }));
+    };
+    const done = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', done);
+      document.body.classList.remove('is-resizing');
+    };
+    document.body.classList.add('is-resizing');
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', done);
+  };
+  const resetWidth = (key) => setWidths((w) => { const n = { ...w }; delete n[key]; return n; });
   const ENTRY = [
     { key: 'penalty_type', label: 'Penalty type', kind: 'select' },
     { key: 'current_status', label: 'Current status as on date', kind: 'text' },
@@ -128,10 +150,13 @@ function MeetingGrid() {
                 </th>
                 <th className="num"><button type="button" className="th-sort">Per day penalty</button></th>
                 {ENTRY.map((f) => (
-                  <th key={f.key} className={`entry entry-${f.kind}`}>
+                  <th key={f.key} className={`entry entry-${f.kind}`}
+                      style={widths[f.key] ? { width: widths[f.key], minWidth: widths[f.key], maxWidth: widths[f.key] } : undefined}>
                     <span className="th-inner">
                       <button type="button" className="th-sort">{f.label}</button>
                     </span>
+                    <span className="th-resize" onPointerDown={(e) => startResize(f.key, e)}
+                          onDoubleClick={() => resetWidth(f.key)} aria-label={`Resize ${f.label}`} />
                   </th>
                 ))}
                 <th>Log</th>

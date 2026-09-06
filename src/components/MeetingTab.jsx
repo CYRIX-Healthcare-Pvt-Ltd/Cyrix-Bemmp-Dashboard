@@ -560,6 +560,87 @@ export default function MeetingTab({
   const columns = useMemo(() => exportColumns(hasZone), [hasZone]);
 
   /*
+   * Column widths somebody has set for themselves.
+   *
+   * Per device and per contract, like the saved filter view: how wide
+   * Facility should be depends on the screen it is being read on, and
+   * Kerala's facility names are not Andhra's. Kept as plain pixels
+   * because that is what the drag produces and what the style takes —
+   * nothing is gained by storing a ratio and recomputing it.
+   *
+   * A column with no entry here falls back to the ceiling on its field
+   * definition, so the defaults keep working and only what has actually
+   * been dragged is remembered.
+   */
+  const widthKey = `bemmp.tracker.widths.${state}`;
+  const [widths, setWidths] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(widthKey) ?? '{}');
+      return saved && typeof saved === 'object' ? saved : {};
+    } catch {
+      // Private windows and blocked storage throw rather than return
+      // null. Default widths are a fine answer; failing to draw is not.
+      return {};
+    }
+  });
+
+  const remember = useCallback((next) => {
+    setWidths(next);
+    try { localStorage.setItem(widthKey, JSON.stringify(next)); } catch { /* see above */ }
+  }, [widthKey]);
+
+  /**
+   * Drag one column edge.
+   *
+   * Pointer events rather than mouse: the same code then works for a
+   * finger and a stylus, and setPointerCapture keeps the drag alive when
+   * the cursor runs ahead of the header, which it will — the whole point
+   * is to make a column wider than the space it currently has.
+   */
+  const startResize = (key, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = e.currentTarget.closest('th');
+    const from = th.getBoundingClientRect().width;
+    const x0 = e.clientX;
+    const handle = e.currentTarget;
+    handle.setPointerCapture?.(e.pointerId);
+
+    // The last width the drag produced, so the write at the end does
+    // not have to go looking for it in state.
+    let settled = from;
+    const move = (ev) => {
+      // 70px is about as narrow as a heading can be and still be read.
+      settled = Math.max(70, Math.round(from + (ev.clientX - x0)));
+      setWidths((w) => (w[key] === settled ? w : { ...w, [key]: settled }));
+    };
+    const done = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', done);
+      handle.removeEventListener('pointercancel', done);
+      document.body.classList.remove('is-resizing');
+      // Written once at the end rather than on every pixel of the drag,
+      // and from a plain value rather than inside a state updater —
+      // StrictMode runs those twice, and a double write is a side effect
+      // sitting where React expects a pure function.
+      remember({ ...widths, [key]: settled });
+    };
+    document.body.classList.add('is-resizing');
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', done);
+    handle.addEventListener('pointercancel', done);
+  };
+
+  /** Double-click an edge to give that column its default back. */
+  const resetWidth = (key) => {
+    const next = { ...widths };
+    delete next[key];
+    remember(next);
+  };
+
+
+
+  /*
    * The row's display values, resolved once.
    *
    * Search and sort both need the text, and reading it off the typed arrays and
@@ -980,7 +1061,9 @@ export default function MeetingTab({
                       // it the widest free-text column eats the table.
                       c.entry ? `entry entry-${c.entry.kind}` : null,
                     ].filter(Boolean).join(' ') || undefined}
-                    style={c.entry?.width ? { maxWidth: c.entry.width } : undefined}
+                    style={widths[c.key]
+                      ? { width: widths[c.key], minWidth: widths[c.key], maxWidth: widths[c.key] }
+                      : (c.entry?.width ? { maxWidth: c.entry.width } : undefined)}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
@@ -1025,6 +1108,19 @@ export default function MeetingTab({
                       </span>
                     )}
                     </span>
+                    {/* The edge you drag. Its own element rather than a
+                        border on the heading, because a two-pixel target
+                        is one nobody hits — this is ten wide and sits
+                        half over the gridline. */}
+                    <span
+                      className="th-resize"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${c.label}`}
+                      onPointerDown={(e) => startResize(c.key, e)}
+                      onDoubleClick={() => resetWidth(c.key)}
+                      title="Drag to resize · double-click to reset"
+                    />
                   </th>
                 ))}
                 <th>Log</th>
@@ -1084,7 +1180,9 @@ export default function MeetingTab({
                       <td
                         key={f.key}
                         className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}
-                        style={f.width ? { maxWidth: f.width } : undefined}
+                        style={widths[f.key]
+                          ? { width: widths[f.key], minWidth: widths[f.key], maxWidth: widths[f.key] }
+                          : (f.width ? { maxWidth: f.width } : undefined)}
                       >
                         {/* Four of these are arithmetic on the dates beside
                             them, so there is nothing to type and no way to
