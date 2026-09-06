@@ -3559,10 +3559,29 @@ body.is-resizing * { cursor: col-resize !important; }
 .tracker-progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--brand-red);
+  /*
+   * Red at the start, green at the end.
+   *
+   * Painted across the whole track rather than across the fill, so the
+   * colour at the leading edge means how far through you are. Sized to the
+   * fill it would read full red at 1% and full green at 99%, which is a
+   * colour that says nothing.
+   *
+   * The component sets background-size to the track's width as a
+   * percentage of the fill's -- 200% at halfway, 100% at the end.
+   */
+  background-image: linear-gradient(
+    90deg,
+    var(--brand-red),
+    var(--series-2) 55%,
+    var(--series-3)
+  );
+  background-repeat: no-repeat;
   /* Only the width, and only ease-out: the bar is reporting something that
-     has already happened, so it should arrive rather than wind up to it. */
-  transition: width 240ms cubic-bezier(0.23, 1, 0.32, 1);
+     has already happened, so it should arrive rather than wind up to it.
+     background-size rides along so the colour does not jump ahead of it. */
+  transition: width 240ms cubic-bezier(0.23, 1, 0.32, 1),
+              background-size 240ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .tracker-progress-note {

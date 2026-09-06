@@ -1080,7 +1080,16 @@ export default function MeetingTab({
           aria-valuemax={100}
           aria-label={progress.label}
         >
-          <div className="tracker-progress-fill" style={{ width: `${progress.pct}%` }} />
+          <div
+            className="tracker-progress-fill"
+            style={{
+              width: `${progress.pct}%`,
+              /* The gradient spans the track, not the fill — see the
+                 stylesheet. At 25% the fill is a quarter as wide as the
+                 track, so the gradient has to be four times the fill. */
+              backgroundSize: `${progress.pct > 0 ? (10000 / progress.pct) : 100}% 100%`,
+            }}
+          />
         </div>
         <p className="tracker-progress-note">
           <span>{progress.label}</span>
