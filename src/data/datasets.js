@@ -72,7 +72,7 @@ export async function listSharedDatasets() {
   if (!supabase) return {};
   const { data, error } = await supabase
     .from('dataset')
-    .select('state, rows, min_day, max_day, filename, bytes, uploaded_at, encoding, version');
+    .select('state, rows, min_day, max_day, filename, bytes, uploaded_at, encoding, version, uploaded_by, uploaded_by_code, uploaded_by_name');
   if (error) return {};
   return Object.fromEntries(data.map((d) => [d.state, d]));
 }
@@ -98,6 +98,26 @@ export async function publishDataset(state, { meta, buffer, filename }) {
   // Whatever this replaces, read before the switch so it can be swept up after.
   const { data: before } = await supabase
     .from('dataset').select('version').eq('state', state).maybeSingle();
+
+  /*
+   * Who is doing this, read while they are the one asking.
+   *
+   * Their own profile row, which is the only one their token can see —
+   * the RLS on profile is `id = auth.uid() or bemmp_is_admin()`, so this
+   * is the single moment the name is available to be recorded at all.
+   *
+   * Never fatal. An account can exist without a profile behind it, and
+   * nobody should fail to share an export because their own name could
+   * not be read; the panel simply shows an unnamed upload.
+   */
+  const uploader = await (async () => {
+    const id = (await supabase.auth.getUser()).data.user?.id ?? null;
+    if (!id) return { id: null, code: null, name: null };
+    const { data } = await supabase
+      .from('profile').select('code, full_name').eq('id', id).maybeSingle()
+      .then((r) => r, () => ({ data: null }));
+    return { id, code: data?.code ?? null, name: data?.full_name ?? null };
+  })();
 
   for (const [path, body] of [[p.bin, binBlob], [p.meta, metaBlob]]) {
     const { error } = await supabase.storage.from(BUCKET).upload(path, body, {
@@ -137,7 +157,20 @@ export async function publishDataset(state, { meta, buffer, filename }) {
      */
     zones: meta.dictionaries?.zone ?? [],
     districts: meta.dictionaries?.district ?? [],
-    uploaded_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+    uploaded_by: uploader.id,
+    /*
+     * The uploader's own name and code, copied rather than looked up.
+     *
+     * profile is readable only for your own row, so a colleague's uuid
+     * resolves to nothing in anybody else's browser — the id alone could
+     * never have been shown. Copying it also makes the label a fact about
+     * the moment: it stays right when somebody is renamed, and survives
+     * them leaving, which is when knowing whose file this was matters
+     * most. Null where the profile could not be read; an unnamed upload
+     * is better than a wrong name or a failed publish.
+     */
+    uploaded_by_code: uploader.code,
+    uploaded_by_name: uploader.name,
     uploaded_at: new Date().toISOString(),
   }, { onConflict: 'state' });
   if (error) throw new Error(`Published the files but could not record them: ${error.message}`);

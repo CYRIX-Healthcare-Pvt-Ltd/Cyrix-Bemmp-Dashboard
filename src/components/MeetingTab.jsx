@@ -637,7 +637,17 @@ export default function MeetingTab({
    * when they come looking.
    */
   const joined = useMemo(() => {
-    if (notes.size === 0) return records;
+    /*
+     * Null until the first load returns, and this runs before it.
+     *
+     * It has to: hooks cannot sit below the `if (!notes)` return further
+     * down, which the note beside the summary memo already says. So the
+     * guard belongs here rather than in where the hook is placed —
+     * `notes.size` on the first render took the whole dashboard down to
+     * a white page, because a throw in a memo is a throw in render and
+     * there is no error boundary above it.
+     */
+    if (!notes || notes.size === 0) return records;
     return records.map((r) => {
       const n = notes.get(r.ticket);
       if (!n) return r;
