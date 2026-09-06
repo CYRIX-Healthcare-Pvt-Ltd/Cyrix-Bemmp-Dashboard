@@ -82,6 +82,9 @@ function TrackerHarness() {
       status: 'work in progress',
       engineer: `CYR${i % 90} - Engineer ${i % 90}`,
       parkedReason: i % 3 ? 'rber' : '',
+      // Roughly the share the real export carries one for, so the blank
+      // case is on screen next to the filled one rather than only in a test.
+      installedDay: i % 5 === 0 ? -1 : day('2019-04-11') + (i % 900),
     })),
   ), []);
 

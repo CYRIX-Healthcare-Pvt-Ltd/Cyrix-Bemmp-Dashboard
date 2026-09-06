@@ -6,7 +6,7 @@
  * Each state lives in its own folder under public/data/.
  */
 
-import { FORMAT_VERSION } from '../../shared/schema.mjs';
+import { FORMAT_VERSION, COLUMNS } from '../../shared/schema.mjs';
 
 export const EXCEL_EPOCH_OFFSET = 25569; // days between 1899-12-30 and 1970-01-01
 const MS_PER_DAY = 86400000;
@@ -23,10 +23,23 @@ export function serialToISO(serial) {
   return serialToDate(serial).toISOString().slice(0, 10);
 }
 
+/**
+ * Month names, written out rather than asked for.
+ *
+ * `toLocaleDateString` with `month: 'short'` returns "Sept" for September in
+ * both en-GB and en-IN — four letters where the other eleven months get
+ * three, so one column in twelve is a character wider than the rest and one
+ * date in twelve does not match the others down the page. It is also not
+ * ours to decide: the same call can return something different after a
+ * browser updates its locale data.
+ */
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `06 Sep 2026` — the one date format the app shows anywhere. */
 export function formatDay(serial) {
-  return serialToDate(serial).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC',
-  });
+  const d = serialToDate(serial);
+  return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /*
@@ -104,7 +117,28 @@ export async function loadDataset(stateId, version = '') {
  * parsed in the browser from an uploaded workbook have the identical layout.
  */
 export function datasetFrom(meta, buffer, source = 'server') {
-  if ((meta.formatVersion ?? 1) !== FORMAT_VERSION) {
+  /*
+   * An older artifact is readable when the only difference is columns added
+   * since.
+   *
+   * Offsets below come from the artifact's own `meta.columns`, not from
+   * COLUMNS, so every column it carries is where it says it is no matter what
+   * has been appended since. A newer column is simply absent, and reads as a
+   * blank cell.
+   *
+   * What is not readable is a layout whose columns were reordered, renamed or
+   * removed, because then a name in the artifact means a different position
+   * than the same name here — and nothing about the result would look wrong.
+   * That is the case this rejects, by requiring the stored list to be a prefix
+   * of the current one.
+   *
+   * Without this, appending a column would take every state's dashboard down
+   * until somebody re-uploaded its workbook.
+   */
+  const stored = meta.columns ?? [];
+  const extends_ = stored.length <= COLUMNS.length
+    && stored.every((name, i) => name === COLUMNS[i]);
+  if (!extends_) {
     throw new Error(
       `This data was built for artifact format v${meta.formatVersion ?? 1}, `
       + `but the app now reads v${FORMAT_VERSION}. Re-upload the workbook.`,

@@ -3498,7 +3498,17 @@ body.is-resizing * { cursor: col-resize !important; }
  * means every column jumps as you scroll. Fixed takes the widths from
  * the headings, so they hold still whatever is on screen.
  */
-.meeting-table { table-layout: fixed; }
+/*
+ * width: max-content is not optional here.
+ *
+ * The base rule is `table { width: 100% }`, and a fixed layout reads the
+ * column widths as proportions of that: thirty-eight columns divided into
+ * the panel, every heading crushed to three characters. The component
+ * overrides it with the sum of its columns, so the table is as wide as it
+ * needs and the container scrolls sideways. min-width keeps it filling the
+ * panel when a filter leaves few enough columns to fit.
+ */
+.meeting-table { table-layout: fixed; min-width: 100%; }
 .meeting-table td, .meeting-table th { overflow: hidden; }
 
 /* One height, because the arithmetic that decides which rows to draw

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { formatDay, label, ticketLabel } from '../data/store.js';
+import { formatDay, label, ticketLabel, MONTHS } from '../data/store.js';
 import { writeSheet, saveBlob } from '../data/xlsx.js';
 import { supabase } from '../data/supabase.js';
 import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
-  BLANK, BLANK_LABEL, MEETING_FIELDS, applyFilters, asChoice, buildChoices,
-  computeField, ensureRows, isComputed, loadLog, loadNotes, reconcileOpen,
-  saveField,
+  BLANK, BLANK_LABEL, ENTRY_WIDTH, MEETING_FIELDS, applyFilters, asChoice,
+  buildChoices, computeField, ensureRows, exportColumns, isComputed, loadLog,
+  loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
 
 /** Column keys are database names; the log has to read like the form does. */
@@ -15,20 +15,23 @@ const FIELD_LABEL = Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, f.label
 const DATE_FIELDS = new Set(MEETING_FIELDS.filter((f) => f.kind === 'date').map((f) => f.key));
 
 /**
- * `13-Aug-2026`.
+ * `13 Aug 2026`.
  *
  * The database hands dates back as `2026-08-13`, which is unambiguous to a
  * machine and to nobody else — read aloud in a meeting it invites the question
  * of which number is the month. A named month cannot be misread.
+ *
+ * The same shape `formatDay` gives the export's own dates, deliberately. The
+ * two used to differ by the separator alone, which put `08 Jul 2026` in the
+ * Logged column and `13-Aug-2026` four columns along in PI Date — close
+ * enough to look like a mistake in the data rather than in the app.
  */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
 function asDate(value) {
   // Date columns arrive as `YYYY-MM-DD`; anything else is passed through rather
   // than run through a parser that would turn a PO number into a date.
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
   if (!m) return value;
-  return `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}`;
+  return `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
 }
 
 /** A value as it should read in the log: dates named, everything else verbatim. */
@@ -38,7 +41,7 @@ const shownValue = (column, value) => (DATE_FIELDS.has(column) ? asDate(value) :
 function stamp(iso) {
   const d = new Date(iso);
   const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}, ${time}`;
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${time}`;
 }
 
 
@@ -492,73 +495,6 @@ function LogDialog({ state, ticket, onClose }) {
   );
 }
 
-/** Column definitions for the read-only half, so the header and the body cannot
- *  drift apart when one of them is conditional. */
-/**
- * The meeting's own fields, as columns.
- *
- * Reversed from the note below: two of these used to be live inputs in
- * the grid and were pulled out because a dropdown and a text box on nine
- * hundred rows is a lot to scroll past, and because they pushed the
- * columns that identify a row off the side. The people who fill these in
- * asked for all twenty-three back, and the two objections are answered
- * rather than ignored — the ticket column is pinned so the row is always
- * identified, full screen gives the width, filters cut what you scroll
- * past, and a cell is text until you click it, so nine hundred rows are
- * nine hundred spans rather than twenty thousand live inputs.
- *
- * The low fill rate was probably the cause and not the reason: nothing
- * below the first two clears 3%, and reaching them cost a click per row.
- */
-const KIND_WIDTH = { date: 128, number: 108, select: 168, text: 190 };
-
-const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
-  key: f.key,
-  label: f.label,
-  type: f.kind === 'number' ? 'num' : 'text',
-  align: f.kind === 'number' ? 'num' : undefined,
-  w: f.width ?? KIND_WIDTH[f.kind] ?? 190,
-  /** Present on exactly the columns that are editable. */
-  entry: f,
-}));
-
-function exportColumns(hasZone) {
-  return [
-    { key: 'ticket', label: 'Ticket', type: 'text', w: 118 },
-    /* "Down days", which is what the business calls it. On this tab it is exact:
-       the tracker is open calls only, so days since logging is days the
-       equipment has been down. */
-    { key: 'age', label: 'Down Days', type: 'num', align: 'num', w: 76 },
-    ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text', w: 96 }] : []),
-    { key: 'district', label: 'District', type: 'text', w: 120 },
-    { key: 'facility', label: 'Facility', type: 'text', w: 190 },
-    { key: 'equipment', label: 'Equipment', type: 'text', w: 180 },
-    /* The rest of what the TM export knows about the machine and who has
-       it. Asked for by the meeting, which reads these off the workbook
-       today and had to keep both open side by side to do it. */
-    { key: 'barcode', label: 'Barcode', type: 'text', w: 120 },
-    { key: 'manufacturer', label: 'Manufacturer', type: 'text', w: 150 },
-    { key: 'model', label: 'Model', type: 'text', w: 140 },
-    { key: 'logged', label: 'Logged', type: 'text', w: 118 },
-    { key: 'status', label: 'Status', type: 'text', w: 140 },
-    { key: 'assigned', label: 'Assigned', type: 'text', w: 190 },
-    /* Why a call is parked. The reason the backlog is what it is, and
-       until now the reason it was hidden. */
-    { key: 'remark', label: 'Ticket remark', type: 'text', w: 170 },
-    /*
-     * Two money columns, because they answer the two questions the meeting
-     * actually asks. The rate is what this ticket costs per day it stays open;
-     * `accrued` is what it has cost so far. A ₹50/d ticket open since October
-     * has run up more than a ₹1,000/d one logged on Tuesday, and ranking on the
-     * rate alone hides exactly that — which is the reason the column is here.
-     */
-    /* The heading carries the unit, so the cells do not repeat it. A column of
-       "₹50/d" spends its width saying "per day" on every row. */
-    { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num', w: 110 },
-    { key: 'accrued', label: 'Penalty', type: 'num', align: 'num', w: 110 },
-    ...ENTRY_COLUMNS,
-  ];
-}
 
 export default function MeetingTab({
   ds, rows, unresolvedRows = null, referenceDay, canEdit, onSelectRow,
@@ -645,6 +581,34 @@ export default function MeetingTab({
     }
   });
 
+  /*
+   * The width a column is laid out at.
+   *
+   * A dragged width wins; otherwise the column's own default. Every column
+   * carries one, and that matters more than it looks: the layout is fixed,
+   * which takes its widths from the first row — and with only the visible
+   * rows built, "the first row" is whichever one you have scrolled to. A
+   * column left to size itself would therefore change width as you scroll.
+   */
+  const widthStyle = useCallback((key, fallback) => {
+    const w = widths[key] ?? fallback;
+    return w ? { width: w, minWidth: w, maxWidth: w } : undefined;
+  }, [widths]);
+
+  /*
+   * The table's own width: the sum of its columns.
+   *
+   * Stating it is what makes the fixed layout hold. Left to size itself the
+   * table falls back to measuring content — a heading with a sort control
+   * and a filter button will not shrink below the two of them side by side,
+   * so several columns came out wider than asked and the widths stopped
+   * being the widths. Given a number, every column is exactly what it says.
+   */
+  const tableWidth = useMemo(
+    () => columns.reduce((n, c) => n + (widths[c.key] ?? c.w ?? 0), 0),
+    [columns, widths],
+  );
+
   const remember = useCallback((next) => {
     setWidths(next);
     try { localStorage.setItem(widthKey, JSON.stringify(next)); } catch { /* see above */ }
@@ -722,6 +686,10 @@ export default function MeetingTab({
     const assigned = label(dict.engineer, cols.engineer[row], '');
     const remark = label(dict.parkedReason, cols.parkedReason[row], '');
     const logged = cols.loggedDay[row] ? formatDay(cols.loggedDay[row]) : '';
+    // The column is absent from anything published before it existed, which
+    // reads as an empty cell rather than an error — see `datasetFrom`.
+    const installedDay = cols.installedDay ? cols.installedDay[row] : -1;
+    const installed = installedDay > 0 ? formatDay(installedDay) : '';
     return {
       row,
       ticket,
@@ -750,6 +718,7 @@ export default function MeetingTab({
       manufacturer,
       model,
       logged,
+      installed,
       status,
       assigned,
       remark,
@@ -1189,7 +1158,7 @@ export default function MeetingTab({
       {view === 'tickets' && (
       <div className="panel">
         <div className="table-scroll meeting-scroll" ref={scrollBox}>
-          <table className="meeting-table is-sortable">
+          <table className="meeting-table is-sortable" style={{ width: tableWidth }}>
             <thead>
               <tr>
                 {columns.map((c) => (
@@ -1203,9 +1172,7 @@ export default function MeetingTab({
                       // it the widest free-text column eats the table.
                       c.entry ? `entry entry-${c.entry.kind}` : null,
                     ].filter(Boolean).join(' ') || undefined}
-                    style={widths[c.key]
-                      ? { width: widths[c.key], minWidth: widths[c.key], maxWidth: widths[c.key] }
-                      : (c.entry?.width ? { maxWidth: c.entry.width } : undefined)}
+                    style={widthStyle(c.key, c.w)}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
@@ -1304,6 +1271,19 @@ export default function MeetingTab({
                     <td>{r.district}</td>
                     <td>{r.facility}</td>
                     <td>{r.equipment}</td>
+                    {/* The rest of what the export knows. In the heading
+                        order above, and every one of them present: a body
+                        row shorter than its heading row does not leave a
+                        gap at the end, it slides every column after the
+                        short one under the wrong title. */}
+                    <td>{r.barcode || '—'}</td>
+                    <td>{r.manufacturer || '—'}</td>
+                    <td>{r.model || '—'}</td>
+                    <td>{r.logged || '—'}</td>
+                    <td>{r.installed || '—'}</td>
+                    <td>{r.status || '—'}</td>
+                    <td>{r.assigned || '—'}</td>
+                    <td>{r.remark || '—'}</td>
                     {/* Bare numbers. Both columns are rupees, both say so in
                         their heading, and a ₹ on nine hundred rows is nine
                         hundred repetitions of a fact stated at the top. */}
@@ -1324,9 +1304,7 @@ export default function MeetingTab({
                       <td
                         key={f.key}
                         className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}
-                        style={widths[f.key]
-                          ? { width: widths[f.key], minWidth: widths[f.key], maxWidth: widths[f.key] }
-                          : (f.width ? { maxWidth: f.width } : undefined)}
+                        style={widthStyle(f.key, ENTRY_WIDTH[f.key])}
                       >
                         {/* Four of these are arithmetic on the dates beside
                             them, so there is nothing to type and no way to

@@ -330,3 +330,90 @@ export const applyFilters = (rows, activeFilters) => (
     ))
     : rows
 );
+
+/* ===================================================================== *
+ * The tracker's columns.
+ *
+ * Here rather than in MeetingTab because they are data, and because a
+ * test that cannot import them is a test that cannot check them: Node
+ * reads .js and not .jsx, and the one bug this arrangement is meant to
+ * prevent — a heading with no cell under it — shipped while these lived
+ * next to the markup that was supposed to match them.
+ * ===================================================================== */
+
+/** Column definitions for the read-only half, so the header and the body cannot
+ *  drift apart when one of them is conditional. */
+/**
+ * The meeting's own fields, as columns.
+ *
+ * Reversed from the note below: two of these used to be live inputs in
+ * the grid and were pulled out because a dropdown and a text box on nine
+ * hundred rows is a lot to scroll past, and because they pushed the
+ * columns that identify a row off the side. The people who fill these in
+ * asked for all twenty-three back, and the two objections are answered
+ * rather than ignored — the ticket column is pinned so the row is always
+ * identified, full screen gives the width, filters cut what you scroll
+ * past, and a cell is text until you click it, so nine hundred rows are
+ * nine hundred spans rather than twenty thousand live inputs.
+ *
+ * The low fill rate was probably the cause and not the reason: nothing
+ * below the first two clears 3%, and reaching them cost a click per row.
+ */
+const KIND_WIDTH = { date: 128, number: 108, select: 168, text: 190 };
+
+/** Default width per entry column, by key — the same value its heading uses. */
+export const ENTRY_WIDTH = {};
+
+const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
+  key: f.key,
+  label: f.label,
+  type: f.kind === 'number' ? 'num' : 'text',
+  align: f.kind === 'number' ? 'num' : undefined,
+  w: f.width ?? KIND_WIDTH[f.kind] ?? 190,
+  /** Present on exactly the columns that are editable. */
+  entry: f,
+}));
+
+for (const c of ENTRY_COLUMNS) ENTRY_WIDTH[c.key] = c.w;
+
+export function exportColumns(hasZone) {
+  return [
+    { key: 'ticket', label: 'Ticket', type: 'text', w: 118 },
+    /* "Down days", which is what the business calls it. On this tab it is exact:
+       the tracker is open calls only, so days since logging is days the
+       equipment has been down. */
+    { key: 'age', label: 'Down Days', type: 'num', align: 'num', w: 76 },
+    ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text', w: 96 }] : []),
+    { key: 'district', label: 'District', type: 'text', w: 120 },
+    { key: 'facility', label: 'Facility', type: 'text', w: 190 },
+    { key: 'equipment', label: 'Equipment', type: 'text', w: 180 },
+    /* The rest of what the TM export knows about the machine and who has
+       it. Asked for by the meeting, which reads these off the workbook
+       today and had to keep both open side by side to do it. */
+    { key: 'barcode', label: 'Barcode', type: 'text', w: 120 },
+    { key: 'manufacturer', label: 'Manufacturer', type: 'text', w: 150 },
+    { key: 'model', label: 'Model', type: 'text', w: 140 },
+    { key: 'logged', label: 'Logged', type: 'text', w: 118 },
+    /* When the machine went in. Blank for anything installed before the
+       contract, and blank for Andhra, whose export lays its columns out
+       differently and was not to hand to map against. */
+    { key: 'installed', label: 'Installed', type: 'text', w: 118 },
+    { key: 'status', label: 'Status', type: 'text', w: 140 },
+    { key: 'assigned', label: 'Assigned', type: 'text', w: 190 },
+    /* Why a call is parked. The reason the backlog is what it is, and
+       until now the reason it was hidden. */
+    { key: 'remark', label: 'Ticket remark', type: 'text', w: 170 },
+    /*
+     * Two money columns, because they answer the two questions the meeting
+     * actually asks. The rate is what this ticket costs per day it stays open;
+     * `accrued` is what it has cost so far. A ₹50/d ticket open since October
+     * has run up more than a ₹1,000/d one logged on Tuesday, and ranking on the
+     * rate alone hides exactly that — which is the reason the column is here.
+     */
+    /* The heading carries the unit, so the cells do not repeat it. A column of
+       "₹50/d" spends its width saying "per day" on every row. */
+    { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num', w: 110 },
+    { key: 'accrued', label: 'Penalty', type: 'num', align: 'num', w: 110 },
+    ...ENTRY_COLUMNS,
+  ];
+}

@@ -43,6 +43,10 @@ export const STATES = [
     numeric: {
       P: 'loggedDay', Q: 'resolvedDay', AI: 'downDays',
       S: 'rberDate', AD: 'assetValue',
+      // "Installation Date". Read for Kerala only: Andhra's export puts its
+      // columns elsewhere entirely and mapping T there on the strength of this
+      // one would silently show whatever happens to sit in it.
+      T: 'installedDay',
     },
   },
   {
@@ -80,6 +84,7 @@ export const COLUMNS = [
   'manufacturer', 'status', 'engineer', 'lifecycle', 'parkedReason',
   'loggedDay', 'resolvedDay', 'downDays', 'srcPenaltyDays', 'srcPenaltyAmount',
   'assetValue', 'dayRate', 'penaltyExempt', 'bucket',
+  'installedDay',
 ];
 
 export const CATEGORICAL_FIELDS = [
@@ -89,10 +94,21 @@ export const CATEGORICAL_FIELDS = [
 ];
 
 /**
- * Bumped whenever COLUMNS changes. A cached upload from an older layout would be
- * sliced at the wrong offsets, so the reader discards anything that does not match.
+ * Bumped whenever COLUMNS changes.
+ *
+ * A reordered or shortened layout must be rejected outright: the reader slices
+ * by offset, and data written under one order read under another is not wrong
+ * in a way anybody would notice, which is the worst kind of wrong.
+ *
+ * A column appended to the end is the exception, and `datasetFrom` accepts it.
+ * Offsets are computed from the artifact's own `meta.columns`, so every column
+ * an older artifact carries is exactly where it says it is; the only difference
+ * is that the new one is absent, which reads as a blank cell. Without that,
+ * adding a column would take the dashboard down for everybody until each state
+ * was re-uploaded — a real cost, paid every time, for a layout that is provably
+ * still readable.
  */
-export const FORMAT_VERSION = 2;
+export const FORMAT_VERSION = 3;
 
 // Free-text columns where capitalisation varies row to row and carries no meaning.
 export const FOLD_CASE = new Set([
@@ -354,6 +370,13 @@ export class Builder {
 
     const assetValue = Math.floor(+field.assetValue) || 0;
     cols.assetValue[i] = assetValue;
+
+    // Same parse as loggedDay: an Excel serial, or -1 when the cell is blank —
+    // which it often is, since a machine installed before the contract began
+    // has no installation date in this system.
+    const installedRaw = String(field.installedDay ?? '').trim();
+    cols.installedDay[i] = Number.isFinite(+installedRaw) && +installedRaw > 0
+      ? Math.floor(+installedRaw) : -1;
     cols.penaltyExempt[i] = isPenaltyExempt(field) ? 1 : 0;
     cols.dayRate[i] = cols.penaltyExempt[i] ? 0 : dayRateFor(state, assetValue);
     cols.bucket[i] = bucket;
