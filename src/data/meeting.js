@@ -60,28 +60,75 @@ const SELECT = ['state', 'ticket', 'closed_on', 'updated_at', 'legacy_values']
   .concat(MEETING_FIELDS.map((f) => f.key))
   .join(',');
 
-/** PostgREST caps a URL's length, so tickets are asked for in batches. */
-const IN_CHUNK = 400;
+/**
+ * Rows per request.
+ *
+ * PostgREST's own ceiling on a returned page, and a comfortable size for a
+ * batch going the other way. It replaces a 400-ticket chunk that existed to
+ * keep a `ticket=in.(...)` URL under the length limit — there is no such
+ * list any more, so the limit that mattered is the row count.
+ */
+const PAGE = 1000;
 
 /**
  * Notes for the tickets currently on screen, keyed by ticket.
  *
- * Asked for by ticket rather than "everything for this state" because the state
- * accumulates rows for every ticket ever seen, while the meeting only ever shows
- * what is open now.
+ * Fetched as the state's own pages, in parallel, and matched against the
+ * tickets afterwards.
+ *
+ * It used to name the tickets: four hundred at a time in a `ticket=in.(...)`
+ * list, because a longer URL is rejected. That was three round trips when the
+ * tracker held the nine hundred open calls. The tracker holds every
+ * unresolved call now — eight thousand three hundred — which made it
+ * twenty-one round trips taken one after another, measured at 5.9 seconds
+ * before a single row could be drawn.
+ *
+ * Asking for the state instead is fewer requests, because a page holds a
+ * thousand rows rather than four hundred, and they can all be in flight at
+ * once because none of them depends on the one before. Measured at 0.99
+ * seconds for the same result.
+ *
+ * It does fetch notes for tickets the tracker is not showing — calls resolved
+ * since the workbook was written. That is 681 rows in 8,976, and paying 8%
+ * more data to spend a fifth of the time is not a close decision.
+ *
+ * `onStep` reports each completed request so the caller can show real
+ * progress rather than a spinner that means nothing.
  */
-export async function loadNotes(state, tickets) {
+export async function loadNotes(state, tickets, onStep) {
   if (!supabase || !tickets.length) return new Map();
-  const out = new Map();
-  for (let i = 0; i < tickets.length; i += IN_CHUNK) {
-    const batch = tickets.slice(i, i + IN_CHUNK);
+
+  // The page count has to be known before the pages can be asked for
+  // together, and `head` makes that a count and no rows.
+  const { count, error: countError } = await supabase
+    .from('meeting_note')
+    .select('ticket', { count: 'exact', head: true })
+    .eq('state', state);
+  if (countError) throw countError;
+
+  const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE));
+  let done = 0;
+  onStep?.(0, pages);
+
+  const fetched = await Promise.all(Array.from({ length: pages }, async (_, i) => {
     const { data, error } = await supabase
       .from('meeting_note')
       .select(SELECT)
       .eq('state', state)
-      .in('ticket', batch);
+      // Ordered because a range without one is not a stable window: two
+      // pages could return the same row and never return another.
+      .order('ticket')
+      .range(i * PAGE, i * PAGE + PAGE - 1);
     if (error) throw error;
-    for (const row of data) out.set(row.ticket, row);
+    done += 1;
+    onStep?.(done, pages);
+    return data;
+  }));
+
+  const wanted = new Set(tickets);
+  const out = new Map();
+  for (const rows of fetched) {
+    for (const row of rows) if (wanted.has(row.ticket)) out.set(row.ticket, row);
   }
   return out;
 }
@@ -112,16 +159,29 @@ export async function saveField(state, ticket, key, value) {
 /**
  * Creates note rows for tickets that have none, so a first edit has somewhere to
  * land. Runs under the signed-in user, so it is subject to the same policies.
+ *
+ * Together rather than one after another, for the same reason as loadNotes:
+ * twenty-one sequential upserts of four hundred rows measured 5.3 seconds
+ * against 0.56 for nine of a thousand run at once. The batches hold disjoint
+ * tickets and conflicts are ignored rather than updated, so no two of them
+ * are ever contending for the same row.
  */
-export async function ensureRows(state, tickets) {
+export async function ensureRows(state, tickets, onStep) {
   if (!supabase || !tickets.length) return;
-  const rows = tickets.map((ticket) => ({ state, ticket }));
-  for (let i = 0; i < rows.length; i += IN_CHUNK) {
+  const batches = [];
+  for (let i = 0; i < tickets.length; i += PAGE) {
+    batches.push(tickets.slice(i, i + PAGE).map((ticket) => ({ state, ticket })));
+  }
+  let done = 0;
+  onStep?.(0, batches.length);
+  await Promise.all(batches.map(async (rows) => {
     const { error } = await supabase
       .from('meeting_note')
-      .upsert(rows.slice(i, i + IN_CHUNK), { onConflict: 'state,ticket', ignoreDuplicates: true });
+      .upsert(rows, { onConflict: 'state,ticket', ignoreDuplicates: true });
     if (error) throw error;
-  }
+    done += 1;
+    onStep?.(done, batches.length);
+  }));
 }
 
 /**

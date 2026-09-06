@@ -3509,7 +3509,23 @@ body.is-resizing * { cursor: col-resize !important; }
  * panel when a filter leaves few enough columns to fit.
  */
 .meeting-table { table-layout: fixed; min-width: 100%; }
-.meeting-table td, .meeting-table th { overflow: hidden; }
+
+/*
+ * Cells clip, headings do not.
+ *
+ * A fixed column has to cut off what will not fit, or a long facility name
+ * runs across the cells beside it. The heading needs the opposite: its
+ * filter panel hangs out of the bottom of it, and `overflow: hidden` on the
+ * heading cut the panel off just under its search box — the list of values,
+ * which is the whole point of it, could not be seen at all.
+ *
+ * So the heading stays visible and the parts inside it that can overrun --
+ * the label -- do their own clipping.
+ */
+.meeting-table td { overflow: hidden; }
+.meeting-table th .th-sort { overflow: hidden; }
+.meeting-table th .th-sort > span:first-child,
+.meeting-table th .th-sort { min-width: 0; }
 
 /* One height, because the arithmetic that decides which rows to draw
    depends on knowing it without measuring anything. */
@@ -3521,3 +3537,48 @@ body.is-resizing * { cursor: col-resize !important; }
    that quietly grows past the height the window arithmetic assumes puts
    the scrollbar out of step with the rows. */
 .grid-cell { -webkit-line-clamp: 2; line-clamp: 2; }
+
+/*
+ * Waiting for the tracker.
+ *
+ * A bare spinner used to sit here for what turned out to be eleven seconds,
+ * saying only that something was happening. This says what, and how far
+ * through, from requests that have actually returned.
+ */
+.tracker-loading { padding: 28px 24px 26px; }
+.tracker-loading h2 { margin: 0 0 4px; }
+.tracker-loading .caption { margin: 0 0 20px; }
+
+.tracker-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+
+.tracker-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand-red);
+  /* Only the width, and only ease-out: the bar is reporting something that
+     has already happened, so it should arrive rather than wind up to it. */
+  transition: width 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tracker-progress-note {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.tracker-progress-pct {
+  /* Tabular, so the number does not shove the label about as it counts. */
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker-progress-fill { transition: none; }
+}

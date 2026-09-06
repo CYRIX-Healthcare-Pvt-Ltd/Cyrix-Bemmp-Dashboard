@@ -496,6 +496,24 @@ function LogDialog({ state, ticket, onClose }) {
 }
 
 
+/*
+ * What the tracker is doing while you wait, and how far through it is.
+ *
+ * Three round trips of work, weighted by what each was measured to cost so
+ * the bar moves at something like a steady rate rather than sitting at 35%
+ * for most of the wait. Within a phase the fraction is real: every request
+ * that lands moves it.
+ *
+ * The wording is what is happening, not what the code is called. "Loading
+ * the meeting entries" is a thing somebody waiting can recognise; "fetching
+ * meeting_note" is not.
+ */
+const LOAD_PHASES = [
+  { key: 'prepare', label: 'Preparing the tracker', weight: 0.3 },
+  { key: 'closed', label: 'Checking what has closed since the last export', weight: 0.1 },
+  { key: 'entries', label: 'Loading the meeting entries', weight: 0.6 },
+];
+
 export default function MeetingTab({
   ds, rows, unresolvedRows = null, referenceDay, canEdit, onSelectRow,
 }) {
@@ -506,6 +524,8 @@ export default function MeetingTab({
 
   const [view, setView] = useState('tickets');
   const [notes, setNotes] = useState(null);
+  /** null once loaded; `{ pct, label }` while the three phases run. */
+  const [progress, setProgress] = useState({ pct: 0, label: LOAD_PHASES[0].label });
   const [types, setTypes] = useState([]);
   /**
    * The tracker, filling the screen.
@@ -730,15 +750,52 @@ export default function MeetingTab({
 
   const load = useCallback(async () => {
     setError(null);
+
+    /*
+     * Progress across the phases, never backwards.
+     *
+     * Each phase reports how far through its own requests it is; this turns
+     * that into one number by adding up the phases already finished. A bar
+     * that goes back because a later phase turned out to have more requests
+     * in it than an earlier one is worse than no bar.
+     */
+    const before = (key) => LOAD_PHASES
+      .slice(0, LOAD_PHASES.findIndex((ph) => ph.key === key))
+      .reduce((n, ph) => n + ph.weight, 0);
+
+    /* The weights add to one, so the arithmetic cannot exceed a hundred.
+       Clamped anyway: a bar that reads 105% is a bar nobody believes the
+       rest of, and one wrong weight is all it would take. */
+    const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
+
+    const phase = (key) => {
+      const self = LOAD_PHASES.find((ph) => ph.key === key);
+      const base = before(key);
+      setProgress({ pct: clamp(base * 100), label: self.label });
+      return (done, total) => setProgress({
+        pct: clamp((base + self.weight * (total ? Math.min(done / total, 1) : 1)) * 100),
+        label: self.label,
+      });
+    };
+
     try {
       const ids = records.map((t) => t.ticket);
+
+      const step = phase('prepare');
       const [list] = await Promise.all([
         supabase.from('penalty_type').select('name').eq('archived', false).order('sort'),
-        canEdit ? ensureRows(state, ids) : Promise.resolve(),
+        canEdit ? ensureRows(state, ids, step) : Promise.resolve(),
       ]);
       setTypes((list.data ?? []).map((r) => r.name));
-      if (canEdit) setSync(await reconcileOpen(state, ids));
-      setNotes(await loadNotes(state, ids));
+
+      if (canEdit) {
+        phase('closed');
+        setSync(await reconcileOpen(state, ids));
+      }
+
+      const loaded = await loadNotes(state, ids, phase('entries'));
+      setProgress({ pct: 100, label: 'Ready' });
+      setNotes(loaded);
     } catch (e) {
       setError(e.message);
       setNotes(new Map());
@@ -1005,7 +1062,32 @@ export default function MeetingTab({
   }, [view, notes, records, ds, unresolvedRows, rows, types]);
 
   if (!notes) {
-    return <div className="panel"><div className="loader" aria-hidden="true" /></div>;
+    return (
+      <div className="panel tracker-loading">
+        <h2>Daily penalty meeting</h2>
+        <p className="caption">
+          {rows.length.toLocaleString()} calls, and what the meeting has recorded
+          against each one.
+        </p>
+        {/* A real figure, from requests that have actually landed. A bar
+            that moves on a timer says the same thing whether the network is
+            working or not, which is the one moment it is being read. */}
+        <div
+          className="tracker-progress"
+          role="progressbar"
+          aria-valuenow={progress.pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={progress.label}
+        >
+          <div className="tracker-progress-fill" style={{ width: `${progress.pct}%` }} />
+        </div>
+        <p className="tracker-progress-note">
+          <span>{progress.label}</span>
+          <span className="tracker-progress-pct">{progress.pct}%</span>
+        </p>
+      </div>
+    );
   }
 
   const detailRecord = detail && records.find((r) => r.ticket === detail);
