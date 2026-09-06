@@ -3454,3 +3454,18 @@ body.is-resizing * { cursor: col-resize !important; }
  */
 .meeting-table td.entry .grid-cell,
 .meeting-table td.entry .cell { min-width: 40px; }
+
+/* A panel that could not draw itself. Plain and readable: this is an
+   internal tool, and the error text is the whole of the bug report. */
+.boundary { padding: 20px; }
+.boundary h3 { margin: 0 0 6px; font-size: 15px; }
+.boundary-error {
+  margin: 12px 0; padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5;
+  color: var(--status-critical);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}

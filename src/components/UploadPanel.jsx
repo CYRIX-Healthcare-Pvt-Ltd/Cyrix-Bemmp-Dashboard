@@ -23,6 +23,28 @@ function parseInWorker(file, stateId, onProgress) {
   });
 }
 
+/**
+ * " by Kevin Raju (E1427)", or nothing at all.
+ *
+ * Everybody sees the same shared export and nobody could see whose it
+ * was: the uuid was recorded but `profile` is readable only for your own
+ * row, so a colleague's id resolves to nothing in anybody else's
+ * browser. The name and code now travel with the publish — copied at the
+ * time rather than looked up, so the label stays right when somebody is
+ * renamed and survives them leaving, which is when whose file this was
+ * matters most.
+ *
+ * Empty for anything published before that, and for an account with no
+ * profile behind it. "Shared" on its own is the truth there; a guess
+ * would not be.
+ */
+function sharedBy(pub) {
+  const name = (pub?.uploaded_by_name ?? '').trim();
+  if (!name) return ' with the team';
+  const code = (pub?.uploaded_by_code ?? '').trim();
+  return code ? ` by ${name} (${code})` : ` by ${name}`;
+}
+
 function ago(iso) {
   if (!iso) return 'never';
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -262,7 +284,7 @@ export default function UploadPanel({
                             ? (pub
                               ? 'The team has an older copy — share this one'
                               : 'On this device only — the team cannot see it')
-                            : `Shared with the team · ${ago(pub?.uploaded_at)}`}
+                            : `Shared${sharedBy(pub)} · ${ago(pub?.uploaded_at)}`}
                         </div>
                       )}
                     </>

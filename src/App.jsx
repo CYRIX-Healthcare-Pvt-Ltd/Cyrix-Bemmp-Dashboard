@@ -16,6 +16,7 @@ import Logo, { Tagline } from './components/Logo.jsx';
 import SideNav from './components/SideNav.jsx';
 import AdminTab from './components/AdminTab.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
+import Boundary from './components/Boundary.jsx';
 import {
   supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin, firstName,
 } from './data/supabase.js';
@@ -1199,6 +1200,7 @@ export default function App() {
                * accrue no penalty at all, and there are ten of them for every open
                * one — enough to bury the agenda in rows that cost nothing.
                */
+              <Boundary name="The ticket tracker" resetKey={`${stateId}-${callView}`}>
               <MeetingTab
                 key={`tracker-${stateId}`}
                 ds={ds}
@@ -1208,6 +1210,7 @@ export default function App() {
                 canEdit={canEditMeeting(profile)}
                 onSelectRow={setDrawerRow}
               />
+              </Boundary>
             ) : (
               <DrillExplorer
                 key={`calls-${stateId}-${callView}`}
