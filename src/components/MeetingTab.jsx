@@ -5,7 +5,8 @@ import { supabase } from '../data/supabase.js';
 import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
-  MEETING_FIELDS, ensureRows, loadLog, loadNotes, reconcileOpen, saveField,
+  MEETING_FIELDS, computeField, ensureRows, isComputed, loadLog, loadNotes,
+  reconcileOpen, saveField,
 } from '../data/meeting.js';
 
 /** Column keys are database names; the log has to read like the form does. */
@@ -319,13 +320,20 @@ function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle
             {MEETING_FIELDS.map((f) => (
               <label key={f.key} className="field">
                 <span>{f.label}</span>
-                <Cell
-                  value={note?.[f.key]}
-                  kind={f.kind}
-                  options={types}
-                  disabled={!canEdit}
-                  onCommit={onCommit(f.key)}
-                />
+                {isComputed(f.key) ? (
+                  <span className="field-computed">
+                    {computeField(f.key, note) ?? '—'}
+                    <em>worked out from the dates</em>
+                  </span>
+                ) : (
+                  <Cell
+                    value={note?.[f.key]}
+                    kind={f.kind}
+                    options={types}
+                    disabled={!canEdit}
+                    onCommit={onCommit(f.key)}
+                  />
+                )}
               </label>
             ))}
           </div>
@@ -636,7 +644,7 @@ export default function MeetingTab({
       const extra = {};
       let text = '';
       for (const f of MEETING_FIELDS) {
-        const v = n[f.key];
+        const v = isComputed(f.key) ? computeField(f.key, n) : n[f.key];
         extra[f.key] = v ?? '';
         if (v != null && v !== '') text += ` ${String(v).toLowerCase()}`;
       }
@@ -728,7 +736,10 @@ export default function MeetingTab({
         // Dates as the page shows them. A date serial in a text column would be
         // a number nobody can read, and a real date cell needs a number format
         // this writer deliberately does not carry.
-        ...Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, shownValue(f.key, note[f.key])])),
+        ...Object.fromEntries(MEETING_FIELDS.map((f) => [
+          f.key,
+          isComputed(f.key) ? computeField(f.key, note) : shownValue(f.key, note[f.key]),
+        ])),
       };
     });
 
@@ -1036,14 +1047,23 @@ export default function MeetingTab({
                         GridCell for why that matters at this row count. */}
                     {MEETING_FIELDS.map((f) => (
                       <td key={f.key} className={f.kind === 'number' ? 'num' : undefined}>
-                        <GridCell
-                          fieldKey={f.key}
-                          value={note?.[f.key]}
-                          kind={f.kind}
-                          options={types}
-                          disabled={!canEdit}
-                          onCommit={commit(r.ticket, f.key)}
-                        />
+                        {/* Four of these are arithmetic on the dates beside
+                            them, so there is nothing to type and no way to
+                            type it. See COMPUTED in data/meeting.js. */}
+                        {isComputed(f.key) ? (
+                          <span className="cell-computed">
+                            {computeField(f.key, note) ?? '—'}
+                          </span>
+                        ) : (
+                          <GridCell
+                            fieldKey={f.key}
+                            value={note?.[f.key]}
+                            kind={f.kind}
+                            options={types}
+                            disabled={!canEdit}
+                            onCommit={commit(r.ticket, f.key)}
+                          />
+                        )}
                       </td>
                     ))}
                     {/* One label on every row. Carrying the count and the last

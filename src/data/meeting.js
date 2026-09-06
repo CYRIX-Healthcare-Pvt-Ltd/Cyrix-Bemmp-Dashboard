@@ -154,3 +154,106 @@ export async function reconcileOpen(state, openTickets) {
   if (error) throw error;
   return data?.[0] ?? { reopened: 0, closed: 0 };
 }
+
+/* ------------------------------------------------------------------ *
+ * The four columns the workbook worked out rather than collected.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Days between two dates, or null if either is missing or unreadable.
+ *
+ * Whole days on the calendar, not elapsed time: both sides are pinned to
+ * midnight before subtracting, so a PO raised at 18:00 and a PR at 09:00
+ * the next morning is one day rather than nought.
+ */
+function daysBetween(later, earlier) {
+  const a = dayStart(later);
+  const b = dayStart(earlier);
+  if (a === null || b === null) return null;
+  return Math.round((a - b) / 86400000);
+}
+
+/**
+ * A stored date, pinned to midnight — or null.
+ *
+ * Deliberately strict. This fell back to `new Date(value)` for anything
+ * that was not obviously ISO, and that constructor will take almost any
+ * string and return some date: "PI-4471" came back as a day in the fifth
+ * century and turned a purchase delay into -892,770 days. A PO number in
+ * a date column is the kind of thing that is already in the source
+ * sheet, so it has to read as "nothing here" rather than as a number
+ * somebody might act on.
+ *
+ * Everything real arrives from Postgres as YYYY-MM-DD, with or without a
+ * time after it, so nothing legitimate needs the leniency.
+ */
+function dayStart(value) {
+  if (value == null || value === '') return null;
+  // An epoch, which is how `now` arrives and how a caller would pass a
+  // fixed reference day. Numbers are unambiguous; strings are not, which
+  // is the whole point of the rest of this function.
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    const d = new Date(value);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime())
+      ? null
+      : Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]|$)/.exec(String(value).trim());
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // 2026-13-40 parses as a shape and is not a day.
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return Date.UTC(y, mo - 1, d);
+}
+
+/** Today, as a date rather than a moment. */
+const today = () => {
+  const d = new Date();
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+};
+
+/**
+ * What each calculated column comes to, given everything else on the row.
+ *
+ * These were four formulas in the workbook and four columns people
+ * retyped into it. Three of them count from today, so a stored answer is
+ * wrong by the next morning — they are worked out when they are shown
+ * and never written down, which is also why they cannot be edited.
+ *
+ * PI TAT is a number of days, like the other three. The workbook's
+ * formula reads as though it gives a verdict instead, and across eight
+ * and a half thousand rows it never once did: the dates there are text,
+ * so the subtraction always errored and the fallback always won. The
+ * column people actually read has therefore always been a day count,
+ * and that is what it stays — once there is a PR it is how long the PI
+ * took, and until then it is how long it has been waiting.
+ */
+export const COMPUTED = {
+  standby_days: (n, now) => daysBetween(now, n.standby_given_date),
+
+  pi_tat: (n, now) => {
+    const taken = daysBetween(n.pr_date, n.pi_date);
+    return taken !== null ? taken : daysBetween(now, n.pi_date);
+  },
+
+  pr_conversion_days: (n) => daysBetween(n.po_date, n.pr_date),
+
+  purchase_delay_days: (n, now) => daysBetween(now, n.po_date),
+};
+
+/** True for the columns nobody types into. */
+export const isComputed = (key) => Object.hasOwn(COMPUTED, key);
+
+/**
+ * One calculated column for one row. Null where the dates it needs are
+ * not there yet, which is most of them for most of the year.
+ */
+export function computeField(key, note, now = today()) {
+  const fn = COMPUTED[key];
+  if (!fn) return null;
+  return fn(note ?? {}, now);
+}

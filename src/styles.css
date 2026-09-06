@@ -3266,3 +3266,19 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
 }
 .colfilter-foot button:hover:not(:disabled) { color: var(--ink); border-color: var(--baseline); }
 .colfilter-foot button:disabled { opacity: 0.45; cursor: default; }
+
+/* A column the app works out. Reads as a value, not as a field somebody
+   forgot to fill in — there is nothing to type and no way to type it. */
+.cell-computed {
+  display: inline-block; padding: 6px 9px;
+  font-size: 12.5px; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.field-computed {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 0; font-size: 13px; color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.field-computed em {
+  font-style: normal; font-size: 11px; color: var(--text-muted);
+}
