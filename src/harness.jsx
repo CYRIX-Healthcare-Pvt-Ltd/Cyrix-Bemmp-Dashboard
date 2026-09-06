@@ -61,24 +61,40 @@ const NARROW = '(max-width: 860px)';
  * browser really reads rather than a second guess at it.
  */
 function TrackerHarness() {
-  const ds = useMemo(() => makeDataset([
-    { ticketNo: 289392, loggedDay: day('2026-07-08'), district: 'Ernakulam', facilityName: 'DH Aluva',
-      equipment: 'Electrolyte Analyser', status: 'Open' },
-    { ticketNo: 289391, loggedDay: day('2026-07-24'), district: 'Thrissur', facilityName: 'GH Chalakudy',
-      equipment: 'Electrolyte Analyser', status: 'Open' },
-    { ticketNo: 289390, loggedDay: day('2026-08-26'), district: 'Kollam', facilityName: 'THQH Punalur',
-      equipment: 'Laryngoscope', status: 'Open' },
-    { ticketNo: 289389, loggedDay: day('2026-08-29'), district: 'Kannur', facilityName: 'DH Thalassery',
-      equipment: 'BP Apparatus', status: 'Open' },
-    { ticketNo: 289388, loggedDay: day('2026-05-10'), district: 'Palakkad', facilityName: 'DH Palakkad',
-      equipment: 'Cautery', status: 'Open' },
-  ]), []);
+  /*
+   * A backlog the size of the real one.
+   *
+   * The tracker holds every call without a resolved date, which on
+   * Kerala is around eight thousand three hundred rather than the nine
+   * hundred it used to show. Thirty-eight columns across that many rows
+   * is the thing worth knowing before anybody opens it in a meeting, and
+   * five invented rows say nothing about it.
+   */
+  const ds = useMemo(() => makeDataset(
+    Array.from({ length: 8300 }, (_, i) => ({
+      ticketNo: 280000 + i,
+      loggedDay: day('2026-07-08'),
+      district: ['Ernakulam', 'Thrissur', 'Kollam', 'Kannur', 'Palakkad'][i % 5],
+      facilityName: `DH ${i % 400}`,
+      equipment: ['Electrolyte Analyser', 'Laryngoscope', 'BP Apparatus', 'Cautery'][i % 4],
+      manufacturer: ['B.BRAUN', 'Easy care', 'Philips'][i % 3],
+      model: `Model ${i % 60}`,
+      status: 'work in progress',
+      engineer: `CYR${i % 90} - Engineer ${i % 90}`,
+      parkedReason: i % 3 ? 'rber' : '',
+    })),
+  ), []);
+
+  // A new array every render would invalidate records, which invalidates
+  // load, which sets notes, which renders again — the loop the real App
+  // avoids by passing a memoised slice.
+  const allRows = useMemo(() => [...Array(ds.rows).keys()], [ds]);
 
   return (
     <div className="mx-auto" style={{ padding: 16 }}>
       <MeetingTab
         ds={ds}
-        rows={[...Array(ds.rows).keys()]}
+        rows={allRows}
         unresolvedRows={null}
         referenceDay={day('2026-09-06')}
         canEdit

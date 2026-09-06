@@ -3489,3 +3489,25 @@ body.is-resizing * { cursor: col-resize !important; }
   border-radius: var(--radius-sm);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/*
+ * A fixed layout, which virtual rows require.
+ *
+ * With an automatic layout the widths are computed from the rows that
+ * happen to be in the DOM — which, once only the visible ones are built,
+ * means every column jumps as you scroll. Fixed takes the widths from
+ * the headings, so they hold still whatever is on screen.
+ */
+.meeting-table { table-layout: fixed; }
+.meeting-table td, .meeting-table th { overflow: hidden; }
+
+/* One height, because the arithmetic that decides which rows to draw
+   depends on knowing it without measuring anything. */
+.meeting-table tbody tr { height: 38px; }
+.meeting-table tbody tr.spacer { padding: 0; border: 0; }
+.meeting-table tbody tr.spacer td { padding: 0; border: 0; }
+
+/* Two lines rather than three: three does not fit a 38px row, and a row
+   that quietly grows past the height the window arithmetic assumes puts
+   the scrollbar out of step with the rows. */
+.grid-cell { -webkit-line-clamp: 2; line-clamp: 2; }

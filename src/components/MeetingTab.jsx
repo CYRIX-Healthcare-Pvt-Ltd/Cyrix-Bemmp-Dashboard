@@ -510,26 +510,41 @@ function LogDialog({ state, ticket, onClose }) {
  * The low fill rate was probably the cause and not the reason: nothing
  * below the first two clears 3%, and reaching them cost a click per row.
  */
+const KIND_WIDTH = { date: 128, number: 108, select: 168, text: 190 };
+
 const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
   key: f.key,
   label: f.label,
   type: f.kind === 'number' ? 'num' : 'text',
   align: f.kind === 'number' ? 'num' : undefined,
+  w: f.width ?? KIND_WIDTH[f.kind] ?? 190,
   /** Present on exactly the columns that are editable. */
   entry: f,
 }));
 
 function exportColumns(hasZone) {
   return [
-    { key: 'ticket', label: 'Ticket', type: 'text' },
+    { key: 'ticket', label: 'Ticket', type: 'text', w: 118 },
     /* "Down days", which is what the business calls it. On this tab it is exact:
        the tracker is open calls only, so days since logging is days the
        equipment has been down. */
-    { key: 'age', label: 'Down Days', type: 'num', align: 'num' },
-    ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text' }] : []),
-    { key: 'district', label: 'District', type: 'text' },
-    { key: 'facility', label: 'Facility', type: 'text' },
-    { key: 'equipment', label: 'Equipment', type: 'text' },
+    { key: 'age', label: 'Down Days', type: 'num', align: 'num', w: 76 },
+    ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text', w: 96 }] : []),
+    { key: 'district', label: 'District', type: 'text', w: 120 },
+    { key: 'facility', label: 'Facility', type: 'text', w: 190 },
+    { key: 'equipment', label: 'Equipment', type: 'text', w: 180 },
+    /* The rest of what the TM export knows about the machine and who has
+       it. Asked for by the meeting, which reads these off the workbook
+       today and had to keep both open side by side to do it. */
+    { key: 'barcode', label: 'Barcode', type: 'text', w: 120 },
+    { key: 'manufacturer', label: 'Manufacturer', type: 'text', w: 150 },
+    { key: 'model', label: 'Model', type: 'text', w: 140 },
+    { key: 'logged', label: 'Logged', type: 'text', w: 118 },
+    { key: 'status', label: 'Status', type: 'text', w: 140 },
+    { key: 'assigned', label: 'Assigned', type: 'text', w: 190 },
+    /* Why a call is parked. The reason the backlog is what it is, and
+       until now the reason it was hidden. */
+    { key: 'remark', label: 'Ticket remark', type: 'text', w: 170 },
     /*
      * Two money columns, because they answer the two questions the meeting
      * actually asks. The rate is what this ticket costs per day it stays open;
@@ -539,8 +554,8 @@ function exportColumns(hasZone) {
      */
     /* The heading carries the unit, so the cells do not repeat it. A column of
        "₹50/d" spends its width saying "per day" on every row. */
-    { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num' },
-    { key: 'accrued', label: 'Penalty', type: 'num', align: 'num' },
+    { key: 'rate', label: 'Per day penalty', type: 'num', align: 'num', w: 110 },
+    { key: 'accrued', label: 'Penalty', type: 'num', align: 'num', w: 110 },
     ...ENTRY_COLUMNS,
   ];
 }
@@ -700,6 +715,13 @@ export default function MeetingTab({
     const district = label(dict.district, cols.district[row]);
     const facility = label(dict.facilityName, cols.facilityName[row]);
     const equipment = label(dict.equipment, cols.equipment[row]);
+    const barcode = label(dict.barcode, cols.barcode[row], '');
+    const manufacturer = label(dict.manufacturer, cols.manufacturer[row], '');
+    const model = label(dict.model, cols.model[row], '');
+    const status = label(dict.status, cols.status[row], '');
+    const assigned = label(dict.engineer, cols.engineer[row], '');
+    const remark = label(dict.parkedReason, cols.parkedReason[row], '');
+    const logged = cols.loggedDay[row] ? formatDay(cols.loggedDay[row]) : '';
     return {
       row,
       ticket,
@@ -724,7 +746,16 @@ export default function MeetingTab({
          for the same reason. Floored because a ticket still inside its grace
          window owes nothing and the subtraction would otherwise go negative. */
       accrued: Math.max(0, cols.downDays[row] - grace) * cols.dayRate[row],
-      haystack: `${ticket} ${zone} ${district} ${facility} ${equipment}`.toLowerCase(),
+      barcode,
+      manufacturer,
+      model,
+      logged,
+      status,
+      assigned,
+      remark,
+      // Everything somebody might have in front of them when they come
+      // looking: a barcode off the machine, an engineer's name, a model.
+      haystack: `${ticket} ${zone} ${district} ${facility} ${equipment} ${barcode} ${manufacturer} ${model} ${status} ${assigned} ${remark}`.toLowerCase(),
     };
   }), [ds, rows, cols, dict, referenceDay, hasZone]);
 
@@ -843,6 +874,56 @@ export default function MeetingTab({
     [searched, columns, activeFilters],
   );
 
+  /*
+   * How many rows to draw, and where.
+   *
+   * The tracker holds every call without a resolved date — about eight
+   * thousand three hundred on Kerala — and thirty-eight columns across
+   * all of them is a quarter of a million cells and half a million DOM
+   * nodes. Measured: sixteen and a half seconds before the first row
+   * appeared, which is not a grid, it is a wait.
+   *
+   * So only what is on screen is built, with a band above and below so
+   * scrolling has somewhere to go before the next batch is needed, and
+   * two spacer rows standing in for the height of everything else. The
+   * scrollbar is the true size of the backlog; the DOM is a window onto
+   * it.
+   *
+   * Fixed row height is what makes the arithmetic possible, and is why
+   * the table lays out fixed with a width on every column: with an
+   * automatic layout the widths would be computed from whichever forty
+   * rows happened to be in view and would jump as you scrolled.
+   */
+  const ROW_H = 38;
+  const OVERSCAN = 12;
+  /*
+   * A callback ref, not a useRef with an empty dependency list.
+   *
+   * The scroll box does not exist on the first render — the component
+   * shows a loader until the notes arrive — so an effect that looks once
+   * at mount finds null, attaches nothing, and never looks again. The
+   * scrollbar then worked and the window never moved: the same forty
+   * rows at the top, the middle and the bottom.
+   *
+   * A callback ref runs when the node appears and again when it goes, so
+   * the listener follows the element rather than the mount.
+   */
+  const [box, setBox] = useState(null);
+  const scrollBox = useCallback((el) => setBox(el), []);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [boxH, setBoxH] = useState(600);
+
+  useEffect(() => {
+    if (!box) return undefined;
+    const onScroll = () => setScrollTop(box.scrollTop);
+    box.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(() => setBoxH(box.clientHeight || 600));
+    ro.observe(box);
+    setBoxH(box.clientHeight || 600);
+    setScrollTop(box.scrollTop);
+    return () => { box.removeEventListener('scroll', onScroll); ro.disconnect(); };
+  }, [box]);
+
   const visible = useMemo(() => {
     let list = searched;
 
@@ -859,6 +940,21 @@ export default function MeetingTab({
     }
     return list;
   }, [searched, sort, columns, activeFilters]);
+
+  /*
+   * The slice of rows actually built.
+   *
+   * Clamped to what exists, so a filter that shrinks the list while it
+   * is scrolled down cannot leave the window past the end showing
+   * nothing on a table that plainly has rows in it.
+   */
+  const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const count = Math.ceil(boxH / ROW_H) + OVERSCAN * 2;
+  const start = Math.min(first, Math.max(0, visible.length - 1));
+  const end = Math.min(visible.length, start + count);
+  const window_ = visible.slice(start, end);
+  const before = start;
+  const after = Math.max(0, visible.length - end);
 
   /*
    * The tracker as a spreadsheet.
@@ -1092,7 +1188,7 @@ export default function MeetingTab({
 
       {view === 'tickets' && (
       <div className="panel">
-        <div className="table-scroll meeting-scroll">
+        <div className="table-scroll meeting-scroll" ref={scrollBox}>
           <table className="meeting-table is-sortable">
             <thead>
               <tr>
@@ -1173,7 +1269,9 @@ export default function MeetingTab({
               </tr>
             </thead>
             <tbody>
-              {visible.map((r) => {
+              {/* The height of everything above the window. */}
+              {before > 0 && <tr className="spacer" style={{ height: before * ROW_H }} />}
+              {window_.map((r) => {
                 const note = notes.get(r.ticket);
                 return (
                   <tr key={r.ticket}>
@@ -1265,6 +1363,7 @@ export default function MeetingTab({
                   </tr>
                 );
               })}
+              {after > 0 && <tr className="spacer" style={{ height: after * ROW_H }} />}
             </tbody>
           </table>
 

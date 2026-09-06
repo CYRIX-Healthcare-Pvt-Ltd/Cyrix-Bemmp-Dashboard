@@ -1248,16 +1248,20 @@ export default function App() {
                * The dimension filters still apply; only the date window is lifted,
                * exactly as it is for penalty accrual.
                *
-               * Open only, not everything without a resolved date: parked calls
-               * carry a Ticket Remark putting them outside service scope, they
-               * accrue no penalty at all, and there are ten of them for every open
-               * one — enough to bury the agenda in rows that cost nothing.
+               * Everything without a resolved date, not the open bucket. This was
+               * open-only, on the argument that parked calls carry a Ticket
+               * Remark putting them outside service scope and there are ten of
+               * them for every open one. The meeting asked for the other nine:
+               * a call parked behind a remark is still a machine that is down,
+               * and not seeing it is how it stays parked. The remark is a
+               * column now, so the distinction is on screen and filterable
+               * rather than applied before anybody sees it.
                */
               <Boundary name="The ticket tracker" resetKey={`${stateId}-${callView}`}>
               <MeetingTab
                 key={`tracker-${stateId}`}
                 ds={ds}
-                rows={rowsInBucket(ds, undatedIdx, BUCKET.OPEN)}
+                rows={unresolvedRows}
                 unresolvedRows={unresolvedRows}
                 referenceDay={referenceDay}
                 canEdit={canEditMeeting(profile)}
