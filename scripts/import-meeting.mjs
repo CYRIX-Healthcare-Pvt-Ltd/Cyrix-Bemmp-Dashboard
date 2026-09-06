@@ -101,23 +101,30 @@ const toText = (v) => {
  * source — every one of the 7,508 rows leaves them blank. They are mapped
  * anyway so the grid has somewhere to put them from now on.
  */
+/*
+ * X, AA, AD and AH are deliberately absent.
+ *
+ * Standby days, PI TAT, PR conversion and purchase delay are arithmetic
+ * on the dates either side of them, and three of the four count from
+ * today — so a value imported here is wrong by the next morning and
+ * stays wrong. The app works them out when it draws them (see COMPUTED
+ * in src/data/meeting.js) and there is no way to type into them, so
+ * bringing the workbook stale answers along would put numbers in the
+ * table that nothing reads and nobody can correct.
+ */
 const FIELDS = [
   ['S', 'penalty_type', toText],
   ['T', 'current_status', toText],
   ['U', 'trc_given_date', toDate],
   ['V', 'trc_spare_received_date', toDate],
   ['W', 'standby_given_date', toDate],
-  ['X', 'standby_days', toInt],
   ['Y', 'pi_no', toText],
   ['Z', 'pi_date', toDate],
-  ['AA', 'pi_tat', toInt],
   ['AB', 'pr_no', toText],
   ['AC', 'pr_date', toDate],
-  ['AD', 'pr_conversion_days', toInt],
   ['AE', 'pr_remark', toText],
   ['AF', 'po_no', toText],
   ['AG', 'po_date', toDate],
-  ['AH', 'purchase_delay_days', toInt],
   ['AI', 'vendor_name', toText],
   ['AJ', 'payment_request_date', toDate],
   ['AK', 'payment_date', toDate],
