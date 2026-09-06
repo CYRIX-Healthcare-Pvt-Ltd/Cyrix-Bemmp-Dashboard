@@ -569,9 +569,27 @@ export default function MeetingTab({
   /** Which column's list is open. One at a time. */
   const [openFilter, setOpenFilter] = useState(null);
 
+  const [error, setError] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [log, setLog] = useState(null);
+
+  /*
+   * Escape closes the innermost thing that is open.
+   *
+   * Every layer listens on the document, so without this a filter list
+   * open inside full screen took both away with one press — the list you
+   * meant to close, and the screen you were reading it on. Moved below
+   * the dialogs it has to know about, because a dependency array naming
+   * a const declared further down is read during render and throws.
+   */
   useEffect(() => {
     if (!full) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setFull(false); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      // A list or a dialog is nearer the front; its own handler has it.
+      if (openFilter || detail || log) return;
+      setFull(false);
+    };
     document.addEventListener('keydown', onKey);
     // Nothing should scroll behind it, the same way the entry form does it.
     const prev = document.body.style.overflow;
@@ -580,10 +598,7 @@ export default function MeetingTab({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [full]);
-  const [error, setError] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [log, setLog] = useState(null);
+  }, [full, openFilter, detail, log]);
   const [sync, setSync] = useState(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState(null); // { key, dir } — null keeps the export's order
