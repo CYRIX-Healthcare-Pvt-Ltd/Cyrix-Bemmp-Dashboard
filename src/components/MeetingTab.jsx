@@ -774,6 +774,11 @@ export default function MeetingTab({
       : joined;
   }, [joined, query]);
 
+  const activeFilters = useMemo(
+    () => Object.entries(filters).filter(([, v]) => v && v.length),
+    [filters],
+  );
+
   /*
    * Each column's list, narrowed by the other columns.
    *
@@ -790,11 +795,6 @@ export default function MeetingTab({
   const choices = useMemo(
     () => buildChoices(searched, columns, activeFilters),
     [searched, columns, activeFilters],
-  );
-
-  const activeFilters = useMemo(
-    () => Object.entries(filters).filter(([, v]) => v && v.length),
-    [filters],
   );
 
   const visible = useMemo(() => {
