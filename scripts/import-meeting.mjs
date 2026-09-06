@@ -278,12 +278,15 @@ async function main() {
   /*
    * Write only tickets that already have a row here.
    *
-   * Without it the upsert *creates* a note for every ticket in the workbook,
-   * including several thousand the tracker has never shown — the sheet carries
-   * the whole unresolved backlog, open and parked, while `ensureRows` only ever
-   * makes rows for open calls. Those extra rows are not wrong, but they are
-   * meeting notes for calls nobody is meeting about, and once written the only
-   * way back is to work out which ones this run invented.
+   * This used to be the way to run it. The sheet carries the whole unresolved
+   * backlog, open and parked, while the tracker only ever showed open calls,
+   * so without the flag most of what got written was meeting notes for calls
+   * nobody was meeting about.
+   *
+   * The tracker shows every unresolved call now, which is the population the
+   * sheet already covers, so the plain run is the right one: 7,295 of the
+   * 8,295 rows on screen carry workbook data, against 516 under this flag.
+   * Keep it for topping up an existing set without creating rows.
    */
   const onlyExisting = args.includes('--only-existing');
   const state = (args[args.indexOf('--state') + 1] ?? 'kl').toLowerCase();
