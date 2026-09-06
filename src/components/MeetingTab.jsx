@@ -52,6 +52,9 @@ function stamp(iso) {
  */
 const CHOICE_LIMIT = 200;
 
+/** Where the filter panel's dragged size is kept, for every column. */
+const SIZE_KEY = 'bemmp.tracker.filter-size';
+
 /**
  * One column's filter: what is in this column, and which of it to keep.
  *
@@ -64,6 +67,34 @@ const CHOICE_LIMIT = 200;
 export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
   const [find, setFind] = useState('');
   const ref = useRef(null);
+
+  /*
+   * The size somebody dragged this to, kept for the next one they open.
+   *
+   * One size for every column rather than one each: a person who widens
+   * a filter because their statuses are long wants the next filter wide
+   * too, and being asked to drag thirty of them is worse than the
+   * truncation it fixes.
+   */
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    try {
+      const saved = JSON.parse(localStorage.getItem(SIZE_KEY) ?? 'null');
+      if (saved?.w) el.style.width = `${saved.w}px`;
+      if (saved?.h) el.style.height = `${saved.h}px`;
+    } catch { /* blocked storage; the default size is fine */ }
+
+    const ro = new ResizeObserver(() => {
+      try {
+        localStorage.setItem(SIZE_KEY, JSON.stringify({
+          w: Math.round(el.offsetWidth), h: Math.round(el.offsetHeight),
+        }));
+      } catch { /* see above */ }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -115,7 +146,7 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
               checked={picked.includes(v)}
               onChange={() => toggle(v)}
             />
-            <span className="colfilter-value">{text}</span>
+            <span className="colfilter-value" title={text}>{text}</span>
             <span className="colfilter-count">{n}</span>
           </label>
         ))}
