@@ -1891,7 +1891,17 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
  * the entries on the right, which are not. The divider is a real border rather
  * than a colour wash so it survives both themes and a printout.
  */
-.meeting-scroll { max-height: 68vh; overflow: auto; }
+/*
+ * A floor as well as a ceiling.
+ *
+ * The box scrolls, so it clips what overflows it — including a filter
+ * panel, which hangs out of a heading inside it. With rows that never
+ * showed, because the box was always taller than the panel. Filter a
+ * column down to nothing and the box shrank to its own header, taking
+ * the panel with it: the list you were about to tick was cut off two
+ * rows in, and there was no way back except Escape.
+ */
+.meeting-scroll { max-height: 68vh; min-height: min(420px, 68vh); overflow: auto; }
 .meeting-table { font-size: 12.5px; }
 .meeting-table td { vertical-align: middle; }
 
