@@ -3601,3 +3601,18 @@ body.is-resizing * { cursor: col-resize !important; }
 @media (prefers-reduced-motion: reduce) {
   .tracker-progress-fill { transition: none; }
 }
+
+/* The actual message from whatever failed. Monospace because it is often a
+   thing to be read out or searched for rather than read. */
+.status-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--page-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  max-width: 46rem;
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+}

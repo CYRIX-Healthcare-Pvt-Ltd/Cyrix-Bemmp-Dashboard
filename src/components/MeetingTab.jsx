@@ -508,6 +508,18 @@ function LogDialog({ state, ticket, onClose }) {
  * the meeting entries" is a thing somebody waiting can recognise; "fetching
  * meeting_note" is not.
  */
+/*
+ * The log column's width.
+ *
+ * It is the one column not in `columns` — it carries a button rather than a
+ * value, so it has no filter, no sort and no entry field, and it is written
+ * by hand at the end of both rows. That is exactly why it needs stating
+ * here: the table is laid out at the sum of its columns, and a column left
+ * out of that sum is a column with nothing left over for it. It rendered at
+ * nought pixels wide, heading and button and all.
+ */
+const LOG_WIDTH = 96;
+
 const LOAD_PHASES = [
   { key: 'prepare', label: 'Preparing the tracker', weight: 0.3 },
   { key: 'closed', label: 'Checking what has closed since the last export', weight: 0.1 },
@@ -625,7 +637,7 @@ export default function MeetingTab({
    * being the widths. Given a number, every column is exactly what it says.
    */
   const tableWidth = useMemo(
-    () => columns.reduce((n, c) => n + (widths[c.key] ?? c.w ?? 0), 0),
+    () => columns.reduce((n, c) => n + (widths[c.key] ?? c.w ?? 0), 0) + LOG_WIDTH,
     [columns, widths],
   );
 
@@ -1323,7 +1335,9 @@ export default function MeetingTab({
                     />
                   </th>
                 ))}
-                <th>Log</th>
+                <th style={{ width: LOG_WIDTH, minWidth: LOG_WIDTH, maxWidth: LOG_WIDTH }}>
+                  Log
+                </th>
               </tr>
             </thead>
             <tbody>

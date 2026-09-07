@@ -548,11 +548,25 @@ export default function App() {
        * shown is a *different* export and silently substituting one for another
        * is how somebody reads Monday's figures on Thursday.
        */
+      /*
+       * Kept so the fallback can report it.
+       *
+       * Falling back is right; reporting the fallback's own failure is not.
+       * On the hosted build there are no local artifacts and never will be —
+       * a missing path is rewritten to index.html, so the fetch succeeds,
+       * the JSON parse does not, and everybody was shown "Unexpected token
+       * '<'" with an instruction to run a build script they have no
+       * checkout for. The thing that actually went wrong was the shared
+       * export, and it was only ever written to the console.
+       */
+      let sharedError = null;
+
       const tryShared = async () => {
         try {
           const s = await fetchSharedDataset(target, theirs);
           return s ? datasetFrom(s.meta, s.buffer, 'shared') : null;
         } catch (e) {
+          sharedError = e;
           console.error(`Shared ${target} export could not be read, falling back:`, e);
           return null;
         }
@@ -570,7 +584,14 @@ export default function App() {
         const s = await tryShared();
         if (s) return s;
       }
-      return loadDataset(target, dataVersion);
+      try {
+        return await loadDataset(target, dataVersion);
+      } catch (e) {
+        // The local copy is a developer's convenience. If the published one
+        // is what failed, that is the sentence worth putting on screen.
+        if (sharedError) throw sharedError;
+        throw e;
+      }
     })();
 
     load
@@ -878,12 +899,15 @@ export default function App() {
 
   if (error) {
     return (
-      <>
-        <div className="status-msg">
-          <p>{error}</p>
-          <p>Run <code>npm run build:data</code>, then reload.</p>
-        </div>
-      </>
+      <div className="status-msg">
+        <p>The dashboard could not load this contract's export.</p>
+        <p className="status-detail">{error}</p>
+        {/* Only a checkout has a build script to run. Everybody else needs
+            to know who to tell, not what command to type. */}
+        {isConfigured()
+          ? <p>Try reloading. If it keeps happening, tell whoever published the export.</p>
+          : <p>Run <code>npm run build:data</code>, then reload.</p>}
+      </div>
     );
   }
 
