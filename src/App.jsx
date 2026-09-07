@@ -343,10 +343,11 @@ export default function App() {
   });
   /* Which view of the open backlog is showing. Either a bucket, or the
      tracker — the same rows in the form the daily meeting works through. */
-  const [callView, setCallView] = useState(() => {
+  const [wantedCallView, setCallView] = useState(() => {
     const want = savedView().callView;
-    // A saved tracker is left to the effect below, which puts it back on
-    // the open bucket for anybody who may not see the tracker at all.
+    // Whether this account may open the tracker is not known yet — see
+    // `callView` below, which answers that on every render rather than
+    // correcting this once and losing what was chosen.
     const known = want === TRACKER || Object.values(BUCKET).includes(want);
     return known ? want : BUCKET.OPEN;
   });
@@ -366,6 +367,35 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   /* Which export the current filter selection was built for. See the loader. */
   const loadedSig = useRef(null);
+
+  /*
+   * The meeting is a working surface, not a report, so directors do not get the
+   * tab — and a build with no Supabase has nowhere to save, so it does not
+   * appear there either. Neither is the actual control: the row-level policy is,
+   * and it refuses a director's write whether or not they can see this.
+   */
+  const showMeeting = isConfigured() && canEditMeeting(profile);
+
+  /*
+   * The view actually shown: the one chosen, unless it is the tracker and the
+   * tracker is not available.
+   *
+   * Derived every render rather than corrected once, and that is the point.
+   * It used to be an effect that reset the state — but `profile` is null
+   * while it is loading as well as when there is nobody, so on every reload
+   * the effect fired before the profile arrived, moved the tracker to Open
+   * calls, and the effect that remembers the view then saved Open calls over
+   * it. Reloading on the tracker put you on Open calls and threw away the
+   * fact that you had ever been anywhere else.
+   *
+   * This keeps the choice. While the profile is in flight the open bucket
+   * shows, and the moment it lands the tracker comes back on its own.
+   * Somebody who genuinely cannot open it sees the bucket for as long as
+   * that is true, and their saved choice costs nothing.
+   */
+  const callView = wantedCallView === TRACKER && !showMeeting
+    ? BUCKET.OPEN
+    : wantedCallView;
 
   /*
    * A build with no Supabase configured is a supported state, not a broken one:
@@ -837,14 +867,6 @@ export default function App() {
   }, []);
 
   /*
-   * The meeting is a working surface, not a report, so directors do not get the
-   * tab — and a build with no Supabase has nowhere to save, so it does not
-   * appear there either. Neither is the actual control: the row-level policy is,
-   * and it refuses a director's write whether or not they can see this.
-   */
-  const showMeeting = isConfigured() && canEditMeeting(profile);
-
-  /*
    * Accounts is the one section that is not about the contract, so it sits at
    * the end of the rail rather than among the measures — and only for an admin.
    * As always the rail is a courtesy: `/api/users` re-checks the role against
@@ -858,23 +880,18 @@ export default function App() {
     [profile],
   );
 
-  // Losing the tracker on sign-out must not leave the app looking at it.
-  useEffect(() => {
-    if (callView === TRACKER && !showMeeting) setCallView(BUCKET.OPEN);
-  }, [callView, showMeeting]);
-
   /*
-   * Remember the view, once it has settled.
+   * Remember the view.
    *
-   * After the guard above, not before: a saved tracker that this account
-   * cannot open is corrected on the way in, and writing first would save
-   * the value the correction is about to throw away.
+   * What was chosen, not what is on screen: the two differ while the profile
+   * is loading, and saving the screen would write the open bucket over the
+   * tracker every time somebody reloaded on it.
    */
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView }));
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView: wantedCallView }));
     } catch { /* site data blocked; the app works, it just forgets */ }
-  }, [tab, callView]);
+  }, [tab, wantedCallView]);
 
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
