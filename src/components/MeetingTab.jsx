@@ -285,23 +285,24 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
    * stored, and unticking one from the all-state stores everything else.
    */
   const all = choices.map(([v]) => v);
-  const unfiltered = picked.length === 0;
-  const isTicked = (v) => unfiltered || picked.includes(v);
+  /* null is "no filter on this column", and everything is therefore in. */
+  const unfiltered = picked === null;
+  const chosen = unfiltered ? all : picked;
+  const isTicked = (v) => chosen.includes(v);
 
-  const toggle = (v) => {
-    if (unfiltered) return onChange(all.filter((x) => x !== v));
-    const next = picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v];
-    // Ticking the last one back on is the same as no filter, and storing it
-    // as one would leave the funnel marked on a column that excludes nothing.
-    return onChange(next.length === all.length ? [] : next);
-  };
+  /* Every box ticked is the same as no filter, and storing it as one would
+     leave the funnel marked on a column that excludes nothing. */
+  const store = (next) => onChange(next.length === all.length ? null : next);
 
-  /** A whole year or month at once, from the tree. */
+  const toggle = (v) => store(
+    chosen.includes(v) ? chosen.filter((x) => x !== v) : [...chosen, v],
+  );
+
+  /** Several at once: a year, a month, or everything the search left. */
   const setMany = (vals, on) => {
-    const base = new Set(unfiltered ? all : picked);
+    const base = new Set(chosen);
     for (const v of vals) { if (on) base.add(v); else base.delete(v); }
-    const next = [...base];
-    onChange(next.length === all.length ? [] : next);
+    store([...base]);
   };
 
   /*
@@ -366,6 +367,18 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
     return out;
   }, [tree, needle, expanded]);
 
+  /*
+   * What "(Select all)" covers: everything, or everything the search left.
+   *
+   * Taken from `matched` rather than `shown`, which is capped — a cap is
+   * about how much to draw, and a person who searched and pressed select
+   * all means the search, not the first two hundred of it.
+   */
+  const scope = matched.map(([v]) => v);
+  const scopeCount = matched.reduce((t, [, n]) => t + n, 0);
+  const ticked = scope.filter((v) => isTicked(v)).length;
+  const scopeState = ticked === 0 ? 'off' : (ticked === scope.length ? 'on' : 'some');
+
   const onExpand = (key) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -383,6 +396,28 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
           onChange={(e) => setFind(e.target.value)}
         />
       </div>
+
+      {/*
+        * Excel's "(Select All)", and it is here for the reason Excel has
+        * it: picking one district out of fourteen should be untick-all
+        * then tick-one, not thirteen separate unticks.
+        *
+        * It acts on whatever the search has left, so after typing
+        * "Kannur" it means those. Tri-state, because "some of them" is a
+        * real answer and a plain tick would lie about it.
+        */}
+      <label className="colfilter-row colfilter-all">
+        <input
+          type="checkbox"
+          checked={scopeState === 'on'}
+          ref={(el) => { if (el) el.indeterminate = scopeState === 'some'; }}
+          onChange={() => setMany(scope, scopeState !== 'on')}
+        />
+        <span className="colfilter-value">
+          {needle ? `(Select these ${scope.length})` : '(Select all)'}
+        </span>
+        <span className="colfilter-count">{scopeCount}</span>
+      </label>
 
       <div className={`colfilter-list${tree ? ' is-tree' : ''}`}>
         {shown.length === 0 && <p className="colfilter-none">Nothing matches “{find}”.</p>}
@@ -428,20 +463,10 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
       <div className="colfilter-foot">
         {/* Acts on what the search left, so "All" after typing "Cautery"
             means those, which is the only reading that is any use. */}
-        <button
-          type="button"
-          onClick={() => {
-            const next = [...new Set([
-              ...(unfiltered ? all : picked), ...shown.map(([v]) => v),
-            ])];
-            onChange(next.length === all.length ? [] : next);
-          }}
-        >
-          Select all
-        </button>
         {/* Named for what it does to the column, not to the boxes: it takes
-            the filter off, which is why it is dead when there is none. */}
-        <button type="button" onClick={() => onChange([])} disabled={unfiltered}>
+            the filter off, which is why it is dead when there is none. The
+            ticking is all done by the row at the top now. */}
+        <button type="button" onClick={() => onChange(null)} disabled={unfiltered}>
           Clear filter
         </button>
       </div>
@@ -1172,8 +1197,21 @@ export default function MeetingTab({
       : joined;
   }, [joined, query]);
 
+  /*
+   * A column with no entry here is not filtered. A column with an empty
+   * list is filtered to nothing.
+   *
+   * Those used to be the same value, which is why there was no way to
+   * unselect all: emptying the list read as "no filter" and put every row
+   * back. Isolating one district out of fourteen therefore meant unticking
+   * thirteen, one at a time.
+   *
+   * `Array.isArray` rather than a length test, so the empty list survives
+   * into applyFilters — where `[].includes(x)` is false for every x, which
+   * is exactly what filtering to nothing means.
+   */
   const activeFilters = useMemo(
-    () => Object.entries(filters).filter(([, v]) => v && v.length),
+    () => Object.entries(filters).filter(([, v]) => Array.isArray(v)),
     [filters],
   );
 
@@ -1600,9 +1638,9 @@ export default function MeetingTab({
                       <span className="th-filter-wrap">
                         <button
                           type="button"
-                          className={`th-filter${filters[c.key]?.length ? ' is-on' : ''}`}
+                          className={`th-filter${Array.isArray(filters[c.key]) ? ' is-on' : ''}`}
                           onClick={() => setOpenFilter(openFilter === c.key ? null : c.key)}
-                          aria-label={filters[c.key]?.length
+                          aria-label={Array.isArray(filters[c.key])
                             ? `${c.label}: ${filters[c.key].length} selected`
                             : `Filter by ${c.label}`}
                           title={`Filter by ${c.label}`}
@@ -1612,7 +1650,10 @@ export default function MeetingTab({
                                strokeLinejoin="round" aria-hidden="true">
                             <path d="M3 5h18l-7 8v6l-4 2v-8z" />
                           </svg>
-                          {filters[c.key]?.length > 0 && (
+                          {/* Shown at nought as well: a column filtered to
+                              nothing is the one most worth marking, and an
+                              unmarked funnel over an empty grid is a puzzle. */}
+                          {Array.isArray(filters[c.key]) && (
                             <span className="th-filter-n">{filters[c.key].length}</span>
                           )}
                         </button>
@@ -1621,8 +1662,17 @@ export default function MeetingTab({
                             label={c.label}
                             isDate={isDateColumn(c)}
                             choices={choices[c.key]}
-                            picked={filters[c.key] ?? []}
-                            onChange={(next) => setFilters((f) => ({ ...f, [c.key]: next }))}
+                            picked={filters[c.key] ?? null}
+                            onChange={(next) => setFilters((f) => {
+                              // null takes the filter off; an array — empty or
+                              // not — is one.
+                              if (next === null) {
+                                const rest = { ...f };
+                                delete rest[c.key];
+                                return rest;
+                              }
+                              return { ...f, [c.key]: next };
+                            })}
                             onClose={() => setOpenFilter(null)}
                           />
                         )}

@@ -3698,3 +3698,13 @@ body.is-resizing * { cursor: col-resize !important; }
 /* The day rows have no twist of their own, so their checkbox takes the
    place the twist would have had and the column stays straight. */
 .datetree-day > input { margin-left: 2px; }
+
+/* (Select all): part of the list, but pinned above it and set apart, so
+   it does not scroll away at the moment somebody wants it. */
+.colfilter-all {
+  flex: none;
+  margin: 0; padding: 8px 12px;
+  border-bottom: 1px solid var(--gridline);
+  font-weight: 600;
+  background: var(--page-deep);
+}
