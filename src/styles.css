@@ -3529,14 +3529,51 @@ body.is-resizing * { cursor: col-resize !important; }
 
 /* One height, because the arithmetic that decides which rows to draw
    depends on knowing it without measuring anything. */
-.meeting-table tbody tr { height: 38px; }
+
 .meeting-table tbody tr.spacer { padding: 0; border: 0; }
 .meeting-table tbody tr.spacer td { padding: 0; border: 0; }
 
-/* Two lines rather than three: three does not fit a 38px row, and a row
-   that quietly grows past the height the window arithmetic assumes puts
-   the scrollbar out of step with the rows. */
-.grid-cell { -webkit-line-clamp: 2; line-clamp: 2; }
+/*
+ * Two lines, and they have to actually be two.
+ *
+ * The clamp used to sit on `.grid-cell`, which is a <button>, and Chrome
+ * computes a button's display to flow-root whatever you ask for — so it
+ * never applied. The text went on for as many lines as it wanted, the row
+ * grew past the height the window arithmetic assumes, and the cell was cut
+ * off mid-line by the overflow rule rather than ended by the clamp.
+ *
+ * On a span it works. The height is then fixed and known, which is what
+ * lets ROW_H be a number rather than a hope.
+ */
+.grid-cell { display: block; padding: 4px 9px; }
+.grid-cell-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  /* Belt and braces: even where the clamp is unsupported the row cannot
+     grow, because the arithmetic depends on it not growing. */
+  max-height: calc(2 * 1.35em);
+}
+
+/*
+ * The row height, and the sum that has to come to it.
+ *
+ * Two lines of text (34) plus the cell's own padding and border (12)
+ * plus the table cell's padding (6) is 52, which is ROW_H. It is worth
+ * writing down because the window arithmetic assumes every row is exactly
+ * that, and it was the entry cells' 8px that quietly made them 63.
+ */
+.meeting-table tbody td { vertical-align: middle; }
+.meeting-table tbody tr { height: 52px; }
+.meeting-table tbody td.entry { padding-top: 3px; padding-bottom: 3px; }
+
+/* Long values in the read-only columns cannot set the height either. */
+.meeting-table tbody td { overflow: hidden; }
 
 /*
  * Waiting for the tracker.
@@ -3616,3 +3653,48 @@ body.is-resizing * { cursor: col-resize !important; }
   margin-inline: auto;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------------ *
+ * A date filter, as a year / month / day tree.
+ *
+ * Indentation carries the level, so the twist and the checkbox stay in
+ * one column down the whole list and the eye has a straight edge to run
+ * along. Counts sit right, as they do in the flat list beside it.
+ * ------------------------------------------------------------------ */
+.colfilter-list.is-tree { padding: 4px 2px 6px; }
+
+.datetree-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; border-radius: var(--radius-sm);
+}
+.datetree-row:hover { background: var(--control-bg); }
+
+.datetree-label {
+  display: flex; align-items: center; gap: 7px;
+  flex: 1; min-width: 0; cursor: pointer;
+}
+
+.datetree-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A square target rather than a character-sized one: it is pressed far
+   more often than anything else in here. */
+.datetree-twist {
+  flex: none; width: 18px; height: 18px;
+  display: grid; place-items: center;
+  font-size: 13px; line-height: 1;
+  color: var(--text-secondary);
+  background: none; border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.datetree-twist:hover { background: var(--hover-wash); color: var(--text-primary); }
+
+.datetree-month { margin-left: 18px; }
+.datetree-day { margin-left: 36px; cursor: pointer; }
+/* The day rows have no twist of their own, so their checkbox takes the
+   place the twist would have had and the column stays straight. */
+.datetree-day > input { margin-left: 2px; }

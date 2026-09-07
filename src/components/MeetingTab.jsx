@@ -59,6 +59,154 @@ const CHOICE_LIMIT = 200;
 const SIZE_KEY = 'bemmp.tracker.filter-size';
 
 /**
+ * Whether a column holds dates.
+ *
+ * The meeting's own date fields say so on the field definition. The
+ * export's two — Logged and Installed — do not: they are plain text
+ * columns carrying an already-formatted date, because that is what the
+ * cell shows. Named here so the filter and the sort cannot disagree
+ * about which columns those are.
+ */
+export const isDateColumn = (c) => c.entry?.kind === 'date'
+  || c.key === 'logged' || c.key === 'installed';
+
+/**
+ * A date column's value as a number to sort on. Blanks last, always.
+ *
+ * Sorting these as text put "01 Apr 2024" above "01 Aug 2022" and every
+ * first of the month above every second — ascending did not give the
+ * oldest first, it gave the alphabet.
+ */
+const dateOrder = (v) => {
+  const d = parseChoiceDate(String(v ?? ''));
+  return d ? d.y * 10000 + d.m * 100 + d.d : null;
+};
+
+/**
+ * A filter value read as a date, or null if it is not one.
+ *
+ * Two shapes reach here. The meeting's own date columns come off the
+ * database as `2026-08-13`; the export's own — Logged, Installed — are
+ * already formatted for the screen as `13 Aug 2026`, because that is what
+ * the cell holds and the filter lists what the cells hold.
+ */
+function parseChoiceDate(v) {
+  const iso = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(v);
+  if (iso) return { y: +iso[1], m: +iso[2], d: +iso[3] };
+  // Character classes, not escapes: this file is written by tooling that
+  // has eaten a lone backslash more than once, and a regex that matches
+  // nothing fails silently — every date simply stops being a date.
+  const shown = /^([0-9]{1,2})[ ]+([A-Za-z]{3})[ ]+([0-9]{4})$/.exec(v);
+  if (shown) {
+    const m = MONTHS.indexOf(shown[2]) + 1;
+    if (m) return { y: +shown[3], m, d: +shown[1] };
+  }
+  return null;
+}
+
+/**
+ * Dates as a year / month / day tree, the way a spreadsheet shows them.
+ *
+ * A flat list is the wrong shape for a date column and unusable at this
+ * size: Logged has 1,283 distinct days, sorted as text, so "01 Apr 2024"
+ * sits next to "01 Apr 2025" and every first-of-the-month comes before
+ * any second. Nobody filters a date column one day at a time — they want
+ * a year, or a month, and the tree is how you say that in one click.
+ *
+ * Everything not readable as a date — (blank), and anything somebody
+ * typed by hand — keeps a flat row at the bottom rather than being
+ * dropped, because those are exactly the rows worth finding.
+ */
+function DateTree({ groups, loose, isTicked, setMany, toggle, expanded, onExpand }) {
+  const rowsFor = (vals) => vals.map(([v]) => v);
+  const state = (vals) => {
+    const on = vals.filter(([v]) => isTicked(v)).length;
+    return on === 0 ? 'off' : (on === vals.length ? 'on' : 'some');
+  };
+
+  return (
+    <>
+      {groups.map(({ year, total, months, all: yearVals }) => {
+        const yState = state(yearVals);
+        const yOpen = expanded.has(String(year));
+        return (
+          <div className="datetree-year" key={year}>
+            <div className="datetree-row">
+              <button
+                type="button"
+                className="datetree-twist"
+                aria-expanded={yOpen}
+                aria-label={`${yOpen ? 'Collapse' : 'Expand'} ${year}`}
+                onClick={() => onExpand(String(year))}
+              >
+                {yOpen ? '−' : '+'}
+              </button>
+              <label className="datetree-label">
+                <input
+                  type="checkbox"
+                  checked={yState === 'on'}
+                  ref={(el) => { if (el) el.indeterminate = yState === 'some'; }}
+                  onChange={() => setMany(rowsFor(yearVals), yState !== 'on')}
+                />
+                <span className="datetree-name">{year}</span>
+                <span className="colfilter-count">{total}</span>
+              </label>
+            </div>
+
+            {yOpen && months.map(({ month, name, total: mTotal, days }) => {
+              const key = `${year}-${month}`;
+              const mState = state(days);
+              const mOpen = expanded.has(key);
+              return (
+                <div className="datetree-month" key={key}>
+                  <div className="datetree-row">
+                    <button
+                      type="button"
+                      className="datetree-twist"
+                      aria-expanded={mOpen}
+                      aria-label={`${mOpen ? 'Collapse' : 'Expand'} ${name} ${year}`}
+                      onClick={() => onExpand(key)}
+                    >
+                      {mOpen ? '−' : '+'}
+                    </button>
+                    <label className="datetree-label">
+                      <input
+                        type="checkbox"
+                        checked={mState === 'on'}
+                        ref={(el) => { if (el) el.indeterminate = mState === 'some'; }}
+                        onChange={() => setMany(rowsFor(days), mState !== 'on')}
+                      />
+                      <span className="datetree-name">{name}</span>
+                      <span className="colfilter-count">{mTotal}</span>
+                    </label>
+                  </div>
+
+                  {mOpen && days.map(([v, n, day]) => (
+                    <label className="datetree-row datetree-day" key={v}>
+                      <input type="checkbox" checked={isTicked(v)} onChange={() => toggle(v)} />
+                      <span className="datetree-name">{String(day).padStart(2, '0')}</span>
+                      <span className="colfilter-count">{n}</span>
+                    </label>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {loose.map(([v, n, text]) => (
+        <label key={v} className={`colfilter-row${v === BLANK ? ' is-blank' : ''}`}>
+          <input type="checkbox" checked={isTicked(v)} onChange={() => toggle(v)} />
+          <span className="colfilter-value" title={text}>{text}</span>
+          <span className="colfilter-count">{n}</span>
+        </label>
+      ))}
+    </>
+  );
+}
+
+/**
  * One column's filter: what is in this column, and which of it to keep.
  *
  * Values come with their counts because the count is half the decision —
@@ -67,8 +215,10 @@ const SIZE_KEY = 'bemmp.tracker.filter-size';
  * has hundreds and scrolling a list of them is not better than the grid
  * it was meant to save you from.
  */
-export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
+export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate }) {
   const [find, setFind] = useState('');
+  /** Which years and year-months are open. Newest year starts open. */
+  const [expanded, setExpanded] = useState(() => new Set());
   const ref = useRef(null);
 
   /*
@@ -121,9 +271,106 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
   const shown = matched.slice(0, CHOICE_LIMIT);
   const hidden = matched.length - shown.length;
 
-  const toggle = (v) => onChange(
-    picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v],
-  );
+  /*
+   * An unfiltered column shows every box ticked.
+   *
+   * Internally an empty selection means "no filter on this column", which
+   * is not the same thing as "nothing chosen" — every value is included.
+   * Drawn literally that was every box empty on a column that was
+   * excluding nothing, and next to a column that *was* filtered it read as
+   * though the values had been deselected. It is how a spreadsheet shows
+   * it, and the spreadsheet is what everybody here is comparing against.
+   *
+   * So the boxes are drawn from what passes rather than from what is
+   * stored, and unticking one from the all-state stores everything else.
+   */
+  const all = choices.map(([v]) => v);
+  const unfiltered = picked.length === 0;
+  const isTicked = (v) => unfiltered || picked.includes(v);
+
+  const toggle = (v) => {
+    if (unfiltered) return onChange(all.filter((x) => x !== v));
+    const next = picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v];
+    // Ticking the last one back on is the same as no filter, and storing it
+    // as one would leave the funnel marked on a column that excludes nothing.
+    return onChange(next.length === all.length ? [] : next);
+  };
+
+  /** A whole year or month at once, from the tree. */
+  const setMany = (vals, on) => {
+    const base = new Set(unfiltered ? all : picked);
+    for (const v of vals) { if (on) base.add(v); else base.delete(v); }
+    const next = [...base];
+    onChange(next.length === all.length ? [] : next);
+  };
+
+  /*
+   * The dates, grouped.
+   *
+   * Years newest first — a meeting is about what is open now, and the
+   * oldest date on a backlog is the least likely thing anybody scrolls
+   * for. Months and days read forwards inside them, as a calendar does.
+   */
+  const tree = useMemo(() => {
+    if (!isDate) return null;
+    const byYear = new Map();
+    const loose = [];
+    for (const [v, n, text] of named) {
+      const d = parseChoiceDate(v);
+      if (!d) { loose.push([v, n, text]); continue; }
+      if (!byYear.has(d.y)) byYear.set(d.y, new Map());
+      const months = byYear.get(d.y);
+      if (!months.has(d.m)) months.set(d.m, []);
+      months.get(d.m).push([v, n, d.d]);
+    }
+    const groups = [...byYear.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([year, months]) => {
+        const list = [...months.entries()].sort((a, b) => a[0] - b[0]).map(([month, days]) => {
+          days.sort((a, b) => a[2] - b[2]);
+          return {
+            month, name: MONTHS[month - 1], days,
+            total: days.reduce((t, [, n]) => t + n, 0),
+          };
+        });
+        return {
+          year,
+          months: list,
+          all: list.flatMap((m) => m.days),
+          total: list.reduce((t, m) => t + m.total, 0),
+        };
+      });
+    return { groups, loose };
+  }, [isDate, named]);
+
+  /* Searching a tree that is shut shows nothing, so it opens itself. */
+  /* Which days the search matched, as year-month-day, so the tree can be
+     narrowed without re-running the match for every branch. */
+  const matchedSet = useMemo(() => {
+    const out = new Set();
+    if (!tree || !needle) return out;
+    for (const [v, , text] of matched) {
+      const d = parseChoiceDate(v);
+      if (d) out.add(`${d.y}-${d.m}-${d.d}`);
+    }
+    return out;
+  }, [tree, needle, matched]);
+
+  const openKeys = useMemo(() => {
+    if (!tree || !needle) return expanded;
+    const out = new Set(expanded);
+    for (const g of tree.groups) {
+      out.add(String(g.year));
+      for (const m of g.months) out.add(`${g.year}-${m.month}`);
+    }
+    return out;
+  }, [tree, needle, expanded]);
+
+  const onExpand = (key) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   return (
     <div className="colfilter" ref={ref} role="dialog" aria-label={`Filter ${label}`}>
@@ -137,34 +384,65 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose }) {
         />
       </div>
 
-      <div className="colfilter-list">
+      <div className={`colfilter-list${tree ? ' is-tree' : ''}`}>
         {shown.length === 0 && <p className="colfilter-none">Nothing matches “{find}”.</p>}
-        {hidden > 0 && (
+        {/* A tree has no cap: a year is one row until it is opened, so the
+            whole range fits without the list needing to be cut short. */}
+        {!tree && hidden > 0 && (
           <p className="colfilter-more">{hidden} more — type to narrow</p>
         )}
-        {shown.map(([v, n, text]) => (
+        {tree ? (
+          <DateTree
+            groups={needle
+              ? tree.groups
+                .map((g) => ({
+                  ...g,
+                  months: g.months
+                    .map((m) => ({ ...m, days: m.days.filter(([, , d]) => matchedSet.has(g.year + '-' + m.month + '-' + d)) }))
+                    .filter((m) => m.days.length),
+                }))
+                .map((g) => ({ ...g, all: g.months.flatMap((m) => m.days) }))
+                .filter((g) => g.months.length)
+              : tree.groups}
+            loose={needle ? tree.loose.filter(([, , t]) => t.toLowerCase().includes(needle)) : tree.loose}
+            isTicked={isTicked}
+            setMany={setMany}
+            toggle={toggle}
+            expanded={openKeys}
+            onExpand={onExpand}
+          />
+        ) : (
+        shown.map(([v, n, text]) => (
           <label key={v} className={`colfilter-row${v === BLANK ? ' is-blank' : ''}`}>
             <input
               type="checkbox"
-              checked={picked.includes(v)}
+              checked={isTicked(v)}
               onChange={() => toggle(v)}
             />
             <span className="colfilter-value" title={text}>{text}</span>
             <span className="colfilter-count">{n}</span>
           </label>
-        ))}
+        )))}
       </div>
 
       <div className="colfilter-foot">
         {/* Acts on what the search left, so "All" after typing "Cautery"
             means those, which is the only reading that is any use. */}
-        <button type="button" onClick={() => onChange([
-          ...new Set([...picked, ...shown.map(([v]) => v)]),
-        ])}>
+        <button
+          type="button"
+          onClick={() => {
+            const next = [...new Set([
+              ...(unfiltered ? all : picked), ...shown.map(([v]) => v),
+            ])];
+            onChange(next.length === all.length ? [] : next);
+          }}
+        >
           Select all
         </button>
-        <button type="button" onClick={() => onChange([])} disabled={picked.length === 0}>
-          Clear
+        {/* Named for what it does to the column, not to the boxes: it takes
+            the filter off, which is why it is dead when there is none. */}
+        <button type="button" onClick={() => onChange([])} disabled={unfiltered}>
+          Clear filter
         </button>
       </div>
     </div>
@@ -291,7 +569,12 @@ export function GridCell({ fieldKey, value, kind, options, disabled, onCommit })
         if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); setEditing(true); }
       }}
     >
-      {shown || '—'}
+      {/* The text is clamped, not the button. Chrome refuses
+          `display: -webkit-box` on a <button> — it computes to flow-root —
+          so the line clamp on the button itself never did anything, the
+          content ran to whatever height it liked, and the row grew with
+          it. A span takes the box. */}
+      <span className="grid-cell-text">{shown || '—'}</span>
     </button>
   );
 }
@@ -932,7 +1215,20 @@ export default function MeetingTab({
    * automatic layout the widths would be computed from whichever forty
    * rows happened to be in view and would jump as you scrolled.
    */
-  const ROW_H = 38;
+  /*
+   * One row, one height.
+   *
+   * Two lines of a status at this size, plus the padding around them. It
+   * was 38, which is one line — but the clamp meant to hold it there was
+   * on a button and silently did nothing, so a long current-status ran to
+   * sixty-nine pixels and the arithmetic below, which assumes every row is
+   * ROW_H, drifted further from the truth the further you scrolled.
+   *
+   * Fewer rows on screen than 38 gave. That is the trade for being able to
+   * read the column the meeting spends its time in; the whole value is on
+   * the cell's title, and in the entry form, either way.
+   */
+  const ROW_H = 52;
   const OVERSCAN = 12;
   /*
    * A callback ref, not a useRef with an empty dependency list.
@@ -972,9 +1268,21 @@ export default function MeetingTab({
     if (sort) {
       const dir = sort.dir === 'asc' ? 1 : -1;
       const col = columns.find((c) => c.key === sort.key);
-      list = [...list].sort((a, b) => (col?.type === 'num'
-        ? (a[sort.key] - b[sort.key]) * dir
-        : String(a[sort.key]).localeCompare(String(b[sort.key])) * dir));
+      const byDate = col && isDateColumn(col);
+      list = [...list].sort((a, b) => {
+        if (col?.type === 'num') return (a[sort.key] - b[sort.key]) * dir;
+        if (byDate) {
+          const x = dateOrder(a[sort.key]);
+          const y = dateOrder(b[sort.key]);
+          // A cell with no date sits at the bottom either way round. It is
+          // the absence of one, not a date before all the others.
+          if (x === null && y === null) return 0;
+          if (x === null) return 1;
+          if (y === null) return -1;
+          return (x - y) * dir;
+        }
+        return String(a[sort.key]).localeCompare(String(b[sort.key])) * dir;
+      });
     }
     return list;
   }, [searched, sort, columns, activeFilters]);
@@ -1311,6 +1619,7 @@ export default function MeetingTab({
                         {openFilter === c.key && (
                           <ColumnFilter
                             label={c.label}
+                            isDate={isDateColumn(c)}
                             choices={choices[c.key]}
                             picked={filters[c.key] ?? []}
                             onChange={(next) => setFilters((f) => ({ ...f, [c.key]: next }))}
