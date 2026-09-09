@@ -1767,7 +1767,13 @@ export default function MeetingTab({
                         </svg>
                       </button>
                     </td>
-                    <td className="num">{r.age}d</td>
+                    {/* The number alone. The heading says "Down Days", so a
+                        "d" on every one of eight thousand rows is the unit
+                        repeated eight thousand times, and it stops the
+                        column being read as figures. The dialog subtitle
+                        keeps its "d" — there it is prose, and "5 open"
+                        would say something else. */}
+                    <td className="num">{r.age}</td>
                     {hasZone && <td>{r.zone}</td>}
                     <td>{r.district}</td>
                     <td>{r.facility}</td>
