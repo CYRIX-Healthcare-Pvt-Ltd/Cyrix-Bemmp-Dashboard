@@ -1,44 +1,20 @@
 <!--
-  The tab mark: the Cyrix X, red on the left half, black on the right, on a
-  white disc.
+  The Cyrix mark: two chevrons facing each other across a gap, black and
+  red, forming the X the brand is named for.
 
-  Not the wordmark. A favicon renders at 16px, where "CYRIX HEALTH CARE PVT LTD"
-  is four grey smears — the X is the only part of the lockup that survives, and
-  it is already the brand's own device: the tagline is "The X-Factor in Medical
-  Technology Reliability", and both `Logo.jsx` and the login wordmark colour that
-  one letter red.
+  One file, and the same file, in all four apps. They share a database, a
+  sign-in and a tab strip, so an icon that changes between modules tells a
+  person something has changed when nothing has.
 
-  The split is vertical, through the crossing, so each half keeps its own two
-  round caps and the seam falls exactly where the strokes already meet — the one
-  place a colour change reads as deliberate rather than as a printing fault. The
-  halves overlap by a fifth of a unit because two clip paths sharing an edge
-  leave an anti-aliased hairline of background between them.
+  Not the wordmark: a favicon renders at 16px, where "CYRIX HEALTH CARE PVT
+  LTD" is four grey smears. The X is the only part of the lockup that
+  survives at that size, and it is already the brand's own device — the
+  tagline is "The X-Factor in Medical Technology Reliability".
 
-  The disc is white because the mark is red *and* black, and black needs a light
-  ground. That makes the hairline load-bearing rather than decorative: without it
-  the tile dissolves into a light tab strip, having no edge of its own.
-
-  Colours are fixed rather than theme-aware. An SVG favicon *can* carry a
-  `prefers-color-scheme` block, but the disc is white in both themes, so the
-  light-mode ink is correct on it either way — and a mark that changes with the
-  OS theme is one that can go white-on-white in a context neither branch
-  anticipated.
+  The ground is white because the mark is red *and* black, and black needs
+  a light ground. Fixed colours rather than theme-aware ones: the ground is
+  white in both themes, so the ink is right either way, and a mark that
+  follows the OS theme is one that can go white-on-white somewhere neither
+  branch anticipated.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <defs>
-    <clipPath id="cx-left"><rect x="0" y="0" width="16.2" height="32"/></clipPath>
-    <clipPath id="cx-right"><rect x="16" y="0" width="16" height="32"/></clipPath>
-  </defs>
-  <circle cx="16" cy="16" r="16" fill="#ffffff"/>
-  <circle cx="16" cy="16" r="15.5" fill="none" stroke="rgba(10,10,10,.16)"/>
-  <g stroke-width="5" stroke-linecap="round">
-    <g clip-path="url(#cx-right)" stroke="#0a0a0a">
-      <line x1="10.5" y1="10.5" x2="21.5" y2="21.5"/>
-      <line x1="21.5" y1="10.5" x2="10.5" y2="21.5"/>
-    </g>
-    <g clip-path="url(#cx-left)" stroke="#e4232a">
-      <line x1="10.5" y1="10.5" x2="21.5" y2="21.5"/>
-      <line x1="21.5" y1="10.5" x2="10.5" y2="21.5"/>
-    </g>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#ffffff"/><path d="M6 6 L16 16 L6 26" fill="none" stroke="#141414" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/><path d="M26 6 L16 16 L26 26" fill="none" stroke="#e5231d" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
