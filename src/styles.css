@@ -1919,6 +1919,58 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
   overscroll-behavior-x: contain;
 }
 
+/*
+ * A scrollbar worth aiming at.
+ *
+ * The app's default is a 9px translucent gutter, which is right for a
+ * panel read top to bottom and wrong for this one: the horizontal bar is
+ * the main way across 38 columns, it is dragged rather than flicked, and
+ * a hairline in the page grey is both hard to hit and hard to find.
+ *
+ * Wider, on the recessed surface so the track reads as part of the panel,
+ * with the thumb in the same muted ink the rest of the chrome uses. Both
+ * ends turn with the theme.
+ */
+.meeting-scroll { scrollbar-color: var(--text-muted) transparent; }
+.meeting-scroll::-webkit-scrollbar { width: 12px; height: 12px; }
+/* A tint of the ink rather than a colour of its own: --page-deep is pure
+   black on the dark theme, and a 12px black gutter down the side of a
+   panel reads as a gap in it. */
+.meeting-scroll::-webkit-scrollbar-track {
+  background: var(--hover-wash);
+  border-top: 1px solid var(--gridline);
+}
+.meeting-scroll::-webkit-scrollbar-thumb {
+  background: var(--baseline);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+.meeting-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: content-box;
+}
+/* Where the two bars meet, so the corner is not a white notch. */
+.meeting-scroll::-webkit-scrollbar-corner { background: var(--hover-wash); }
+
+/*
+ * And the same again at the root, while the pointer is in the grid.
+ *
+ * `contain` above stops the scroll chaining to this element's ancestors.
+ * It does not stop the browser: the back gesture is decided at the
+ * viewport, so a nested scroller that has reached its end hands the swipe
+ * over anyway and the page navigates. The root is the only place that
+ * rule is read for the gesture.
+ *
+ * Class-gated rather than always on, because this takes Back away from
+ * the whole tab while it applies, and that should be true for as long as
+ * somebody is reading the grid and no longer.
+ */
+html.no-swipe-back,
+html.no-swipe-back body {
+  overscroll-behavior-x: none;
+}
+
 /* The code beside the name in the entry log: present for looking up, not
    for reading first. */
 .log-who-code {
@@ -3423,12 +3475,42 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
  * under it — same muted ink as the rest of the heading, the accent kept
  * for the one state that has to be noticed.
  */
+/*
+ * The heading band, and the edge under it.
+ *
+ * It was the page's own white with a hairline below, which on a grid that
+ * scrolls under a sticky header meant the rows slid beneath something the
+ * same colour as themselves — at speed there was no line between "the
+ * headings" and "the first row", only a border that arrived a moment late.
+ *
+ * `--page-deep` is the app's own recessed surface, a step back from the
+ * card rather than a colour of its own, so the band reads as a shelf the
+ * rows pass under. It turns with the theme like everything else built on
+ * these variables.
+ *
+ * The brand red goes on the top edge and nowhere else. A red heading row
+ * would be an alarm; a two-pixel rule is the same signature the masthead
+ * uses, at the size a table can carry.
+ */
 .meeting-table thead th {
   padding: 0;
-  border-bottom: 1px solid var(--border);
+  /* The same surface the pinned heading already used. It was --page-deep,
+     which is pure black on the dark theme — darker than the card it sits
+     in, so the band read as a hole, and the pinned cell was a different
+     colour from the rest of its own row. */
+  background: var(--glass-strong);
+  border-bottom: 1px solid var(--baseline);
   /* One rule, so a heading that wraps still lines its neighbours up. */
   vertical-align: bottom;
 }
+
+/* One line across the whole band rather than a border per cell, which
+   would break at every column edge. */
+.meeting-table thead tr:first-child th {
+  box-shadow: inset 0 2px 0 var(--brand-red);
+}
+
+.meeting-table thead th .th-sort { color: var(--text-secondary); font-weight: 600; }
 .meeting-table .th-inner { min-height: 34px; }
 
 /* The label. Wraps rather than stretching its column, which is what the

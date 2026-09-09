@@ -1289,6 +1289,29 @@ export default function MeetingTab({
    * A callback ref runs when the node appears and again when it goes, so
    * the listener follows the element rather than the mount.
    */
+  /*
+   * Swipe-to-go-back, off while the pointer is over the grid.
+   *
+   * overscroll-behavior on the grid itself is not enough, and that is the
+   * part worth writing down: `contain` stops a scroll chaining to the
+   * element's ancestors, but the browser's back gesture is triggered at
+   * the viewport, not by the chain. A nested scroller that has run out of
+   * room hands the gesture straight to the browser regardless, and the
+   * only place the rule is read for that is the root element.
+   *
+   * So it is set on the root, and only while somebody is actually in the
+   * grid — 38 columns read by scrolling sideways is where the gesture
+   * fires, and taking Back away from the whole app to fix one panel is a
+   * bigger change than the problem.
+   */
+  const holdBack = useCallback((on) => {
+    document.documentElement.classList.toggle('no-swipe-back', on);
+  }, []);
+
+  // Whatever happens to the component — a tab change, full screen, an
+  // error boundary — the page must not be left unable to go back.
+  useEffect(() => () => holdBack(false), [holdBack]);
+
   const [box, setBox] = useState(null);
   const scrollBox = useCallback((el) => setBox(el), []);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1615,7 +1638,12 @@ export default function MeetingTab({
 
       {view === 'tickets' && (
       <div className="panel">
-        <div className="table-scroll meeting-scroll" ref={scrollBox}>
+        <div
+          className="table-scroll meeting-scroll"
+          ref={scrollBox}
+          onPointerEnter={() => holdBack(true)}
+          onPointerLeave={() => holdBack(false)}
+        >
           <table className="meeting-table is-sortable" style={{ width: tableWidth }}>
             <thead>
               <tr>
