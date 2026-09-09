@@ -1901,7 +1901,32 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
  * the panel with it: the list you were about to tick was cut off two
  * rows in, and there was no way back except Escape.
  */
-.meeting-scroll { max-height: 68vh; min-height: min(420px, 68vh); overflow: auto; }
+/*
+ * overscroll-behavior: a sideways flick must not leave the page.
+ *
+ * The grid is 38 columns wide and read by scrolling across it. A trackpad
+ * or a touchscreen that reaches the end of that scroll hands the gesture
+ * to the browser, which reads it as Back — so overshooting the last
+ * column navigates away from the tracker, losing the scroll position, the
+ * filters and any cell mid-edit. It takes one flick, and the flick that
+ * does it is the same one that was working a moment earlier.
+ *
+ * `contain` keeps the chaining inside this box without disabling
+ * scrolling anywhere else on the page.
+ */
+.meeting-scroll {
+  max-height: 68vh; min-height: min(420px, 68vh); overflow: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* The code beside the name in the entry log: present for looking up, not
+   for reading first. */
+.log-who-code {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .meeting-table { font-size: 12.5px; }
 .meeting-table td { vertical-align: middle; }
 

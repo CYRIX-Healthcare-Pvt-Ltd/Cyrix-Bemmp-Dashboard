@@ -285,6 +285,29 @@ const STATE_KEY = 'bemmp-state';
  */
 const VIEW_KEY = 'bemmp-view';
 
+/*
+ * Whether this page was reloaded, or arrived at.
+ *
+ * The saved view exists so a refresh does not throw away where you were.
+ * Arriving from the portal is not a refresh: somebody who has just
+ * pressed "BEMMP Dashboard" is asking for the dashboard, and putting them
+ * back on the ticket tracker because that is where they were yesterday
+ * answers a question they did not ask.
+ *
+ * The Navigation Timing entry knows the difference — "reload" against
+ * "navigate" — and it is the only thing that does. Guarded because the
+ * API is absent in older Safari, where the honest default is to treat an
+ * arrival as an arrival.
+ */
+function wasReloaded() {
+  try {
+    const [nav] = performance.getEntriesByType('navigation');
+    return nav?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
+
 /** Reading storage throws outright in a browser with site data blocked. */
 function savedView() {
   try {
@@ -338,12 +361,16 @@ export default function App() {
    * failure than starting at the dashboard.
    */
   const [tab, setTab] = useState(() => {
+    if (!wasReloaded()) return 'dashboard';
     const want = savedView().tab;
     return TABS.some((t) => t.id === want) ? want : 'dashboard';
   });
   /* Which view of the open backlog is showing. Either a bucket, or the
      tracker — the same rows in the form the daily meeting works through. */
   const [wantedCallView, setCallView] = useState(() => {
+    // Same reasoning as the tab above: restored on a refresh, not on the
+    // way in from the portal.
+    if (!wasReloaded()) return BUCKET.OPEN;
     const want = savedView().callView;
     // Whether this account may open the tracker is not known yet — see
     // `callView` below, which answers that on every render rather than

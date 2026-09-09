@@ -765,8 +765,17 @@ function LogDialog({ state, ticket, onClose }) {
             <ol className="log-list">
               {rows.map((r) => (
                 <li key={r.id} className="log-entry">
+                  {/* The name leads and the code follows it.
+                      "E641" is a lookup, and the person who has to do the
+                      lookup is whoever just asked who changed this. The
+                      code stays because it is what people are addressed by
+                      here and what a search box takes, and a name alone is
+                      ambiguous the day there are two of them. */}
                   <div className="log-when">
-                    <strong>{r.changed_by_code ?? 'System'}</strong>
+                    <strong>{r.changed_by_name ?? r.changed_by_code ?? 'System'}</strong>
+                    {r.changed_by_name && r.changed_by_code && (
+                      <span className="log-who-code">{r.changed_by_code}</span>
+                    )}
                     <span>{stamp(r.changed_at)}</span>
                   </div>
                   <div className="log-what">
