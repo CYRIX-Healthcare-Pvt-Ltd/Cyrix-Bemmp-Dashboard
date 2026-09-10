@@ -9,20 +9,11 @@
       "destination": "/api/:path*"
     },
     {
-      "source": "/bemmp/((?!api/).*)",
+      "source": "/bemmp/((?!api/|assets/).*)",
       "destination": "/bemmp/index.html"
     }
   ],
   "headers": [
-    {
-      "source": "/bemmp/assets/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
     {
       "source": "/bemmp/index.html",
       "headers": [
