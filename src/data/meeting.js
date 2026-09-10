@@ -391,6 +391,36 @@ export const applyFilters = (rows, activeFilters) => (
     : rows
 );
 
+/**
+ * The rows a view is holding, in the order it chose them, with today's
+ * values.
+ *
+ * Filtering PO no to blanks and then typing a PO number made that row
+ * vanish the moment it saved — before anybody could reach PO date in
+ * the same row. The filter was right that the row no longer matched; it
+ * was wrong to act on it mid-entry. People took the vanishing row for a
+ * failed save and typed the same PO into the next row, and the next: one
+ * PO number landed on three tickets inside a minute that way.
+ *
+ * So the view decides membership and order when it is applied, and this
+ * reads that decision back against the current rows. Edited values show;
+ * the row stays put. A key whose row has gone entirely — a call that
+ * closed on reload — is simply dropped.
+ *
+ * Deliberately handed every row rather than the searched ones: a row
+ * found by searching for its PO number must not vanish because the PO
+ * number was the thing being corrected.
+ */
+export function holdRows(keys, rows, keyOf = (r) => r.ticket) {
+  const byKey = new Map(rows.map((r) => [keyOf(r), r]));
+  const out = [];
+  for (const k of keys) {
+    const r = byKey.get(k);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
 /* ===================================================================== *
  * The tracker's columns.
  *

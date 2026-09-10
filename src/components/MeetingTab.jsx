@@ -5,7 +5,7 @@ import { supabase } from '../data/supabase.js';
 import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
-  BLANK, BLANK_LABEL, ENTRY_WIDTH, MEETING_FIELDS, applyFilters, asChoice,
+  BLANK, BLANK_LABEL, ENTRY_WIDTH, MEETING_FIELDS, applyFilters, asChoice, holdRows,
   buildChoices, computeField, ensureRows, exportColumns, isComputed, loadLog,
   loadNotes, reconcileOpen, saveField,
 } from '../data/meeting.js';
@@ -853,6 +853,9 @@ export default function MeetingTab({
 
   const [view, setView] = useState('tickets');
   const [notes, setNotes] = useState(null);
+  // Bumped by every full load, so the view re-decides which rows it holds
+  // when the data is replaced — and only then, not on each saved cell.
+  const [epoch, setEpoch] = useState(0);
   /** null once loaded; `{ pct, label }` while the three phases run. */
   const [progress, setProgress] = useState({ pct: 0, label: LOAD_PHASES[0].label });
   const [types, setTypes] = useState([]);
@@ -1125,9 +1128,11 @@ export default function MeetingTab({
       const loaded = await loadNotes(state, ids, phase('entries'));
       setProgress({ pct: 100, label: 'Ready' });
       setNotes(loaded);
+      setEpoch((n) => n + 1);
     } catch (e) {
       setError(e.message);
       setNotes(new Map());
+      setEpoch((n) => n + 1);
     }
   }, [state, records, canEdit]);
 
@@ -1328,7 +1333,7 @@ export default function MeetingTab({
     return () => { box.removeEventListener('scroll', onScroll); ro.disconnect(); };
   }, [box]);
 
-  const visible = useMemo(() => {
+  const arranged = useMemo(() => {
     let list = searched;
 
     if (activeFilters.length) {
@@ -1356,6 +1361,35 @@ export default function MeetingTab({
     }
     return list;
   }, [searched, sort, columns, activeFilters]);
+
+  /*
+   * Which rows are on screen, decided when the view is applied rather than
+   * every time a cell saves.
+   *
+   * `arranged` is the live answer to "what matches, in what order", and it
+   * changes the moment a field saves. Showing it directly meant a row
+   * filtered to blank PO numbers disappeared as soon as its PO number was
+   * typed — before the PO date beside it could be — and a row sorted by a
+   * column moved away while it was being filled in.
+   *
+   * This is how a spreadsheet behaves: the filter and the sort hold until
+   * you reapply them. Changing a filter, the search or the sort, or
+   * reloading the data, takes a fresh answer from `arranged`; saving a
+   * cell does not. The held rows still show their new values, because
+   * holdRows reads them back from the current data.
+   *
+   * Adjusted during render rather than in an effect, so the grid never
+   * paints one frame of the stale membership after a filter change.
+   */
+  const viewKey = JSON.stringify([activeFilters, sort, query, epoch]);
+  const [held, setHeld] = useState({ viewKey: null, keys: [] });
+  if (notes && held.viewKey !== viewKey) {
+    setHeld({ viewKey, keys: arranged.map((r) => r.ticket) });
+  }
+  const visible = useMemo(
+    () => (notes && held.viewKey === viewKey ? holdRows(held.keys, joined) : arranged),
+    [notes, held, viewKey, joined, arranged],
+  );
 
   /*
    * The slice of rows actually built.
