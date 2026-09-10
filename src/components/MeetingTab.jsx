@@ -491,7 +491,7 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
 
 /** Saved on blur rather than on every keystroke — one row per word typed would
  *  fill the audit trail with noise and hammer the connection during a meeting. */
-function Cell({ value, kind, options, disabled, onCommit, autoFocus, onDone }) {
+function Cell({ value, kind, options, tones, disabled, onCommit, autoFocus, onDone }) {
   const [draft, setDraft] = useState(value ?? '');
   const [state, setState] = useState('idle'); // idle | saving | saved | error
 
@@ -527,9 +527,11 @@ function Cell({ value, kind, options, disabled, onCommit, autoFocus, onDone }) {
 
   if (kind === 'select') {
     return (
-      <select {...common}>
+      <select {...common} className={`${common.className}${tones?.[draft] ? ` tone-${tones[draft]}` : ''}`}>
         <option value="">—</option>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        {options.map((o) => (
+          <option key={o} value={o} className={tones?.[o] ? `tone-${tones[o]}` : undefined}>{o}</option>
+        ))}
       </select>
     );
   }
@@ -556,7 +558,7 @@ function Cell({ value, kind, options, disabled, onCommit, autoFocus, onDone }) {
  * of how a date behaves, one save-on-blur, and one place for it to go
  * wrong.
  */
-export function GridCell({ fieldKey, value, kind, options, disabled, onCommit }) {
+export function GridCell({ fieldKey, value, kind, options, tones, disabled, onCommit }) {
   const [editing, setEditing] = useState(false);
   const shown = shownValue(fieldKey, value);
 
@@ -566,6 +568,7 @@ export function GridCell({ fieldKey, value, kind, options, disabled, onCommit })
         value={value}
         kind={kind}
         options={options}
+        tones={tones}
         disabled={disabled}
         autoFocus
         onCommit={onCommit}
@@ -599,7 +602,11 @@ export function GridCell({ fieldKey, value, kind, options, disabled, onCommit })
           so the line clamp on the button itself never did anything, the
           content ran to whatever height it liked, and the row grew with
           it. A span takes the box. */}
-      <span className="grid-cell-text">{shown || '—'}</span>
+      <span className="grid-cell-text">
+        {shown && tones?.[shown]
+          ? <span className={`tone tone-${tones[shown]}`}>{shown}</span>
+          : (shown || '—')}
+      </span>
     </button>
   );
 }
@@ -680,7 +687,7 @@ function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle
                   <Cell
                     value={note?.[f.key]}
                     kind={f.kind}
-                    options={types}
+                    options={f.options ?? types} tones={f.tones}
                     disabled={!canEdit}
                     onCommit={onCommit(f.key)}
                   />
@@ -1859,7 +1866,7 @@ export default function MeetingTab({
                             fieldKey={f.key}
                             value={note?.[f.key]}
                             kind={f.kind}
-                            options={types}
+                            options={f.options ?? types} tones={f.tones}
                             disabled={!canEdit}
                             onCommit={commit(r.ticket, f.key)}
                           />

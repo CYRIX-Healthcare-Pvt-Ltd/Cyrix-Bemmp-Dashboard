@@ -35,9 +35,19 @@ export const MEETING_FIELDS = [
   { key: 'pr_date', label: 'PR date', kind: 'date' },
   { key: 'pr_conversion_days', label: 'PR conversion days', kind: 'number' },
   { key: 'pr_remark', label: 'PR purchase remark', kind: 'text', width: 260 },
+  /* Fixed choices, carried on the field rather than read from a table the
+     way penalty types are: three words that only change when the process
+     does, and the database checks the same list. Blank is the "—" every
+     select already offers, stored as null. Each choice also carries a
+     tone -- red for Cancelled, amber for Hold, blue for Clarification --
+     so the column reads at a glance down a filtered grid. */
+  { key: 'pr_status', label: 'PR status', kind: 'select', options: ['Cancelled', 'Clarification', 'Hold'],
+    tones: { Cancelled: 'bad', Clarification: 'info', Hold: 'warn' } },
   { key: 'po_no', label: 'PO no', kind: 'text', width: 130 },
   { key: 'po_date', label: 'PO date', kind: 'date' },
   { key: 'purchase_delay_days', label: 'Purchase delay days', kind: 'number' },
+  { key: 'po_status', label: 'PO status', kind: 'select', options: ['Cancelled'],
+    tones: { Cancelled: 'bad' } },
   { key: 'vendor_name', label: 'Vendor', kind: 'text', width: 200 },
   { key: 'payment_request_date', label: 'Payment requested', kind: 'date' },
   { key: 'payment_date', label: 'Payment date', kind: 'date' },

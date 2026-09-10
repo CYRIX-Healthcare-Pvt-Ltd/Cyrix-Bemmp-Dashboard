@@ -60,6 +60,11 @@
   --status-good:     #0f9d58;
   --status-warning:  #d97706;
   --status-critical: #d03b3b;
+  /* Nothing else was blue: Clarification needed a colour of its own. */
+  --status-info:     #2563eb;
+  /* The vertical column rule. Asked for very, very light: there to guide
+     the eye down a column, not to box the cells in. */
+  --col-rule:        rgba(10, 10, 10, 0.05);
 
   --radius-lg: 20px;
   --radius: 14px;
@@ -132,6 +137,8 @@
   --status-good:     #34d399;
   --status-warning:  #fbbf24;
   --status-critical: #f87171;
+  --status-info:     #60a5fa;
+  --col-rule:        rgba(255, 255, 255, 0.05);
 
   --glass:        rgba(20, 20, 20, 0.72);
   --glass-strong: rgba(16, 16, 16, 0.94);
@@ -3507,7 +3514,10 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
 /* One line across the whole band rather than a border per cell, which
    would break at every column edge. */
 .meeting-table thead tr:first-child th {
-  box-shadow: inset 0 2px 0 var(--brand-red);
+  /* The column rule rides along here: this selector outranks the plain
+     header rule further down, so a separate shadow there would never reach
+     the first row. */
+  box-shadow: inset 0 2px 0 var(--brand-red), inset -1px 0 0 var(--col-rule);
 }
 
 .meeting-table thead th .th-sort { color: var(--text-secondary); font-weight: 600; }
@@ -3825,3 +3835,53 @@ body.is-resizing * { cursor: col-resize !important; }
   font-weight: 600;
   background: var(--page-deep);
 }
+
+/*
+ * Status values, coloured by what they mean.
+ *
+ * Red for Cancelled, amber for Hold, blue for Clarification. A tinted chip
+ * rather than coloured text alone, so the value still reads for somebody
+ * who cannot tell red from amber: the word is always there, and the colour
+ * only says "look at this one".
+ *
+ * Built on the status tokens, so both themes are handled by the variables
+ * rather than by a second set of rules.
+ */
+.tone {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent);
+}
+.tone-bad  { --tone: var(--status-critical); }
+.tone-warn { --tone: var(--status-warning); }
+.tone-info { --tone: var(--status-info); }
+
+/* The open editor says the same thing. Options are reset to plain text
+   first, because they inherit the select's tint and a red dash would read
+   as a value. */
+select.cell option { color: var(--text-primary); }
+select.cell.tone-bad,  select.cell option.tone-bad  { color: var(--status-critical); }
+select.cell.tone-warn, select.cell option.tone-warn { color: var(--status-warning); }
+select.cell.tone-info, select.cell option.tone-info { color: var(--status-info); }
+
+/*
+ * Column rules.
+ *
+ * Inset shadows, not borders. The table is fixed-layout with explicit
+ * widths, and a 1px border on thirty-odd columns would push it wider than
+ * the width it is given. A shadow costs no layout.
+ *
+ * The pinned ticket cell keeps its own edge and drop shadow: its rules are
+ * more specific than these, so they are not overwritten.
+ */
+.meeting-table tbody td { box-shadow: inset -1px 0 0 var(--col-rule); }
+.meeting-table thead th { box-shadow: inset -1px 0 0 var(--col-rule); }
+.meeting-table tbody td:last-child,
+.meeting-table tbody tr.spacer td { box-shadow: none; }
+.meeting-table thead tr:first-child th:last-child { box-shadow: inset 0 2px 0 var(--brand-red); }
