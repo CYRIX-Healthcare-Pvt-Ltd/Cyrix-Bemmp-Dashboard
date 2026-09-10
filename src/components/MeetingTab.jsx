@@ -1773,7 +1773,15 @@ export default function MeetingTab({
                   </th>
                 ))}
                 <th style={{ width: LOG_WIDTH, minWidth: LOG_WIDTH, maxWidth: LOG_WIDTH }}>
-                  Log
+                  {/* The same inner box as every sortable heading, so the
+                      label sits on their line and at their inset. A bare
+                      "Log" took the header row's zero padding and bottom
+                      alignment, and landed flush against the column edge,
+                      below its neighbours and in the table-wide capitals.
+                      A span, not a button: there is nothing here to sort. */}
+                  <span className="th-inner">
+                    <span className="th-sort th-static">Log</span>
+                  </span>
                 </th>
               </tr>
             </thead>

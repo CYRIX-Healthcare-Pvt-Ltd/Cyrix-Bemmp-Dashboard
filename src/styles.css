@@ -3885,3 +3885,23 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 .meeting-table tbody td:last-child,
 .meeting-table tbody tr.spacer td { box-shadow: none; }
 .meeting-table thead tr:first-child th:last-child { box-shadow: inset 0 2px 0 var(--brand-red); }
+
+/*
+ * The Log heading, which has nothing to sort.
+ *
+ * It borrows .th-inner and .th-sort so its label takes the same height,
+ * weight, line and inset as every other heading. On a button those classes
+ * also get two things for free from the browser -- no case change, no
+ * letter-spacing -- which a span inherits from the table-wide th instead,
+ * so they are given back here. The cursor and hover wash go: they promise
+ * a control, and this is a label.
+ */
+.meeting-table .th-static {
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: default;
+  /* 11px rather than the headings' 10: the See log buttons sit in the
+     cell's 11px padding, and the heading should start where they do. */
+  padding-left: 11px;
+}
+.meeting-table .th-static:hover { background: none; color: var(--text-secondary); }
