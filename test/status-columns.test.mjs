@@ -22,8 +22,9 @@ test('PR status comes straight after PR purchase remark', () => {
   assert.equal(keys[keys.indexOf('pr_remark') + 1], 'pr_status');
 });
 
-test('PO status comes straight after Purchase delay days', () => {
-  assert.equal(keys[keys.indexOf('purchase_delay_days') + 1], 'po_status');
+test('PO status comes straight after Vendor', () => {
+  // Moved here from after Purchase delay days at the meeting's request.
+  assert.equal(keys[keys.indexOf('vendor_name') + 1], 'po_status');
 });
 
 test('PR status offers Cancelled, Clarification and Hold', () => {
