@@ -95,7 +95,10 @@ export default function TicketDrawer({ ds, row, latestDay, onClose }) {
                   ? <span className={`pill ${isFtfr ? 'pill-good' : 'pill-bad'}`}>{isFtfr ? 'Yes' : 'No'}</span>
                   : '—'}
               </Row>
-              <Row term="Down days">{cols.downDays[row]}</Row>
+              {/* The state's own figure, named as theirs: the grid counts
+                  days from the logged date, and these disagree by a day or
+                  more depending on when their export was cut. */}
+              <Row term="Down days (export)">{cols.downDays[row]}</Row>
               <Row term={`Non-penalty period (${slaWindow}d)`}>
                 {bucket === BUCKET.OPEN
                   ? (onPenalty

@@ -2,14 +2,21 @@
  * The ticket tracker's Summary, computed the way the business's own workbook
  * computes it.
  *
- * This is deliberately **not** the dashboard's penalty arithmetic, and the
- * difference is not an oversight. `KL Ticket Wise - Tracker.xlsx` drives its
- * Summary sheet off the export's own `Down Days` column, while the dashboard
- * derives age as `referenceDay - loggedDay`. On the Kerala artifact those
- * disagree by exactly one day on 667 of 807 open rows — the export counts from
- * the day after logging — which comes out as 184 penalty calls here against the
- * dashboard's 197. The meeting reconciles its figures against that workbook, so
- * the tracker matches the workbook and the dashboard keeps its own rule.
+ * The shape is the workbook's; the day count is not, and that changed
+ * deliberately. This read the export's own `Down Days` column so the Summary
+ * tied line for line to `KL Ticket Wise - Tracker.xlsx` — 184 penalty calls
+ * here against the dashboard's 197 on the Kerala artifact, because the export
+ * counts from the day after logging and is computed whenever the file was cut.
+ *
+ * That column turned out not to be one rule applied once: two calls logged on
+ * the same day carried different figures, and a call logged a day earlier could
+ * read lower. The Tickets grid beside this now counts whole days from the
+ * logged date to the day the data runs to, and two tabs of one card cannot
+ * disagree about the same call, so this counts the same way.
+ *
+ * What that costs, said plainly: the Summary no longer reconciles to the state
+ * tracker workbook figure for figure. It is higher by the calls the export's
+ * missing day was holding under the threshold.
  *
  * Translated from the sheet, with the column letters it uses:
  *
@@ -46,7 +53,7 @@ import { penaltyWindows } from './query.js';
  * @param penaltyTypeOf `(row) => string | null`, from the meeting notes
  * @param typeNames     the penalty-type vocabulary, in the order to show it
  */
-export function trackerSummary(ds, idx, penaltyTypeOf, typeNames = []) {
+export function trackerSummary(ds, idx, penaltyTypeOf, typeNames = [], referenceDay = 0) {
   const { cols, dict } = ds;
   const windows = penaltyWindows(ds);
   const grace = ds.meta.graceDays ?? 7;
@@ -84,11 +91,17 @@ export function trackerSummary(ds, idx, penaltyTypeOf, typeNames = []) {
     d.open += 1;
     total.open += 1;
 
-    // Everything below is the penalty test, and it is the sheet's: open only,
-    // and the export's own Down Days past the window.
+    // Everything below is the penalty test: open only, and past the window.
+    // Days counted from the logged date, as the grid and `isPenalty` both do.
+    // Without a reference day there is nothing to count to, so the export's
+    // own column stands in — that is the old behaviour, and it keeps a caller
+    // that has not been updated honest rather than showing zero days.
     if (cols.bucket[row] !== BUCKET.OPEN) continue;
     const window = windows[cols.equipmentType[row] + 1] ?? windows[0];
-    const down = cols.downDays[row];
+    const logged = cols.loggedDay[row];
+    const down = referenceDay > 0 && logged > 0
+      ? referenceDay - logged
+      : cols.downDays[row];
     if (!(down > window)) continue;
 
     const rate = cols.dayRate[row];

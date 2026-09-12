@@ -1053,26 +1053,41 @@ export default function MeetingTab({
       row,
       ticket,
       /*
-       * The export's own Down Days, not `referenceDay - loggedDay`.
+       * Counted here, from the logged date, not taken from the export.
        *
-       * The meeting reconciles this grid against `KL Ticket Wise - Tracker.xlsx`,
-       * which drives every figure off column AI. The two disagree by exactly one
-       * day on 667 of 807 open Kerala rows — the export does not count the day a
-       * call was logged — and that one day moves 13 calls across the penalty
-       * threshold. A tracker that cannot be tied back to the workbook it is
-       * checked against is a tracker nobody trusts, so the tracker follows the
-       * workbook and the dashboard keeps its own rule.
+       * It followed the export's own column AI so the grid could be tied
+       * back to `KL Ticket Wise - Tracker.xlsx` line by line. That column
+       * is computed by their system when the file is made, and it showed:
+       * two calls logged on the same day carried different figures, a call
+       * logged on the 4th read lower than one logged on the 5th, and
+       * sorting by it did not follow the dates — because it is not one
+       * rule applied once, it is whatever each row was worth whenever the
+       * export was cut.
+       *
+       * The meeting is held today and asks how long each machine has been
+       * down today, so the grid answers that: whole days from the logged
+       * date to the day the data runs to. Same rule as the penalty count
+       * in `isPenalty`, which this used to contradict on the same screen.
+       *
+       * The export's own figure has not gone: it is on the ticket drawer
+       * and in the Excel file, which is where the reconciling happens.
        */
-      age: cols.downDays[row],
+      age: cols.loggedDay[row] > 0 ? referenceDay - cols.loggedDay[row] : 0,
+      /** What the state's export says, for tying back to their tracker. */
+      exportAge: cols.downDays[row],
       zone,
       district,
       facility,
       equipment,
       rate: cols.dayRate[row],
-      /* `(Down Days - grace) x rate`, floored — the workbook's own column R,
-         for the same reason. Floored because a ticket still inside its grace
-         window owes nothing and the subtraction would otherwise go negative. */
-      accrued: Math.max(0, cols.downDays[row] - grace) * cols.dayRate[row],
+      /* `(Down Days - grace) x rate`, floored, off the same count as the
+         column above it — the two are read side by side and cannot come
+         from different clocks. Floored because a ticket still inside its
+         grace window owes nothing and the subtraction would go negative. */
+      accrued: Math.max(
+        0,
+        (cols.loggedDay[row] > 0 ? referenceDay - cols.loggedDay[row] : 0) - grace,
+      ) * cols.dayRate[row],
       barcode,
       manufacturer,
       model,
@@ -1429,6 +1444,10 @@ export default function MeetingTab({
     const columns = [
       { header: 'Ticket', key: 'ticket' },
       { header: 'Down Days', key: 'age', numeric: true },
+      /* Their column AI beside ours. The grid counts from the logged date;
+         this is what the state's own export said, which is what the
+         tracker workbook is built on. */
+      { header: 'Down Days (export)', key: 'exportAge', numeric: true },
       ...(hasZone ? [{ header: 'Zone', key: 'zone' }] : []),
       { header: 'District', key: 'district' },
       { header: 'Facility', key: 'facility' },
@@ -1489,8 +1508,9 @@ export default function MeetingTab({
     }
     return trackerSummary(
       ds, unresolvedRows ?? rows, (row) => typeByRow.get(row) ?? null, types,
+      referenceDay,
     );
-  }, [view, notes, records, ds, unresolvedRows, rows, types]);
+  }, [view, notes, records, ds, unresolvedRows, rows, types, referenceDay]);
 
   if (!notes) {
     return (

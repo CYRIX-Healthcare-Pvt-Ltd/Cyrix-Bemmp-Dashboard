@@ -1,11 +1,12 @@
 /**
  * The ticket tracker's Summary, against the rules the business's workbook uses.
  *
- * These are deliberately not the dashboard's penalty rules, and that is the
- * thing most at risk of being "corrected" later by someone who notices the two
- * disagree. The tracker is reconciled against `KL Ticket Wise - Tracker.xlsx` in
- * the daily meeting; the dashboard is not. Each of the cases below is one where
- * following the dashboard instead would change a figure on screen.
+ * The shape is the workbook's — what counts as open, what a parked call does to
+ * each figure, how an uncategorised penalty is reported. The day count is not:
+ * given a reference day, this counts from the logged date, as the grid beside
+ * it does. It followed the export's own Down Days column until that column was
+ * found to disagree with itself, and the last block of cases holds it to the
+ * new rule while the rest hold the workbook's shape unchanged.
  */
 
 import test from 'node:test';
@@ -130,4 +131,44 @@ test('districts come back in alphabetical order, as the sheet lists them', () =>
   const s = build();
   assert.deepEqual(s.districts.map((d) => d.district), ['Kannur', 'Kollam']);
   assert.equal(s.districts[0].zone, 'North', 'zone rides along as a label on the district');
+});
+
+/**
+ * Counting from the logged date, which is what the grid beside it does.
+ *
+ * The export's own Down Days column is computed by the state's system when
+ * the file is cut, and it showed calls logged on the same day carrying
+ * different figures — and a call logged on the 4th reading lower than one
+ * logged on the 5th. Given a reference day, the Summary counts the days
+ * itself. Without one it falls back to the export's column, so a caller
+ * that has not been updated is wrong by a day rather than by everything.
+ */
+const REF = day('2026-08-01');
+
+test('counts whole days from the logged date when it is given a reference day', () => {
+  const s = trackerSummary(makeDataset(ROWS), [0, 1, 2, 3, 4], typeOf, TYPES, REF);
+  // Row 0: 1 Jul to 1 Aug is 31 days, not the export's 30.
+  // (31 - 7) x 100 = 2,400.
+  const kannur = s.districts.find((d) => d.district === 'Kannur');
+  assert.equal(kannur.penaltyCalls, 3, 'row 2 breaches once it is counted properly');
+  assert.equal(
+    kannur.accrued,
+    (31 - 7) * 100 + (22 - 7) * 50 + (12 - 7) * 900,
+    'every open Kannur row, counted from its logged date',
+  );
+});
+
+test('the export column standing on 7 is a penalty once the days are counted', () => {
+  // Logged 20 Jul, export said 7 — exactly on the window, so no penalty.
+  // Counted to 1 Aug it is 12 days, which is over.
+  const before = trackerSummary(makeDataset(ROWS), [2], () => null, []);
+  const after = trackerSummary(makeDataset(ROWS), [2], () => null, [], REF);
+  assert.equal(before.total.penaltyCalls, 0, 'the export column kept it under');
+  assert.equal(after.total.penaltyCalls, 1);
+  assert.equal(after.total.accrued, (12 - 7) * 900);
+});
+
+test('falls back to the export column when there is no reference day', () => {
+  const withRef = trackerSummary(makeDataset(ROWS), [0, 1, 2, 3, 4], typeOf, TYPES, 0);
+  assert.equal(withRef.total.penaltyCalls, 3, 'the old rule, unchanged');
 });

@@ -479,9 +479,10 @@ for (const c of ENTRY_COLUMNS) ENTRY_WIDTH[c.key] = c.w;
 export function exportColumns(hasZone) {
   return [
     { key: 'ticket', label: 'Ticket', type: 'text', w: 118 },
-    /* "Down days", which is what the business calls it. On this tab it is exact:
-       the tracker is open calls only, so days since logging is days the
-       equipment has been down. */
+    /* "Down days", which is what the business calls it. On this tab it is
+       exact: the tracker is open calls only, so days since logging is days
+       the equipment has been down. Counted here rather than read off the
+       export — see the note in MeetingTab. */
     { key: 'age', label: 'Down Days', type: 'num', align: 'num', w: 76 },
     ...(hasZone ? [{ key: 'zone', label: 'Zone', type: 'text', w: 96 }] : []),
     { key: 'district', label: 'District', type: 'text', w: 120 },
