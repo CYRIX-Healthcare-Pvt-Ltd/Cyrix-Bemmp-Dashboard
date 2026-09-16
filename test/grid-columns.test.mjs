@@ -72,6 +72,29 @@ test('the body row writes one cell per column', () => {
     `${cells} cells for ${expected} headings — a mismatch slides every column after it`);
 });
 
+test('the body row writes its cells in the heading order', () => {
+  // Counting cells catches a missing one; it does not catch one in the
+  // wrong place, which slides the same way. Down Days moved from second to
+  // after Ticket remark, and the heading list and the body row have to have
+  // moved together. Each column's first read of `r.key` in the row is
+  // where its cell is written — the money columns test their own value
+  // before formatting it, but that test is still inside their cell.
+  const body = bodyRow();
+  const keys = exportColumns(true).filter((c) => !c.entry).map((c) => c.key);
+  const wanted = new Set(keys);
+  const seen = [];
+  for (const m of body.matchAll(/r[.]([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    if (wanted.has(m[1]) && !seen.includes(m[1])) seen.push(m[1]);
+  }
+  assert.deepEqual(seen, keys, 'a cell out of order sits under the wrong heading');
+});
+
+test('Down Days sits after Ticket remark and before Per day penalty', () => {
+  const keys = exportColumns(true).map((c) => c.key);
+  assert.equal(keys.indexOf('age'), keys.indexOf('remark') + 1);
+  assert.equal(keys.indexOf('rate'), keys.indexOf('age') + 1);
+});
+
 test('Installed sits with the export columns, not the editable ones', () => {
   const col = exportColumns(true).find((c) => c.key === 'installed');
   assert.ok(col, 'the Installed column is missing');

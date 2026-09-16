@@ -1436,26 +1436,24 @@ export default function MeetingTab({
    * would be a surprise. Downloading 915 rows having just narrowed to 12 is not
    * what "download" means next to a filter.
    *
-   * The meeting's own fields come with it. Zone, district and equipment are
-   * already in the export somebody could open themselves; what is only here is
-   * what the meeting decided, and that is the reason to take this file away.
+   * Every column the tracker shows, in the tracker's order, because the file
+   * is built from the same list the grid is (`columns`, from exportColumns).
+   * It used to keep a list of its own, which had drifted: barcode, make,
+   * model, logged and installed dates, status, who it is assigned to and the
+   * ticket remark were all on screen and none of them in the file. One list
+   * cannot drift from itself.
    */
   const download = async () => {
-    const columns = [
-      { header: 'Ticket', key: 'ticket' },
-      { header: 'Down Days', key: 'age', numeric: true },
+    const sheetColumns = columns.flatMap((c) => {
+      const col = { header: c.label, key: c.key, numeric: c.type === 'num' };
       /* Their column AI beside ours. The grid counts from the logged date;
          this is what the state's own export said, which is what the
-         tracker workbook is built on. */
-      { header: 'Down Days (export)', key: 'exportAge', numeric: true },
-      ...(hasZone ? [{ header: 'Zone', key: 'zone' }] : []),
-      { header: 'District', key: 'district' },
-      { header: 'Facility', key: 'facility' },
-      { header: 'Equipment', key: 'equipment' },
-      { header: 'Per day penalty', key: 'rate', numeric: true },
-      { header: 'Penalty', key: 'accrued', numeric: true },
-      ...MEETING_FIELDS.map((f) => ({ header: f.label, key: f.key })),
-    ];
+         tracker workbook is built on. The one column the file carries that
+         the grid does not. */
+      return c.key === 'age'
+        ? [col, { header: 'Down Days (export)', key: 'exportAge', numeric: true }]
+        : [col];
+    });
 
     const rows = visible.map((r) => {
       const note = notes.get(r.ticket) ?? {};
@@ -1474,7 +1472,7 @@ export default function MeetingTab({
     const stamp = new Date().toISOString().slice(0, 10);
     const scope = query.trim() ? 'filtered' : 'all';
     saveBlob(
-      await writeSheet({ sheetName: 'Ticket tracker', columns, rows }),
+      await writeSheet({ sheetName: 'Ticket tracker', columns: sheetColumns, rows }),
       `ticket-tracker-${state}-${scope}-${stamp}.xlsx`,
     );
   };
@@ -1836,13 +1834,6 @@ export default function MeetingTab({
                         </svg>
                       </button>
                     </td>
-                    {/* The number alone. The heading says "Down Days", so a
-                        "d" on every one of eight thousand rows is the unit
-                        repeated eight thousand times, and it stops the
-                        column being read as figures. The dialog subtitle
-                        keeps its "d" — there it is prose, and "5 open"
-                        would say something else. */}
-                    <td className="num">{r.age}</td>
                     {hasZone && <td>{r.zone}</td>}
                     <td>{r.district}</td>
                     <td>{r.facility}</td>
@@ -1860,6 +1851,16 @@ export default function MeetingTab({
                     <td>{r.status || '—'}</td>
                     <td>{r.assigned || '—'}</td>
                     <td>{r.remark || '—'}</td>
+                    {/* The number alone. The heading says "Down Days", so a
+                        "d" on every one of eight thousand rows is the unit
+                        repeated eight thousand times, and it stops the
+                        column being read as figures. The dialog subtitle
+                        keeps its "d" — there it is prose, and "5 open"
+                        would say something else. After the remark and
+                        before the money, where exportColumns puts its
+                        heading — a cell out of step with its heading slides
+                        every column after it under the wrong title. */}
+                    <td className="num">{r.age}</td>
                     {/* Bare numbers. Both columns are rupees, both say so in
                         their heading, and a ₹ on nine hundred rows is nine
                         hundred repetitions of a fact stated at the top. */}
