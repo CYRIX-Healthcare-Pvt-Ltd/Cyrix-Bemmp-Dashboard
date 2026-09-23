@@ -101,7 +101,7 @@ export async function loadProfile() {
   const [{ data, error }, employee] = await Promise.all([
     supabase
       .from('profile')
-      .select('id, code, full_name, role, scope, zones, districts')
+      .select('id, code, full_name, role, scope, zones, districts, cyra')
       .eq('id', id)
       .maybeSingle(),
     supabase
@@ -132,6 +132,14 @@ export function firstName(profile) {
 export const canEditMeeting = (profile) => Boolean(profile) && profile.role !== 'director';
 
 export const isAdmin = (profile) => profile?.role === 'admin';
+
+/**
+ * Whether this person has Cyra: off unless turned on for them in SW Admin's
+ * BEMMP tab (the user, 23 Sep — "defaulty make everyone as disabled"). The
+ * assistant endpoint asks the same question and refuses a no, so this only
+ * decides whether the button is offered.
+ */
+export const canUseCyra = (profile) => profile?.cyra === true;
 
 /**
  * An admin sees every contract without any being listed against them.

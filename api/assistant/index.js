@@ -1,13 +1,14 @@
-import { caller, configured, json, readBody, secret } from '../_lib/server.js';
+import { configured, json, readBody, requireCyra, secret } from '../_lib/server.js';
 
 const ALLOWED_MODELS = new Set(['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1']);
 
 /**
  * One chat-completions round trip, with the key held here.
  *
- * A signed-in session is required. Without that check this endpoint is a public
- * OpenAI relay on a guessable URL, billed to the company — the fact that the key
- * is hidden from the browser does not matter if anyone can spend it.
+ * A signed-in session is required, with Cyra turned on for that person in SW
+ * Admin. Without that check this endpoint is a public OpenAI relay on a
+ * guessable URL, billed to the company — the fact that the key is hidden from
+ * the browser does not matter if anyone can spend it.
  *
  * The model is pinned to a short list rather than passed through: the request
  * body arrives from the browser, and "whatever model the client asked for" is
@@ -17,8 +18,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') { json(res, 405, { error: 'POST only.' }); return; }
   if (!configured()) { json(res, 503, { error: 'Assistant is not configured.' }); return; }
 
-  const who = await caller(req);
-  if (!who) { json(res, 401, { error: 'Sign in to use the assistant.' }); return; }
+  if (!(await requireCyra(req, res))) return;
 
   const key = await secret('openai_api_key');
   if (!key) { json(res, 503, { error: 'No OpenAI key configured on this deployment.' }); return; }

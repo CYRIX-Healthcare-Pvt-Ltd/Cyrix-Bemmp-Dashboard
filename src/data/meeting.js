@@ -66,8 +66,49 @@ export const MEETING_FIELDS = [
 export const PRIMARY_FIELDS = MEETING_FIELDS.filter((f) => f.primary);
 export const DETAIL_FIELDS = MEETING_FIELDS.filter((f) => !f.primary);
 
-const SELECT = ['state', 'ticket', 'closed_on', 'updated_at', 'legacy_values']
-  .concat(MEETING_FIELDS.map((f) => f.key))
+const PR_STATUS = MEETING_FIELDS.find((f) => f.key === 'pr_status');
+const PO_STATUS = MEETING_FIELDS.find((f) => f.key === 'po_status');
+
+/**
+ * What Uttar Pradesh's meeting enters: the Open Call Tracker's columns from
+ * Q, in its order (the user, 23 Sep).
+ *
+ * Where a column means what one of Kerala's already means it is that field —
+ * current status, payment pending, PI, PR and PO — so it is stored, logged
+ * and filtered the same way, under Uttar Pradesh's own name. One PO number,
+ * the one with PO date and status; the template's second, in T, was the same
+ * thing twice. PR and PO status choose from Kerala's lists. The rest are
+ * Uttar Pradesh's own (0010_uttar_pradesh.sql).
+ */
+export const UP_FIELDS = [
+  { key: 'current_status', label: 'Current Complaint Status', kind: 'text', primary: true, width: 300 },
+  { key: 'coordinator_remark', label: 'Coordinator Remark', kind: 'text', width: 260 },
+  { key: 'dm_remark', label: 'DM Remark', kind: 'text', width: 260 },
+  { key: 'payment_issue', label: 'Payment Pending', kind: 'text', width: 180 },
+  { key: 'edc', label: 'EDC', kind: 'date' },
+  { key: 'pi_no', label: 'PI Number', kind: 'text', width: 130 },
+  { key: 'pi_date', label: 'PI Date', kind: 'date' },
+  { key: 'item', label: 'Item', kind: 'text', width: 200 },
+  { key: 'pr_no', label: 'PR Number', kind: 'text', width: 130 },
+  { key: 'pr_date', label: 'PR Date', kind: 'date' },
+  { ...PR_STATUS, label: 'PR Status' },
+  { key: 'po_no', label: 'PO Number', kind: 'text', width: 130 },
+  { key: 'po_date', label: 'PO Date', kind: 'date' },
+  { ...PO_STATUS, label: 'PO Status' },
+  { key: 'dm_name', label: 'DM Name', kind: 'text', width: 170 },
+];
+
+/** A contract's meeting fields: Uttar Pradesh's, or Kerala's (which Andhra shares). */
+export function fieldsFor(state) {
+  return state === 'up' ? UP_FIELDS : MEETING_FIELDS;
+}
+
+/** Every field anybody enters, for what a key means wherever it turns up. */
+export const ALL_FIELDS = [...MEETING_FIELDS, ...UP_FIELDS.filter((u) => !MEETING_FIELDS.some((m) => m.key === u.key))];
+
+/** What is read for a contract: its own fields, and the row's bookkeeping. */
+const selectFor = (state) => ['state', 'ticket', 'closed_on', 'updated_at', 'legacy_values']
+  .concat(fieldsFor(state).map((f) => f.key))
   .join(',');
 
 /**
@@ -123,7 +164,7 @@ export async function loadNotes(state, tickets, onStep) {
   const fetched = await Promise.all(Array.from({ length: pages }, async (_, i) => {
     const { data, error } = await supabase
       .from('meeting_note')
-      .select(SELECT)
+      .select(selectFor(state))
       .eq('state', state)
       // Ordered because a range without one is not a stable window: two
       // pages could return the same row and never return another.
@@ -158,7 +199,7 @@ export async function saveField(state, ticket, key, value) {
     .update({ [key]: value === '' ? null : value })
     .eq('state', state)
     .eq('ticket', ticket)
-    .select(SELECT);
+    .select(selectFor(state));
   if (error) throw error;
   // Row-level security answers a refused write with success and no rows, so an
   // empty result is the signal that this account may not edit — not an error.
@@ -464,7 +505,8 @@ const KIND_WIDTH = { date: 128, number: 108, select: 168, text: 190 };
 /** Default width per entry column, by key — the same value its heading uses. */
 export const ENTRY_WIDTH = {};
 
-const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
+/** A contract's meeting fields as columns of the grid. */
+export const entryColumnsOf = (fields) => fields.map((f) => ({
   key: f.key,
   label: f.label,
   type: f.kind === 'number' ? 'num' : 'text',
@@ -472,9 +514,57 @@ const ENTRY_COLUMNS = MEETING_FIELDS.map((f) => ({
   w: f.width ?? KIND_WIDTH[f.kind] ?? 190,
   /** Present on exactly the columns that are editable. */
   entry: f,
+  group: 'entry',
 }));
 
-for (const c of ENTRY_COLUMNS) ENTRY_WIDTH[c.key] = c.w;
+const ENTRY_COLUMNS = entryColumnsOf(MEETING_FIELDS);
+
+for (const c of [...ENTRY_COLUMNS, ...entryColumnsOf(UP_FIELDS)]) ENTRY_WIDTH[c.key] ??= c.w;
+
+/**
+ * Uttar Pradesh's tracker (the user, 23 Sep): the TM export's columns in its
+ * own order and under its own names, then the penalty the "UP Penalty - Auto
+ * dashboard.xlsx" works out — columns Z to AK, less the two it hides — then
+ * what the meeting enters.
+ *
+ * The date-and-time columns are shown as the export writes them and sorted by
+ * the moment they stand for (`sortBy`), not as text.
+ */
+export function upColumns() {
+  const tm = (key, label, w, extra = {}) => ({ key, label, type: 'text', w, group: 'tm', ...extra });
+  const pen = (key, label, w, extra = {}) => ({ key, label, type: 'num', align: 'num', w, group: 'penalty', ...extra });
+  return [
+    tm('ticket', 'MptId', 104),
+    tm('district', 'District', 130),
+    tm('division', 'Division', 120),
+    tm('zone', 'Zone', 80),
+    tm('facilityType', 'Hospital Type', 100),
+    tm('facility', 'Hospital', 230),
+    tm('barcode', 'Asset No', 150),
+    tm('equipment', 'Product', 180),
+    tm('manufacturer', 'Manufacture', 140),
+    tm('model', 'Model No', 130),
+    tm('serialNo', 'Serial No', 120),
+    tm('department', 'Department', 140),
+    tm('contactNo', 'Contact No', 130),
+    tm('receivedAt', 'Call Received Date & Time', 178, { sortBy: 'receivedOrder' }),
+    tm('respondedAt', 'Call Respond Date & Time', 178, { sortBy: 'respondedOrder' }),
+    tm('attendedAt', 'Call Attend Date & Time', 178, { sortBy: 'attendedOrder' }),
+    tm('completedAt', 'Call Completed Date & Time', 178, { sortBy: 'completedOrder' }),
+    tm('status', 'Status', 140),
+    pen('bStart', 'B Penalty Start Date', 118, { type: 'text', align: undefined, sortBy: 'bStartDay' }),
+    pen('bDownDays', 'B Penalty Down Days', 96),
+    pen('aPenalty', 'A Penalty', 110, { money: true }),
+    pen('bPenalty', 'B Penalty', 110, { money: true }),
+    pen('totalPenalty', 'Total Penalty', 118, { money: true }),
+    pen('perDayPenalty', 'Per Day Penalty', 110, { money: true }),
+    pen('penaltyRange', 'Penalty Range', 116, { type: 'text', align: undefined, sortBy: 'perDayCost' }),
+    pen('perDayCost', 'Per Day Cost', 100, { money: true }),
+    pen('prio', 'Prio', 64, { type: 'text', align: undefined }),
+    pen('prioRange', 'Prio Range', 80),
+    ...entryColumnsOf(UP_FIELDS),
+  ];
+}
 
 export function exportColumns(hasZone) {
   return [

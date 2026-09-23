@@ -84,8 +84,28 @@ export async function caller(req) {
   }
   if (!user?.id) return null;
 
-  const rows = await db(`profile?id=eq.${user.id}&select=id,code,full_name,role,scope`);
-  return rows?.[0] ? { ...rows[0], email: user.email } : { id: user.id, email: user.email, role: null, scope: [] };
+  const rows = await db(`profile?id=eq.${user.id}&select=id,code,full_name,role,scope,cyra`);
+  return rows?.[0]
+    ? { ...rows[0], email: user.email }
+    : { id: user.id, email: user.email, role: null, scope: [], cyra: false };
+}
+
+/**
+ * Guard for Cyra's endpoints: signed in, and Cyra turned on for this person in
+ * SW Admin (0011_cyra_access.sql — off unless somebody turns it on). Returns
+ * the caller, or answers the request.
+ *
+ * Checked here as well as in the browser, which only hides the button: OpenAI
+ * bills every question, and a hidden button is no lock on a known URL.
+ */
+export async function requireCyra(req, res) {
+  const who = await caller(req);
+  if (!who) { json(res, 401, { error: 'Sign in to use the assistant.' }); return null; }
+  if (!who.cyra) {
+    json(res, 403, { error: 'Cyra is not turned on for your account. Your SW admin can turn it on.' });
+    return null;
+  }
+  return who;
 }
 
 /** Guard for the admin screen. Returns the caller, or answers the request. */

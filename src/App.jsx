@@ -18,7 +18,7 @@ import AdminTab from './components/AdminTab.jsx';
 import MeetingTab from './components/MeetingTab.jsx';
 import Boundary from './components/Boundary.jsx';
 import {
-  supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin, firstName,
+  supabase, isConfigured, loadProfile, signOut, canEditMeeting, isAdmin, firstName, canUseCyra,
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import Avatar from './components/Avatar.jsx';
@@ -404,6 +404,25 @@ export default function App() {
   const showMeeting = isConfigured() && canEditMeeting(profile);
 
   /*
+   * Uttar Pradesh is its ticket tracker and nothing else, for now — the user,
+   * 23 Sep: "now we need only up ticket tracker like we have in kl". The
+   * dashboard, penalty and performance sections are measured the way Kerala's
+   * workbooks measure them, and nobody has held them against Uttar Pradesh's.
+   *
+   * By the export on screen rather than the contract picked, so the rules
+   * change when the data does and never show one contract's figures under
+   * another's.
+   */
+  const trackerOnly = ds?.meta.id === 'up';
+
+  /*
+   * Cyra, for the people it has been turned on for in SW Admin — nobody until
+   * then (0011_cyra_access.sql). A build with no Supabase has no accounts to ask
+   * and keeps it, as it always has; its own server decides who reaches it.
+   */
+  const showCyra = !isConfigured() || canUseCyra(profile);
+
+  /*
    * The view actually shown: the one chosen, unless it is the tracker and the
    * tracker is not available.
    *
@@ -420,9 +439,13 @@ export default function App() {
    * Somebody who genuinely cannot open it sees the bucket for as long as
    * that is true, and their saved choice costs nothing.
    */
-  const callView = wantedCallView === TRACKER && !showMeeting
+  let callView = wantedCallView === TRACKER && !showMeeting
     ? BUCKET.OPEN
     : wantedCallView;
+  // Uttar Pradesh: the tracker, or — for somebody who cannot open it — the
+  // open calls it is made of. Never the parked bucket: its export has no
+  // Ticket Remark to park a call behind.
+  if (trackerOnly) callView = showMeeting ? TRACKER : BUCKET.OPEN;
 
   /*
    * A build with no Supabase configured is a supported state, not a broken one:
@@ -461,7 +484,7 @@ export default function App() {
     // as a new object, or every consumer of `profile` recomputes for nothing.
     loadProfile()
       .then((p) => setProfile((prev) => (
-        prev && p && prev.id === p.id && prev.role === p.role
+        prev && p && prev.id === p.id && prev.role === p.role && prev.cyra === p.cyra
           && String(prev.scope) === String(p.scope) ? prev : p
       )))
       .catch(() => setProfile(null));
@@ -682,15 +705,28 @@ export default function App() {
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
     const next = datasetFrom(meta, buffer, 'upload');
-    setDs(next);
-    // The saved default is resolved against the dictionaries of *this* export,
-    // so a district that has left the contract simply drops out of it.
-    setFilters(defaultFiltersFor(next));
-    setStateId(id);
-    setError(null);
-    setBusy(false);
-    setShowUpload(false);
-    listUploads().then(setUploads);
+    /*
+     * The list of uploads first, then everything else in the same update.
+     *
+     * The loader checks the chosen contract against the contracts that have
+     * data, and it learns about this upload from that list. Choosing the
+     * contract before the list had caught up sent a contract with nothing else
+     * behind it — Uttar Pradesh's first export — straight back to the first
+     * contract in the switcher, with the new export loaded and not on screen.
+     */
+    listUploads()
+      .catch(() => null)
+      .then((list) => {
+        if (list) setUploads(list);
+        setDs(next);
+        // The saved default is resolved against the dictionaries of *this* export,
+        // so a district that has left the contract simply drops out of it.
+        setFilters(defaultFiltersFor(next));
+        setStateId(id);
+        setError(null);
+        setBusy(false);
+        setShowUpload(false);
+      });
   }, []);
 
   // A finished rebuild replaces the artifact on disk; pull it in without a reload.
@@ -900,12 +936,24 @@ export default function App() {
    * the database on every request, and the profile policy is what actually
    * refuses anyone else.
    */
-  const visibleTabs = useMemo(
-    () => (isAdmin(profile)
-      ? [...TABS, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
-      : TABS),
-    [profile],
-  );
+  const visibleTabs = useMemo(() => {
+    // Uttar Pradesh has the one section, named for what it holds.
+    const base = trackerOnly
+      ? [showMeeting
+        ? { id: 'calls', label: 'Ticket tracker', short: 'Tracker' }
+        : TABS.find((t) => t.id === 'calls')]
+      : TABS;
+    return isAdmin(profile)
+      ? [...base, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
+      : base;
+  }, [profile, trackerOnly, showMeeting]);
+
+  /*
+   * The section on screen: the one chosen, unless this contract does not have
+   * it. Derived rather than written back, like `callView` above, so going from
+   * Uttar Pradesh back to Kerala returns to wherever Kerala was.
+   */
+  const activeTab = trackerOnly && tab !== 'accounts' ? 'calls' : tab;
 
   /*
    * Remember the view.
@@ -1040,7 +1088,7 @@ export default function App() {
 
   return (
     <>
-      <div className={`app${busy ? ' is-busy' : ''}`}>
+      <div className={`app${busy ? ' is-busy' : ''}${showCyra ? ' has-cyra' : ''}`}>
         <header className="masthead">
           <div className="brand">
             <a className="brand-home" href="/" aria-label="All Cyrix modules" title="All Cyrix modules">
@@ -1121,7 +1169,7 @@ export default function App() {
         <div className="shell">
         <SideNav
           tabs={visibleTabs}
-          active={tab}
+          active={activeTab}
           onSelect={setTab}
           onUpload={() => setShowUpload(true)}
           onSignOut={signOutToPortal}
@@ -1142,15 +1190,19 @@ export default function App() {
           />
         )}
 
-        <Filters
-          ds={ds}
-          filters={filters}
-          setFilters={setFilters}
-        />
+        {/* Not over Uttar Pradesh's tracker: its dates would narrow nothing
+            there, and every column in the grid filters itself. */}
+        {!trackerOnly && (
+          <Filters
+            ds={ds}
+            filters={filters}
+            setFilters={setFilters}
+          />
+        )}
 
-        <div className="tabview" key={tab}>
+        <div className="tabview" key={activeTab}>
 
-        {tab === 'dashboard' && (
+        {activeTab === 'dashboard' && (
           <div className="grid" style={{ gap: 16 }}>
             <KpiTiles
               summary={summary}
@@ -1276,8 +1328,10 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'calls' && (
+        {activeTab === 'calls' && (
           <>
+            {/* Uttar Pradesh has one view of its calls, so nothing to switch. */}
+            {!trackerOnly && (
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Backlog view">
                 {[BUCKET.OPEN, BUCKET.PARKED].map((b) => (
@@ -1303,6 +1357,7 @@ export default function App() {
                 )}
               </div>
             </div>
+            )}
 
             {callView === TRACKER ? (
               /*
@@ -1355,7 +1410,7 @@ export default function App() {
           </>
         )}
 
-        {tab === 'performance' && (
+        {activeTab === 'performance' && (
           <>
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Performance measure">
@@ -1395,7 +1450,7 @@ export default function App() {
           </>
         )}
 
-        {tab === 'money' && (
+        {activeTab === 'money' && (
           <>
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Penalty measure">
@@ -1460,7 +1515,7 @@ export default function App() {
           </>
         )}
 
-        {tab === 'repeats' && (
+        {activeTab === 'repeats' && (
           <DrillExplorer
             key={`repeats-${stateId}`}
             ds={ds}
@@ -1476,7 +1531,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'accounts' && isAdmin(profile) && <AdminTab
+        {activeTab === 'accounts' && isAdmin(profile) && <AdminTab
                 profile={profile}
                 areaOptions={{
                   zones: ds?.dict.zone ?? [],
@@ -1495,6 +1550,7 @@ export default function App() {
         onClose={() => setDrawerRow(null)}
       />
 
+      {showCyra && (
       <button
         type="button"
         className="assistant-fab"
@@ -1507,8 +1563,9 @@ export default function App() {
         </svg>
         <span>Ask Cyra</span>
       </button>
+      )}
 
-      {showAssistant && (
+      {showCyra && showAssistant && (
         <AssistantPanel
           ds={ds}
           referenceDay={referenceDay}

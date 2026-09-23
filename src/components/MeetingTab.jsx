@@ -5,14 +5,14 @@ import { supabase } from '../data/supabase.js';
 import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
-  BLANK, BLANK_LABEL, ENTRY_WIDTH, MEETING_FIELDS, applyFilters, asChoice, holdRows,
-  buildChoices, computeField, ensureRows, exportColumns, isComputed, loadLog,
-  loadNotes, reconcileOpen, saveField,
+  ALL_FIELDS, BLANK, BLANK_LABEL, MEETING_FIELDS, applyFilters, asChoice, holdRows,
+  buildChoices, computeField, ensureRows, exportColumns, fieldsFor, isComputed, loadLog,
+  loadNotes, reconcileOpen, saveField, upColumns,
 } from '../data/meeting.js';
+import { upPenalty } from '../../shared/upPenalty.mjs';
 
-/** Column keys are database names; the log has to read like the form does. */
-const FIELD_LABEL = Object.fromEntries(MEETING_FIELDS.map((f) => [f.key, f.label]));
-const DATE_FIELDS = new Set(MEETING_FIELDS.filter((f) => f.kind === 'date').map((f) => f.key));
+/** Every field that is a date, whichever contract enters it. */
+const DATE_FIELDS = new Set(ALL_FIELDS.filter((f) => f.kind === 'date').map((f) => f.key));
 
 /**
  * `13 Aug 2026`.
@@ -32,6 +32,88 @@ function asDate(value) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
   if (!m) return value;
   return `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
+}
+
+/** Today as an Excel serial, the way the dataset counts days. */
+function todaySerial() {
+  const d = new Date();
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000 + 25569;
+}
+
+/**
+ * "22/09/2026 02:20:26 PM" as a moment, for sorting — Uttar Pradesh's export
+ * writes its dates as text, and text sorts 01/10 before 22/09. Null when the
+ * cell is blank, so it sorts to the end either way round.
+ */
+function momentOf(text) {
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?)?/i.exec(String(text ?? '').trim());
+  if (!m) return null;
+  let h = Number(m[4] ?? 0);
+  if (m[7]) h = (h % 12) + (m[7].toUpperCase() === 'PM' ? 12 : 0);
+  return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), h, Number(m[5] ?? 0), Number(m[6] ?? 0));
+}
+
+/** Rupees to the paisa, as the penalty workbook shows them. */
+const paise = (n) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Kerala's first four columns show blank as blank, as they always have; everything else as a dash. */
+const BARE = new Set(['zone', 'district', 'facility', 'equipment']);
+
+/**
+ * Which columns to see (the user, 23 Sep: "user should have option to select
+ * which columns they wish to see"): every column, grouped as the grid is, with
+ * the ticket always on — a row nobody can name is a row nobody can use.
+ */
+function ColumnPicker({ columns, hidden, onChange, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  const GROUPS = [['tm', 'From the TM export'], ['penalty', 'Penalty'], ['entry', 'What the meeting enters']];
+  const grouped = GROUPS
+    .map(([id, title]) => [title, columns.filter((c) => c.key !== 'ticket' && (c.group ?? (c.entry ? 'entry' : 'tm')) === id)])
+    .filter(([, list]) => list.length);
+  const toggle = (key) => {
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onChange(next);
+  };
+  const setAll = (list, on) => {
+    const next = new Set(hidden);
+    for (const c of list) { if (on) next.delete(c.key); else next.add(c.key); }
+    onChange(next);
+  };
+  const shownCount = columns.filter((c) => !hidden.has(c.key)).length;
+  return (
+    <div className="column-picker" ref={ref} role="dialog" aria-label="Columns to show">
+      <div className="column-picker-head">
+        <strong>Columns</strong>
+        <span className="caption">{shownCount} of {columns.length} shown</span>
+        {hidden.size > 0 && (
+          <button type="button" className="linkish" onClick={() => onChange(new Set())}>Show all</button>
+        )}
+      </div>
+      {grouped.map(([title, list]) => (
+        <fieldset key={title} className="column-picker-group">
+          <legend>
+            {title}
+            <button type="button" className="linkish" onClick={() => setAll(list, true)}>all</button>
+            <button type="button" className="linkish" onClick={() => setAll(list, false)}>none</button>
+          </legend>
+          {list.map((c) => (
+            <label key={c.key}>
+              <input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggle(c.key)} />
+              {c.label}
+            </label>
+          ))}
+        </fieldset>
+      ))}
+    </div>
+  );
 }
 
 /** A value as it should read in the log: dates named, everything else verbatim. */
@@ -651,7 +733,7 @@ export function GridCell({ fieldKey, value, kind, options, tones, disabled, onCo
  * identify the row off the side of the screen. The grid now identifies calls;
  * this form changes them.
  */
-function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle }) {
+function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle, fields = MEETING_FIELDS }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -706,7 +788,7 @@ function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle
               meeting fills on almost every ticket — 99% and 27% of the source
               sheet, against under 3% for everything below them. */}
           <div className="modal-grid">
-            {MEETING_FIELDS.map((f) => (
+            {fields.map((f) => (
               <label key={f.key} className="field">
                 <span>{f.label}</span>
                 {isComputed(f.key) ? (
@@ -755,6 +837,8 @@ function EntryDialog({ ticket, note, types, canEdit, onCommit, onClose, subtitle
  * including when the answer is that somebody cleared a field.
  */
 function LogDialog({ state, ticket, onClose }) {
+  // Column keys are database names; the log reads the way this contract's form does.
+  const labels = useMemo(() => Object.fromEntries(fieldsFor(state).map((f) => [f.key, f.label])), [state]);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
 
@@ -817,7 +901,7 @@ function LogDialog({ state, ticket, onClose }) {
                     <span>{stamp(r.changed_at)}</span>
                   </div>
                   <div className="log-what">
-                    <span className="log-field">{FIELD_LABEL[r.column_name] ?? r.column_name}</span>
+                    <span className="log-field">{labels[r.column_name] ?? r.column_name}</span>
                     {/* Cleared and set are different events and must not both
                         render as an arrow into nothing. */}
                     {r.new_value == null ? (
@@ -944,7 +1028,34 @@ export default function MeetingTab({
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState(null); // { key, dir } — null keeps the export's order
 
-  const columns = useMemo(() => exportColumns(hasZone), [hasZone]);
+  // The contract's meeting fields, and its columns: Uttar Pradesh's own, or
+  // Kerala's, which Andhra shares.
+  const fields = useMemo(() => fieldsFor(state), [state]);
+  const columns = useMemo(() => (state === 'up' ? upColumns() : exportColumns(hasZone)), [state, hasZone]);
+
+  /*
+   * The columns somebody has chosen not to see. Per device and per contract,
+   * like the widths below; the ticket is always shown.
+   */
+  const hiddenKey = `bemmp.tracker.hidden.${state}`;
+  const [hidden, setHidden] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(hiddenKey) ?? '[]');
+      return new Set(Array.isArray(saved) ? saved : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const [picking, setPicking] = useState(false);
+  const chooseColumns = useCallback((next) => {
+    setHidden(next);
+    try { localStorage.setItem(hiddenKey, JSON.stringify([...next])); } catch { /* this visit only */ }
+  }, [hiddenKey]);
+  const closePicker = useCallback(() => setPicking(false), []);
+  const shown = useMemo(
+    () => columns.filter((c) => c.key === 'ticket' || !hidden.has(c.key)),
+    [columns, hidden],
+  );
 
   /*
    * Column widths somebody has set for themselves.
@@ -995,8 +1106,8 @@ export default function MeetingTab({
    * being the widths. Given a number, every column is exactly what it says.
    */
   const tableWidth = useMemo(
-    () => columns.reduce((n, c) => n + (widths[c.key] ?? c.w ?? 0), 0) + LOG_WIDTH,
-    [columns, widths],
+    () => shown.reduce((n, c) => n + (widths[c.key] ?? c.w ?? 0), 0) + LOG_WIDTH,
+    [shown, widths],
   );
 
   const remember = useCallback((next) => {
@@ -1063,6 +1174,30 @@ export default function MeetingTab({
    * times for a single word typed. `haystack` is pre-lowercased for the same
    * reason.
    */
+  // Uttar Pradesh's text columns, as its export writes them — blank in any
+  // artifact from before they existed (see `datasetFrom`).
+  const upText = (f, row) => (cols[f] && dict[f] ? label(dict[f], cols[f][row], '') : '');
+  const upColumnsOf = (row) => {
+    const at = (f) => upText(f, row);
+    return {
+      division: at('division'),
+      facilityType: label(dict.facilityType, cols.facilityType[row], ''),
+      serialNo: at('serialNo'),
+      department: label(dict.department, cols.department[row], ''),
+      contactNo: at('contactNo'),
+      receivedAt: at('receivedAt'),
+      respondedAt: at('respondedAt'),
+      attendedAt: at('attendedAt'),
+      completedAt: at('completedAt'),
+      receivedOrder: momentOf(at('receivedAt')),
+      respondedOrder: momentOf(at('respondedAt')),
+      attendedOrder: momentOf(at('attendedAt')),
+      completedOrder: momentOf(at('completedAt')),
+    };
+  };
+  const upSearchText = (row) => ['division', 'serialNo', 'contactNo'].map((f) => upText(f, row))
+    .concat(label(dict.department, cols.department[row], '')).join(' ');
+
   const records = useMemo(() => rows.map((row) => {
     const ticket = ticketLabel(ds, row);
     const zone = hasZone ? label(dict.zone, cols.zone[row]) : '';
@@ -1127,11 +1262,64 @@ export default function MeetingTab({
       status,
       assigned,
       remark,
+      ...(state === 'up' ? upColumnsOf(row) : {}),
       // Everything somebody might have in front of them when they come
       // looking: a barcode off the machine, an engineer's name, a model.
-      haystack: `${ticket} ${zone} ${district} ${facility} ${equipment} ${barcode} ${manufacturer} ${model} ${status} ${assigned} ${remark}`.toLowerCase(),
+      haystack: `${ticket} ${zone} ${district} ${facility} ${equipment} ${barcode} ${manufacturer} ${model} ${status} ${assigned} ${remark}${
+        state === 'up' ? ` ${upSearchText(row)}` : ''}`.toLowerCase(),
     };
-  }), [ds, rows, cols, dict, referenceDay, hasZone]);
+  }), [ds, rows, cols, dict, referenceDay, hasZone, state]);
+
+  /*
+   * Uttar Pradesh's penalty needs each asset's per-day cost and priority —
+   * the workbook's Per Day Cost sheet, in the database. Asked for once, for
+   * the assets on screen. Kept out of `records`, which the load depends on:
+   * the costs arriving must not start the whole load again.
+   */
+  const [costs, setCosts] = useState(null);
+  useEffect(() => {
+    if (state !== 'up' || !supabase) return undefined;
+    let live = true;
+    const assets = [...new Set(records.map((r) => r.barcode).filter(Boolean))];
+    supabase.rpc('up_asset_costs', { p_assets: assets }).then(({ data, error: e }) => {
+      if (!live) return;
+      if (e) {
+        setError(`The per-day costs did not load, so penalties show as nought: ${e.message}`);
+        setCosts(new Map());
+        return;
+      }
+      setCosts(new Map((data ?? []).map((c) => [c.asset_no, { cost: Number(c.per_day_cost) || 0, prio: c.prio ?? '' }])));
+    });
+    return () => { live = false; };
+  }, [state, records]);
+
+  /** Uttar Pradesh's rows with their penalty as of today (shared/upPenalty.mjs); every other contract's as they are. */
+  const priced = useMemo(() => {
+    if (state !== 'up') return records;
+    const today = todaySerial();
+    return records.map((r) => {
+      const known = costs?.get(r.barcode);
+      const p = upPenalty({
+        loggedDay: cols.loggedDay[r.row], completedDay: cols.resolvedDay[r.row], status: r.status,
+        perDayCost: known?.cost ?? 0, prio: known?.prio ?? '',
+      }, today);
+      const round = (n) => Math.round(n * 100) / 100;
+      return {
+        ...r,
+        bStartDay: p.startDay > 0 ? p.startDay : null,
+        bStart: p.startDay > 0 ? formatDay(p.startDay) : '',
+        bDownDays: p.downDays,
+        aPenalty: round(p.aPenalty),
+        bPenalty: round(p.bPenalty),
+        totalPenalty: round(p.total),
+        perDayPenalty: round(p.perDay),
+        penaltyRange: known ? p.band : '',
+        perDayCost: known ? round(p.perDayCost) : null,
+        prio: known?.prio ?? '',
+        prioRange: known ? p.prioRange : null,
+      };
+    });
+  }, [state, records, costs, cols]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -1227,20 +1415,20 @@ export default function MeetingTab({
      * a white page, because a throw in a memo is a throw in render and
      * there is no error boundary above it.
      */
-    if (!notes || notes.size === 0) return records;
-    return records.map((r) => {
+    if (!notes || notes.size === 0) return priced;
+    return priced.map((r) => {
       const n = notes.get(r.ticket);
       if (!n) return r;
       const extra = {};
       let text = '';
-      for (const f of MEETING_FIELDS) {
+      for (const f of fields) {
         const v = isComputed(f.key) ? computeField(f.key, n) : n[f.key];
         extra[f.key] = v ?? '';
         if (v != null && v !== '') text += ` ${String(v).toLowerCase()}`;
       }
       return { ...r, ...extra, haystack: r.haystack + text };
     });
-  }, [records, notes]);
+  }, [priced, notes, fields]);
 
   /*
    * What is actually in each filterable column, and how often.
@@ -1398,7 +1586,19 @@ export default function MeetingTab({
       const col = columns.find((c) => c.key === sort.key);
       const byDate = col && isDateColumn(col);
       list = [...list].sort((a, b) => {
-        if (col?.type === 'num') return (a[sort.key] - b[sort.key]) * dir;
+        // A number, or a column that sorts by one (a date written as text,
+        // by its moment). Nothing known sits at the bottom either way round:
+        // an asset with no per-day cost is not the cheapest one.
+        if (col?.sortBy || col?.type === 'num') {
+          const x = a[col.sortBy ?? sort.key];
+          const y = b[col.sortBy ?? sort.key];
+          const nx = x === null || x === undefined;
+          const ny = y === null || y === undefined;
+          if (nx && ny) return 0;
+          if (nx) return 1;
+          if (ny) return -1;
+          return (x - y) * dir;
+        }
         if (byDate) {
           const x = dateOrder(a[sort.key]);
           const y = dateOrder(b[sort.key]);
@@ -1475,7 +1675,7 @@ export default function MeetingTab({
    * cannot drift from itself.
    */
   const download = async () => {
-    const sheetColumns = columns.flatMap((c) => {
+    const sheetColumns = shown.flatMap((c) => {
       const col = { header: c.label, key: c.key, numeric: c.type === 'num' };
       /* Their column AI beside ours. The grid counts from the logged date;
          this is what the state's own export said, which is what the
@@ -1493,7 +1693,7 @@ export default function MeetingTab({
         // Dates as the page shows them. A date serial in a text column would be
         // a number nobody can read, and a real date cell needs a number format
         // this writer deliberately does not carry.
-        ...Object.fromEntries(MEETING_FIELDS.map((f) => [
+        ...Object.fromEntries(fields.map((f) => [
           f.key,
           isComputed(f.key) ? computeField(f.key, note) : shownValue(f.key, note[f.key]),
         ])),
@@ -1583,17 +1783,24 @@ export default function MeetingTab({
 
   return (
     <div className={`grid${full ? ' tracker-full' : ''}`} style={{ gap: 16 }}>
-      <div className="panel">
+      {/* Raised while the column chooser is open: both panels animate in, so
+          each is its own layer, and the grid's — later in the page — would
+          otherwise paint over a panel that drops out of this one. */}
+      <div className={`panel${picking ? ' is-raised' : ''}`}>
         <div className="panel-head">
           <div>
             <h2>Daily penalty meeting</h2>
             {/* Says "every date" out loud, because the filter bar above this may
                 well read "This month" — and a count that disagrees with the
                 filter summary next to it looks like a fault rather than a
-                decision. The oldest calls are the point of the meeting. */}
+                decision. The oldest calls are the point of the meeting.
+                Uttar Pradesh has no filter bar to disagree with; what it needs
+                said is that its penalty runs to today, as its workbook's does. */}
             <p className="caption">
               {rows.length.toLocaleString()} open calls as of {formatDay(referenceDay)}
-              {' '}— the whole backlog, every date, not just the selected range.
+              {state === 'up'
+                ? ', with penalty counted to today.'
+                : ' — the whole backlog, every date, not just the selected range.'}
               {' '}Entries save as you leave each field and carry over to tomorrow.
               {sync?.closed ? ` ${sync.closed.toLocaleString()} closed since the last export.` : ''}
             </p>
@@ -1602,7 +1809,10 @@ export default function MeetingTab({
             {/* Two readings of one backlog, so a segmented control rather than a
                 tab of its own: the meeting works the list and checks the totals
                 in the same sitting, and the sub-tabs above already carry the
-                choice between the three buckets. */}
+                choice between the three buckets. Kerala's summary is its
+                meeting's workbook, so Uttar Pradesh has the list alone — and a
+                switch with one position is not a switch. */}
+            {state !== 'up' && (
             <div className="segmented">
               {[['tickets', 'Tickets'], ['summary', 'Summary']].map(([id, text]) => (
                 <button
@@ -1615,6 +1825,7 @@ export default function MeetingTab({
                 </button>
               ))}
             </div>
+            )}
             {!canEdit && <span className="drill-badge">read only</span>}
           </div>
         </div>
@@ -1630,7 +1841,9 @@ export default function MeetingTab({
             <input
               type="search"
               value={query}
-              placeholder={`Search ticket, ${hasZone ? 'zone, ' : ''}district, facility or equipment`}
+              placeholder={state === 'up'
+                ? 'Search MptId, district, hospital, asset no, product or model'
+                : `Search ticket, ${hasZone ? 'zone, ' : ''}district, facility or equipment`}
               aria-label="Search the open calls"
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -1679,6 +1892,26 @@ export default function MeetingTab({
             </svg>
             Excel
           </button>
+
+          {/* Which columns to see; remembered on this device, for this contract. */}
+          <span className="column-picker-wrap">
+            <button
+              type="button"
+              className={`meeting-columns${hidden.size ? ' is-on' : ''}`}
+              onClick={() => setPicking((v) => !v)}
+              aria-expanded={picking}
+              title="Choose which columns to see"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M15 4v16" />
+              </svg>
+              Columns{hidden.size ? ` · ${columns.length - hidden.size} of ${columns.length}` : ''}
+            </button>
+            {picking && (
+              <ColumnPicker columns={columns} hidden={hidden} onChange={chooseColumns} onClose={closePicker} />
+            )}
+          </span>
 
           <button
             type="button"
@@ -1737,7 +1970,7 @@ export default function MeetingTab({
           <table className="meeting-table is-sortable" style={{ width: tableWidth }}>
             <thead>
               <tr>
-                {columns.map((c) => (
+                {shown.map((c) => (
                   <th
                     key={c.key}
                     className={[
@@ -1841,98 +2074,98 @@ export default function MeetingTab({
                 const note = notes.get(r.ticket);
                 return (
                   <tr key={r.ticket}>
-                    {/* Pinned. With thirty-one columns the one thing that
-                        must never scroll away is which row you are on. */}
-                    <td className="col-pin">
-                      <button type="button" className="linkish" onClick={() => onSelectRow(r.row)}>
-                        {r.ticket}
-                      </button>
-                      {/* The whole form, for when somebody is filling in one
-                          ticket properly rather than scanning across. Not a
-                          column of its own — an affordance on a cell that is
-                          always on screen anyway. */}
-                      <button
-                        type="button"
-                        className="row-form"
-                        onClick={() => setDetail(r.ticket)}
-                        aria-label={`${canEdit ? 'Update' : 'View'} the entry for ${r.ticket}`}
-                        title={canEdit ? 'Open the full entry form' : 'View the full entry'}
-                      >
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
-                             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                             strokeLinejoin="round" aria-hidden="true">
-                          <path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z" />
-                        </svg>
-                      </button>
-                    </td>
-                    {hasZone && <td>{r.zone}</td>}
-                    <td>{r.district}</td>
-                    <td>{r.facility}</td>
-                    <td>{r.equipment}</td>
-                    {/* The rest of what the export knows. In the heading
-                        order above, and every one of them present: a body
-                        row shorter than its heading row does not leave a
-                        gap at the end, it slides every column after the
-                        short one under the wrong title. */}
-                    <td>{r.barcode || '—'}</td>
-                    <td>{r.manufacturer || '—'}</td>
-                    <td>{r.model || '—'}</td>
-                    <td>{r.logged || '—'}</td>
-                    <td>{r.installed || '—'}</td>
-                    <td>{r.status || '—'}</td>
-                    <td>{r.assigned || '—'}</td>
-                    <td>{r.remark || '—'}</td>
-                    {/* The number alone. The heading says "Down Days", so a
-                        "d" on every one of eight thousand rows is the unit
-                        repeated eight thousand times, and it stops the
-                        column being read as figures. The dialog subtitle
-                        keeps its "d" — there it is prose, and "5 open"
-                        would say something else. After the remark and
-                        before the money, where exportColumns puts its
-                        heading — a cell out of step with its heading slides
-                        every column after it under the wrong title. */}
-                    <td className="num">{r.age}</td>
-                    {/* Bare numbers. Both columns are rupees, both say so in
-                        their heading, and a ₹ on nine hundred rows is nine
-                        hundred repetitions of a fact stated at the top. */}
-                    <td className="num">
-                      {r.rate > 0
-                        ? r.rate.toLocaleString('en-IN')
-                        : <span className="money-nil">—</span>}
-                    </td>
-                    <td className="num">
-                      {r.accrued > 0
-                        ? r.accrued.toLocaleString('en-IN')
-                        : <span className="money-nil">—</span>}
-                    </td>
-                    {/* What the meeting decided, in the grid rather than
-                        behind a click each. Text until pressed — see
-                        GridCell for why that matters at this row count. */}
-                    {MEETING_FIELDS.map((f) => (
-                      <td
-                        key={f.key}
-                        className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}
-                        style={widthStyle(f.key, ENTRY_WIDTH[f.key])}
-                      >
-                        {/* Four of these are arithmetic on the dates beside
-                            them, so there is nothing to type and no way to
-                            type it. See COMPUTED in data/meeting.js. */}
-                        {isComputed(f.key) ? (
-                          <span className="cell-computed">
-                            {computeField(f.key, note) ?? '—'}
-                          </span>
-                        ) : (
-                          <GridCell
-                            fieldKey={f.key}
-                            value={note?.[f.key]}
-                            kind={f.kind}
-                            options={f.options ?? types} tones={f.tones}
-                            disabled={!canEdit}
-                            onCommit={commit(r.ticket, f.key)}
-                          />
-                        )}
-                      </td>
-                    ))}
+                    {/* One cell per heading, from the same list the headings
+                        come from — the columns somebody chose to see, in
+                        their order. A body row out of step with its heading
+                        row does not leave a gap at the end, it slides every
+                        column after the odd one under the wrong title. */}
+                    {shown.map((c) => {
+                      const v = r[c.key];
+                      if (c.key === 'ticket') {
+                        return (
+                          // Pinned. With thirty-odd columns the one thing that
+                          // must never scroll away is which row you are on.
+                          <td key={c.key} className="col-pin">
+                            <button type="button" className="linkish" onClick={() => onSelectRow(r.row)}>
+                              {r.ticket}
+                            </button>
+                            {/* The whole form, for when somebody is filling in one
+                                ticket properly rather than scanning across. Not a
+                                column of its own — an affordance on a cell that is
+                                always on screen anyway. */}
+                            <button
+                              type="button"
+                              className="row-form"
+                              onClick={() => setDetail(r.ticket)}
+                              aria-label={`${canEdit ? 'Update' : 'View'} the entry for ${r.ticket}`}
+                              title={canEdit ? 'Open the full entry form' : 'View the full entry'}
+                            >
+                              <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                                   stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                                   strokeLinejoin="round" aria-hidden="true">
+                                <path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z" />
+                              </svg>
+                            </button>
+                          </td>
+                        );
+                      }
+                      if (c.entry) {
+                        // What the meeting decided, in the grid rather than
+                        // behind a click each. Text until pressed — see
+                        // GridCell for why that matters at this row count.
+                        const f = c.entry;
+                        return (
+                          <td
+                            key={c.key}
+                            className={`entry entry-${f.kind}${f.kind === 'number' ? ' num' : ''}`}
+                            style={widthStyle(c.key, c.w)}
+                          >
+                            {/* Four of Kerala's are arithmetic on the dates
+                                beside them, so there is nothing to type and no
+                                way to type it. See COMPUTED in data/meeting.js. */}
+                            {isComputed(f.key) ? (
+                              <span className="cell-computed">
+                                {computeField(f.key, note) ?? '—'}
+                              </span>
+                            ) : (
+                              <GridCell
+                                fieldKey={f.key}
+                                value={note?.[f.key]}
+                                kind={f.kind}
+                                options={f.options ?? types} tones={f.tones}
+                                disabled={!canEdit}
+                                onCommit={commit(r.ticket, f.key)}
+                              />
+                            )}
+                          </td>
+                        );
+                      }
+                      // Kerala's two money columns: bare rupees. Both say so
+                      // in their heading, and a ₹ on nine hundred rows is nine
+                      // hundred repetitions of a fact stated at the top.
+                      if (c.key === 'rate' || c.key === 'accrued') {
+                        return (
+                          <td key={c.key} className="num">
+                            {v > 0 ? v.toLocaleString('en-IN') : <span className="money-nil">—</span>}
+                          </td>
+                        );
+                      }
+                      // Uttar Pradesh's: to the paisa, as its workbook shows them.
+                      if (c.money) {
+                        return (
+                          <td key={c.key} className="num">
+                            {v ? paise(v) : <span className="money-nil">—</span>}
+                          </td>
+                        );
+                      }
+                      // The number alone — "Down Days" is in the heading, so a
+                      // "d" on every row is the unit said eight thousand times.
+                      if (c.type === 'num') {
+                        return <td key={c.key} className="num">{v ?? <span className="money-nil">—</span>}</td>;
+                      }
+                      if (state !== 'up' && BARE.has(c.key)) return <td key={c.key}>{v}</td>;
+                      return <td key={c.key}>{v || '—'}</td>;
+                    })}
                     {/* One label on every row. Carrying the count and the last
                         editor here made the widest column in the grid out of the
                         least urgent thing in it — the trail matters when
@@ -1971,6 +2204,7 @@ export default function MeetingTab({
             : null}
           onCommit={(key) => commit(detail, key)}
           onClose={() => setDetail(null)}
+          fields={fields}
         />
       )}
 

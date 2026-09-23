@@ -88,8 +88,10 @@ export default function UploadPanel({
       );
       return;
     }
-    if (!/\.xlsx$/i.test(file.name)) {
-      setError('That is not an .xlsx file. Export the TM report as Excel and try again.');
+    // Uttar Pradesh's export comes as .xls — a web page under an Excel name,
+    // which the reader takes (shared/htmlTable.mjs). Anything else is refused here.
+    if (!/\.xlsx?$/i.test(file.name)) {
+      setError('That is not an Excel file. Export the TM report as Excel (.xlsx, or .xls for UP) and try again.');
       return;
     }
 
@@ -180,7 +182,7 @@ export default function UploadPanel({
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx"
+        accept=".xlsx,.xls"
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0];

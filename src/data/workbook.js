@@ -10,8 +10,9 @@
  * produce identical figures.
  */
 import {
-  Builder, createCellRegex, sharedStringText, detectState, STATE_BY_ID,
+  Builder, addHtmlRows, createCellRegex, sharedStringText, detectState, STATE_BY_ID,
 } from '../../shared/schema.mjs';
+import { looksLikeHtml } from '../../shared/htmlTable.mjs';
 
 /* ------------------------------------------------------------------ zip ---- */
 
@@ -122,11 +123,23 @@ export async function parseWorkbook(file, { stateId, onProgress } = {}) {
   if (!state) {
     throw new Error(
       `Could not tell which contract "${file.name}" belongs to. `
-      + 'Rename it to include KL or AP, or pick the contract before uploading.',
+      + 'Rename it to include KL, AP or UP, or pick the contract before uploading.',
     );
   }
 
   const report = (phase, pct, detail) => onProgress?.({ phase, pct, detail });
+
+  // Uttar Pradesh's export is a web page saved as .xls: a table, with no zip to
+  // open. It is a few hundred rows, so it is read whole.
+  if (looksLikeHtml(await file.slice(0, 512).text())) {
+    report('Reading the export', 10);
+    const builder = addHtmlRows(new Builder(state), await file.text());
+    report('Summarising', 96, `${builder.rows.toLocaleString()} rows`);
+    const result = builder.finish();
+    report('Done', 100, `${result.meta.rows.toLocaleString()} tickets`);
+    return result;
+  }
+
   report('Reading workbook', 0);
 
   const entries = await readCentralDirectory(file);

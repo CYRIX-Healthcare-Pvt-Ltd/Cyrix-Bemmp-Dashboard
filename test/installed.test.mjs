@@ -19,7 +19,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Builder, STATE_BY_ID, COLUMNS, FORMAT_VERSION } from '../shared/schema.mjs';
+import { Builder, STATE_BY_ID, COLUMNS, FORMAT_VERSION, UP_TEXT_FIELDS } from '../shared/schema.mjs';
 import { datasetFrom, formatDay, MONTHS } from '../src/data/store.js';
 import { day } from './fixture.mjs';
 
@@ -77,7 +77,7 @@ function artifact(columns, formatVersion) {
 }
 
 test('an artifact built before the column was added is still readable', () => {
-  const older = COLUMNS.slice(0, -1);
+  const older = COLUMNS.slice(0, COLUMNS.indexOf('installedDay'));
   const ds = datasetFrom(...artifact(older, FORMAT_VERSION - 1));
   // Every column it does carry is where it says it is.
   older.forEach((name, i) => assert.equal(ds.cols[name][0], i + 1, name));
@@ -109,11 +109,19 @@ test('the current layout reads back exactly', () => {
   COLUMNS.forEach((name, i) => assert.equal(ds.cols[name][0], i + 1, name));
 });
 
-test('installedDay is last in COLUMNS, so older artifacts stay a prefix', () => {
-  // Not decoration: if it were inserted anywhere else, every artifact
+test('every column since was appended, so older artifacts stay a prefix', () => {
+  // Not decoration: had one been inserted anywhere else, every artifact
   // published before it would be refused and every state would have to be
-  // re-uploaded before the dashboard drew anything at all.
-  assert.equal(COLUMNS[COLUMNS.length - 1], 'installedDay');
+  // re-uploaded before the dashboard drew anything at all. installedDay came
+  // first; Uttar Pradesh's columns after it.
+  assert.deepEqual(COLUMNS.slice(-1 - UP_TEXT_FIELDS.length), ['installedDay', ...UP_TEXT_FIELDS]);
+});
+
+test("an artifact from before Uttar Pradesh's columns is still readable", () => {
+  const older = COLUMNS.slice(0, COLUMNS.length - UP_TEXT_FIELDS.length);
+  const ds = datasetFrom(...artifact(older, FORMAT_VERSION));
+  older.forEach((name, i) => assert.equal(ds.cols[name][0], i + 1, name));
+  for (const f of UP_TEXT_FIELDS) assert.equal(ds.cols[f], undefined, f);
 });
 
 /* ------------------------------------------------------ the date format --- */

@@ -1,4 +1,4 @@
-import { caller, configured, json, readBody, secret } from '../_lib/server.js';
+import { configured, json, readBody, requireCyra, secret } from '../_lib/server.js';
 
 /**
  * Text to speech, returning audio bytes.
@@ -16,8 +16,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') { json(res, 405, { error: 'POST only.' }); return; }
   if (!configured()) { json(res, 503, { error: 'Assistant is not configured.' }); return; }
 
-  const who = await caller(req);
-  if (!who) { json(res, 401, { error: 'Sign in to use the assistant.' }); return; }
+  if (!(await requireCyra(req, res))) return;
 
   const key = await secret('openai_api_key');
   if (!key) { json(res, 503, { error: 'No OpenAI key configured on this deployment.' }); return; }

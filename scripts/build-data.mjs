@@ -17,8 +17,9 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
-  STATES, Builder, createCellRegex, sharedStringText, FTFR_MAX_DAYS,
+  STATES, Builder, addHtmlRows, createCellRegex, sharedStringText, FTFR_MAX_DAYS,
 } from '../shared/schema.mjs';
+import { looksLikeHtml } from '../shared/htmlTable.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_DIR = path.join(ROOT, 'BEMMP DATA');
@@ -126,6 +127,24 @@ async function buildState(state) {
   if (!fs.existsSync(source)) throw new Error(`source workbook not found: ${source}`);
 
   const started = Date.now();
+  const builder = new Builder(state);
+
+  // Uttar Pradesh's export is a web page saved as .xls, with no zip in it.
+  const fd = fs.openSync(source, 'r');
+  const head = Buffer.alloc(512);
+  fs.readSync(fd, head, 0, 512, 0);
+  fs.closeSync(fd);
+  if (looksLikeHtml(head.toString('utf8'))) {
+    process.stdout.write(`[${state.short}] reading the table... `);
+    addHtmlRows(builder, fs.readFileSync(source, 'utf8'));
+  } else {
+    await readWorkbookRows(source, state, builder);
+  }
+  console.log(`${builder.rows.toLocaleString()} rows`);
+  return writeState(state, builder, started);
+}
+
+async function readWorkbookRows(source, state, builder) {
   const entries = readCentralDirectory(source);
   const sheet = sheetEntryName(entries);
 
@@ -133,7 +152,6 @@ async function buildState(state) {
   const shared = await loadSharedStrings(source, entries);
   console.log(`${shared.length.toLocaleString()} unique`);
 
-  const builder = new Builder(state);
   const { fieldOf } = builder;
   const cellRe = createCellRegex();
   const field = {};
@@ -158,8 +176,9 @@ async function buildState(state) {
 
     builder.addRow(field);
   }
-  console.log(`${builder.rows.toLocaleString()} rows`);
+}
 
+function writeState(state, builder, started) {
   const { buffer, meta } = builder.finish();
 
   const outDir = path.join(OUT_DIR, state.id);
@@ -199,7 +218,16 @@ async function main() {
     : [];
 
   const built = [];
-  for (const state of targets) built.push(await buildState(state));
+  for (const state of targets) {
+    // Building everything, a state with no workbook in BEMMP DATA is left as it
+    // was rather than failing the rest — Uttar Pradesh's arrives by upload.
+    // Named on the command line, a missing one is still an error.
+    if (!wanted.length && !fs.existsSync(path.join(SOURCE_DIR, state.file))) {
+      console.log(`[${state.short}] no ${state.file} in BEMMP DATA — skipped`);
+      continue;
+    }
+    built.push(await buildState(state));
+  }
 
   const byId = new Map(existing.map((s) => [s.id, s]));
   for (const s of built) byId.set(s.id, s);

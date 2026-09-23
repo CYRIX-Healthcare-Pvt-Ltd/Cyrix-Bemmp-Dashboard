@@ -9,6 +9,63 @@
  * Nothing in this file may import from `node:` or touch the DOM.
  */
 
+import { upAreaOf } from './upAreas.mjs';
+import { columnLetter, excelDayOfText, htmlTableRows } from './htmlTable.mjs';
+
+const loose = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * A web-page export — Uttar Pradesh's .xls — into the builder: its heading row
+ * checked against the columns this state expects, so a different report is
+ * refused rather than read into the wrong columns, then every row after it.
+ */
+export function addHtmlRows(builder, html) {
+  const rows = htmlTableRows(html);
+  const { state, fieldOf } = builder;
+  const heading = rows[0] ?? [];
+  for (const [col, want] of Object.entries(state.headings ?? {})) {
+    const got = heading.find((_, i) => columnLetter(i) === col) ?? '';
+    if (loose(got) !== loose(want)) {
+      throw new Error(
+        `This is not the ${state.name} TM export as the tracker reads it: column ${col} should be `
+        + `"${want}", and it is ${got ? `"${got}"` : 'empty'}.`,
+      );
+    }
+  }
+  const field = {};
+  for (const cells of rows.slice(1)) {
+    for (const k in field) delete field[k];
+    let seen = false;
+    cells.forEach((value, i) => {
+      const name = fieldOf[columnLetter(i)];
+      if (name && value !== '') { field[name] = value; seen = true; }
+    });
+    if (seen) builder.addRow(field);
+  }
+  return builder;
+}
+
+/**
+ * What Uttar Pradesh's export leaves for the pipeline to work out.
+ *
+ * Its dates are text — "22/09/2026 02:20:26 PM" — and are kept as the export
+ * writes them, for the tracker to show; the days the rest of the dashboard
+ * counts with come from them here. A call without a zone or a division gets
+ * its district's, from the master (the user, 23 Sep: "if it is not there map
+ * against the district").
+ */
+function deriveUp(field) {
+  field.loggedDay = excelDayOfText(field.receivedAt);
+  field.resolvedDay = excelDayOfText(field.completedAt);
+  if (!String(field.zone ?? '').trim() || !String(field.division ?? '').trim()) {
+    const area = upAreaOf(field.district);
+    if (area) {
+      if (!String(field.zone ?? '').trim()) field.zone = area.zone;
+      if (!String(field.division ?? '').trim()) field.division = area.division;
+    }
+  }
+}
+
 /**
  * Penalty SLA, in days, keyed by normalised equipment type.
  *
@@ -72,6 +129,40 @@ export const STATES = [
       S: 'rberDate', Y: 'assetValue',
     },
   },
+  {
+    /*
+     * Uttar Pradesh (the user, 23 Sep): the ticket tracker only, for now.
+     *
+     * Its export is a web page saved as .xls — one table, every cell text — so
+     * it is read by shared/htmlTable.mjs rather than as a workbook. Nineteen
+     * columns, Sl No to Status; each of them is kept, since the tracker shows
+     * them all. The penalty is its own: the asset's per-day cost and priority
+     * from the Per Day Cost sheet, in the database — see shared/upPenalty.mjs.
+     */
+    id: 'up',
+    name: 'Uttar Pradesh',
+    short: 'UP',
+    file: 'TM-UP.xls',
+    barcodeWidth: 0,
+    // The penalty starts on logged + 8, which is a seven-day window.
+    penaltyDays: { CRITICAL: 7, 'NON CRITICAL': 7 },
+    penaltyRates: null,
+    ticket: 'B',
+    categorical: {
+      C: 'district', D: 'division', E: 'zone', F: 'facilityType', G: 'facilityName',
+      H: 'barcode', I: 'equipment', J: 'manufacturer', K: 'model', L: 'serialNo',
+      M: 'department', N: 'contactNo', O: 'receivedAt', P: 'respondedAt',
+      Q: 'attendedAt', R: 'completedAt', S: 'status',
+    },
+    numeric: {},
+    derive: deriveUp,
+    // The export's headings where the reading depends on them: another report
+    // saved under this name is refused rather than read into the wrong columns.
+    headings: {
+      B: 'MptId', C: 'District', G: 'Hospital', H: 'Asset No',
+      O: 'Call Received Date & Time', R: 'Call Completed Date & Time', S: 'Status',
+    },
+  },
 ];
 
 export const STATE_BY_ID = Object.fromEntries(STATES.map((s) => [s.id, s]));
@@ -85,12 +176,19 @@ export const COLUMNS = [
   'loggedDay', 'resolvedDay', 'downDays', 'srcPenaltyDays', 'srcPenaltyAmount',
   'assetValue', 'dayRate', 'penaltyExempt', 'bucket',
   'installedDay',
+  // Uttar Pradesh's, appended — see datasetFrom for why the end is the only
+  // safe place. Blank for Kerala and Andhra, whose exports do not have them.
+  'division', 'serialNo', 'contactNo', 'receivedAt', 'respondedAt', 'attendedAt', 'completedAt',
 ];
+
+/** Uttar Pradesh's text columns, blank in every other state's artifact. */
+export const UP_TEXT_FIELDS = ['division', 'serialNo', 'contactNo', 'receivedAt', 'respondedAt', 'attendedAt', 'completedAt'];
 
 export const CATEGORICAL_FIELDS = [
   'ticketPrefix', 'barcode', 'zone', 'district', 'facilityType', 'facilityName',
   'model', 'department', 'deviceGroup', 'equipment', 'equipmentType', 'manufacturer',
   'status', 'engineer', 'lifecycle', 'parkedReason', 'serviceRequestType',
+  ...UP_TEXT_FIELDS,
 ];
 
 /**
@@ -329,6 +427,10 @@ export class Builder {
     const { cols, dicts, state } = this;
     const i = this.rows;
 
+    // What a state's export leaves to be worked out — Uttar Pradesh's text dates
+    // and missing zones — before anything below reads the row.
+    state.derive?.(field);
+
     // Unresolved rows carry a literal " " in Kerala and an empty cell in Andhra,
     // so blankness is tested before any date parsing.
     const resolvedRaw = String(field.resolvedDay ?? '').trim();
@@ -377,6 +479,9 @@ export class Builder {
     const installedRaw = String(field.installedDay ?? '').trim();
     cols.installedDay[i] = Number.isFinite(+installedRaw) && +installedRaw > 0
       ? Math.floor(+installedRaw) : -1;
+    // Uttar Pradesh's own columns, as the export writes them; nobody else's
+    // export has them, so they stay blank there.
+    for (const f of UP_TEXT_FIELDS) cols[f][i] = dicts[f].id(String(field[f] ?? '').trim());
     cols.penaltyExempt[i] = isPenaltyExempt(field) ? 1 : 0;
     cols.dayRate[i] = cols.penaltyExempt[i] ? 0 : dayRateFor(state, assetValue);
     cols.bucket[i] = bucket;

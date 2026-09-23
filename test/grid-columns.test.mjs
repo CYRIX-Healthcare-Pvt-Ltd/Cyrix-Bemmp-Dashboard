@@ -1,23 +1,22 @@
 /**
  * Every heading has a cell under it.
  *
- * This is a source test rather than a rendering one, which needs a reason.
- * The bug it exists for shipped: seven columns were added to the heading
- * row and to the record each row is built from, and the body row that
- * writes the cells was left alone. A short body row does not leave a gap
- * at the end of the table — every column after the missing one slides one
- * place left and sits under the wrong heading, so Manufacturer reads under
- * Barcode and the Logged date reads under Model. Nothing looks broken.
- * It looks like bad data.
+ * The bug this file exists for shipped: seven columns were added to the
+ * heading row and to the record each row is built from, and the body row
+ * that wrote the cells by hand was left alone. A short body row does not
+ * leave a gap at the end of the table — every column after the missing one
+ * slides one place left and sits under the wrong heading, so Manufacturer
+ * reads under Barcode and the Logged date reads under Model. Nothing looks
+ * broken. It looks like bad data.
  *
- * There is no DOM here to count cells in, and adding one to catch a
- * miscount is a lot of machinery for a question the source can answer:
- * the heading row is built from a list, so every key in that list must
- * appear as a cell in the body. The list moved to data/meeting.js so this
- * could read it — Node imports .js and not .jsx.
+ * The fix it asked for is in: the body maps the same list the heading does
+ * (`shown` — the columns somebody has chosen to see, which is also what made
+ * choosing them possible). What is left to guard is that it stays that way,
+ * and that every column in each contract's list is one a row has a value for.
  *
- * The real fix is for the body to map the same list the heading does. Until
- * it does, this is what stands between the two of them.
+ * Source tests rather than rendering ones: there is no DOM here, and the
+ * question is one the source answers. The lists live in data/meeting.js so
+ * this can read them — Node imports .js and not .jsx.
  */
 
 import test from 'node:test';
@@ -25,68 +24,66 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { exportColumns } from '../src/data/meeting.js';
+import { exportColumns, upColumns } from '../src/data/meeting.js';
 
 const SOURCE = fs.readFileSync(
   path.join(import.meta.dirname, '..', 'src', 'components', 'MeetingTab.jsx'), 'utf8',
 );
 
-/** The body of one data row: from the row element to where the entry cells begin. */
+const LISTS = {
+  'Kerala': exportColumns(true),
+  'Andhra': exportColumns(false),
+  'Uttar Pradesh': upColumns(),
+};
+
+/** The body of one data row: from the row element to the log cell that ends it. */
 function bodyRow() {
   const start = SOURCE.indexOf('<tr key={r.ticket}>');
-  const end = SOURCE.indexOf('{MEETING_FIELDS.map(', start);
+  const end = SOURCE.indexOf('className="log-cell"', start);
   assert.ok(start > 0 && end > start, 'could not find the body row in the source');
   return SOURCE.slice(start, end);
 }
 
-test('every export column is written as a cell in the body row', () => {
+test('the heading row and the body row draw the same list', () => {
+  const head = SOURCE.slice(SOURCE.indexOf('<thead>'), SOURCE.indexOf('</thead>'));
+  assert.match(head, /\{shown[.]map\(\(c\) =>/, 'the heading row no longer maps `shown`');
   const body = bodyRow();
-  // [.] rather than an escaped dot on purpose: this file is written by
-  // tooling often enough that a lone backslash has been eaten more than
-  // once, and a regex that silently matches nothing passes silently too.
-  const written = new Set(
-    [...body.matchAll(/r[.]([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]),
-  );
-
-  const missing = exportColumns(true)
-    .filter((c) => !c.entry)
-    .map((c) => c.key)
-    // Ticket is the pinned cell and is written by hand as a button, and
-    // the two money columns format their own numbers; all three are cells,
-    // they just do not read `r.key` plainly.
-    .filter((k) => !['ticket', 'rate', 'accrued'].includes(k))
-    .filter((k) => !written.has(k));
-
-  assert.deepEqual(missing, [],
-    `these columns have a heading and no cell: ${missing.join(', ')}`);
+  assert.match(body, /\{shown[.]map\(\(c\) =>/, 'the body row no longer maps `shown`');
+  // One map, one cell each: a second hand-written cell in the row is the
+  // start of the old bug again.
+  assert.equal((body.match(/\.map\(/g) ?? []).length, 1,
+    'the body row draws cells from something other than `shown`');
 });
 
-test('the body row writes one cell per column', () => {
-  const body = bodyRow();
-  const cells = (body.match(/<td[\s>]/g) ?? []).length;
-  // The editable half is drawn by mapping MEETING_FIELDS and cannot fall out
-  // of step with its own headings; the slice above stops before it. What is
-  // counted here is the hand-written half, which can and did.
-  const expected = exportColumns(true).filter((c) => !c.entry).length;
-  assert.equal(cells, expected,
-    `${cells} cells for ${expected} headings — a mismatch slides every column after it`);
-});
-
-test('the body row writes its cells in the heading order', () => {
-  // Counting cells catches a missing one; it does not catch one in the
-  // wrong place, which slides the same way. Down Days moved from second to
-  // after Ticket remark, and the heading list and the body row have to have
-  // moved together. Each column's first read of `r.key` in the row is
-  // where its cell is written — the money columns test their own value
-  // before formatting it, but that test is still inside their cell.
-  const body = bodyRow();
-  const keys = exportColumns(true).filter((c) => !c.entry).map((c) => c.key);
-  const wanted = new Set(keys);
-  const seen = [];
-  for (const m of body.matchAll(/r[.]([A-Za-z_][A-Za-z0-9_]*)/g)) {
-    if (wanted.has(m[1]) && !seen.includes(m[1])) seen.push(m[1]);
+test('the ticket is always shown, whatever is chosen', () => {
+  assert.match(SOURCE, /columns[.]filter\(\(c\) => c[.]key === 'ticket' \|\| !hidden[.]has\(c[.]key\)\)/);
+  for (const [name, list] of Object.entries(LISTS)) {
+    assert.equal(list[0].key, 'ticket', `${name}: the ticket is not the first column`);
   }
-  assert.deepEqual(seen, keys, 'a cell out of order sits under the wrong heading');
+});
+
+test('every column a row is not given by an entry field is one the row carries', () => {
+  // Each export column's value is set on the row under its own key, in the
+  // row builder or in Uttar Pradesh's penalty — `key: value` or a bare
+  // shorthand `key,` on a line of its own. Spaces rather than an escaped
+  // class, for the reason the dots below were once [.]: a backslash in this
+  // file has been eaten by tooling before, and a regex that matches nothing
+  // fails every column rather than the missing one.
+  for (const [name, list] of Object.entries(LISTS)) {
+    const missing = list
+      .filter((c) => !c.entry && c.key !== 'ticket')
+      .map((c) => c.key)
+      .filter((k) => !new RegExp(`^ +${k}(:|,$)`, 'm').test(SOURCE));
+    assert.deepEqual(missing, [], `${name}: these columns have a heading and nothing to show: ${missing.join(', ')}`);
+  }
+});
+
+test('no contract lists a column twice', () => {
+  for (const [name, list] of Object.entries(LISTS)) {
+    const seen = new Set();
+    const twice = list.map((c) => c.key).filter((k) => (seen.has(k) ? true : (seen.add(k), false)));
+    assert.deepEqual(twice, [], `${name}: ${twice.join(', ')}`);
+  }
 });
 
 test('Down Days sits after Ticket remark and before Per day penalty', () => {
@@ -104,10 +101,19 @@ test('Installed sits with the export columns, not the editable ones', () => {
   assert.equal(col.label, 'Installed');
 });
 
+test('Uttar Pradesh reads the TM export, then the penalty, then the meeting', () => {
+  // The user, 23 Sep: the penalty columns "should come after TM UP columns".
+  const groups = upColumns().map((c) => c.group);
+  const order = groups.filter((g, i) => g !== groups[i - 1]);
+  assert.deepEqual(order, ['tm', 'penalty', 'entry']);
+});
+
 test('every column carries a width', () => {
   // The layout is fixed and sizes from the first row in the DOM, which with
   // only the visible rows built is whichever row you have scrolled to. A
   // column with no width would change size as you scroll.
-  const noWidth = exportColumns(true).filter((c) => !c.w).map((c) => c.key);
-  assert.deepEqual(noWidth, []);
+  for (const [name, list] of Object.entries(LISTS)) {
+    const noWidth = list.filter((c) => !c.w).map((c) => c.key);
+    assert.deepEqual(noWidth, [], name);
+  }
 });
