@@ -489,30 +489,61 @@ export function ColumnFilter({ label, choices, picked, onChange, onClose, isDate
  * not what a date range and a district dropdown are for.
  */
 
+/**
+ * A date whole enough to save: picked from the calendar, or its year typed in
+ * full. A date box reports every digit of the year as a date of its own —
+ * 0002, 0020, 0202, then 2026 — and none of the first three is one anybody
+ * means.
+ */
+const WHOLE_DATE = /^20\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
 /** Saved on blur rather than on every keystroke — one row per word typed would
- *  fill the audit trail with noise and hammer the connection during a meeting. */
+ *  fill the audit trail with noise and hammer the connection during a meeting.
+ *  A date saves sooner: as soon as it is whole. */
 function Cell({ value, kind, options, tones, disabled, onCommit, autoFocus, onDone }) {
   const [draft, setDraft] = useState(value ?? '');
   const [state, setState] = useState('idle'); // idle | saving | saved | error
+  // What was last written, or read: the same value is never sent twice.
+  const sent = useRef(value ?? null);
 
   // A colleague's edit arriving over the wire should win over a stale draft,
   // but not while this person is mid-word in the field.
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  useEffect(() => { setDraft(value ?? ''); sent.current = value ?? null; }, [value]);
 
   const commit = async () => {
     const next = draft === '' ? null : draft;
-    if ((value ?? null) === next) return;
+    if ((value ?? null) === next || sent.current === next) return;
+    sent.current = next;
     setState('saving');
     try {
       await onCommit(next);
       setState('saved');
       setTimeout(() => setState('idle'), 1200);
     } catch (e) {
+      sent.current = value ?? null;
       setDraft(value ?? '');
       setState('error');
       setTimeout(() => setState('idle'), 2600);
     }
   };
+
+  /*
+   * A date saves as soon as it is whole, not when the box is left.
+   *
+   * Leaving was the only way it saved, and a date box is hard to leave: Tab
+   * after typing one moves to the calendar button inside the same box, so
+   * the first Tab saved nothing, the cell still looked empty, and the date
+   * was typed again (the user, 23 Sep: "they need to enter PR date twice to
+   * see it"). A phone's picker closing does not always leave the box either.
+   * Leaving still saves everything else, and still saves a date that was
+   * cleared.
+   */
+  useEffect(() => {
+    if (kind !== 'date' || !WHOLE_DATE.test(draft) || draft === (value ?? '')) return undefined;
+    const t = setTimeout(() => { void commit(); }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, draft]);
 
   const common = {
     value: draft,
