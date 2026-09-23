@@ -11,6 +11,7 @@
  */
 
 import { supabase } from './supabase.js';
+import { MONTHS } from './store.js';
 
 /**
  * Columns S..AO, in sheet order, with how each is entered.
@@ -410,14 +411,18 @@ export const asChoice = (v) => (v == null || v === '' ? BLANK : String(v));
 export function buildChoices(rows, columns, activeFilters) {
   const out = {};
   for (const c of columns) {
-    const others = activeFilters.filter(([key]) => key !== c.key);
+    // What the column filters on: its own value, or — for a date and time —
+    // the day it falls on (`filterBy`). The active filters arrive keyed the
+    // same way; see `filterField`.
+    const field = filterField(c);
+    const others = activeFilters.filter(([key]) => key !== field);
     const base = others.length
       ? rows.filter((r) => others.every(([key, vals]) => vals.includes(asChoice(r[key]))))
       : rows;
 
     const counts = new Map();
     for (const r of base) {
-      const v = asChoice(r[c.key]);
+      const v = asChoice(r[field]);
       counts.set(v, (counts.get(v) ?? 0) + 1);
     }
     const numeric = c.type === 'num';
@@ -432,6 +437,13 @@ export function buildChoices(rows, columns, activeFilters) {
   }
   return out;
 }
+
+/**
+ * The row value a column's filter reads: the column's own, unless it names
+ * another. A date and time filters on its day — Excel's tree is years,
+ * months and days, and a list of every second of the year is not a filter.
+ */
+export const filterField = (c) => c.filterBy ?? c.key;
 
 /** The rows that pass every active filter. */
 export const applyFilters = (rows, activeFilters) => (
@@ -505,6 +517,29 @@ const KIND_WIDTH = { date: 128, number: 108, select: 168, text: 190 };
 /** Default width per entry column, by key — the same value its heading uses. */
 export const ENTRY_WIDTH = {};
 
+/**
+ * Uttar Pradesh's "22/09/2026 02:20:26 PM", three ways:
+ *   shown  as the rest of the page writes a moment — "22 Sep 2026, 02:20 pm"
+ *   day    the day alone, which its filter groups by — "22 Sep 2026"
+ *   at     the moment, for sorting; as text 01/10 sorts before 22/09
+ * A blank cell is blank all three ways. Anything that does not read as a
+ * date is shown as it came, and sorts to the end.
+ */
+export function whenOf(text) {
+  const raw = String(text ?? '').trim();
+  const m = /^([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{4})(?:\s+([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?\s*([AaPp][Mm])?)?$/.exec(raw);
+  if (!m) return { shown: raw, day: raw, at: null };
+  let h = Number(m[4] ?? 0);
+  if (m[7]) h = (h % 12) + (m[7].toUpperCase() === 'PM' ? 12 : 0);
+  const at = Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), h, Number(m[5] ?? 0), Number(m[6] ?? 0));
+  const d = new Date(at);
+  const day = `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (m[4] === undefined) return { shown: day, day, at };
+  // The same shape as a log entry's stamp: "22 Sep 2026, 02:20 pm".
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  return { shown: `${day}, ${time}`, day, at };
+}
+
 /** A contract's meeting fields as columns of the grid. */
 export const entryColumnsOf = (fields) => fields.map((f) => ({
   key: f.key,
@@ -527,8 +562,10 @@ for (const c of [...ENTRY_COLUMNS, ...entryColumnsOf(UP_FIELDS)]) ENTRY_WIDTH[c.
  * dashboard.xlsx" works out — columns Z to AK, less the two it hides — then
  * what the meeting enters.
  *
- * The date-and-time columns are shown as the export writes them and sorted by
- * the moment they stand for (`sortBy`), not as text.
+ * The date-and-time columns are dates (the user, 23 Sep: "make it in date
+ * format, like filter like in excel"): shown as the page writes a moment,
+ * sorted by it (`sortBy`), and filtered by the day it falls on
+ * (`filterBy`) in the year / month / day tree every date column has.
  */
 export function upColumns() {
   const tm = (key, label, w, extra = {}) => ({ key, label, type: 'text', w, group: 'tm', ...extra });
@@ -547,13 +584,15 @@ export function upColumns() {
     tm('serialNo', 'Serial No', 120),
     tm('department', 'Department', 140),
     tm('contactNo', 'Contact No', 130),
-    tm('receivedAt', 'Call Received Date & Time', 178, { sortBy: 'receivedOrder' }),
-    tm('respondedAt', 'Call Respond Date & Time', 178, { sortBy: 'respondedOrder' }),
-    tm('attendedAt', 'Call Attend Date & Time', 178, { sortBy: 'attendedOrder' }),
-    tm('completedAt', 'Call Completed Date & Time', 178, { sortBy: 'completedOrder' }),
+    tm('receivedAt', 'Call Received Date & Time', 178, { sortBy: 'receivedOrder', filterBy: 'receivedDay', date: true }),
+    tm('respondedAt', 'Call Respond Date & Time', 178, { sortBy: 'respondedOrder', filterBy: 'respondedDay', date: true }),
+    tm('attendedAt', 'Call Attend Date & Time', 178, { sortBy: 'attendedOrder', filterBy: 'attendedDay', date: true }),
+    tm('completedAt', 'Call Completed Date & Time', 178, { sortBy: 'completedOrder', filterBy: 'completedDay', date: true }),
     tm('status', 'Status', 140),
-    pen('bStart', 'B Penalty Start Date', 118, { type: 'text', align: undefined, sortBy: 'bStartDay' }),
-    pen('bDownDays', 'B Penalty Down Days', 96),
+    // "B" off both (the user, 23 Sep): the start and the days are the whole
+    // call's, not B penalty's alone. B Penalty itself keeps its name.
+    pen('bStart', 'Penalty Start Date', 118, { type: 'text', align: undefined, sortBy: 'bStartDay', date: true }),
+    pen('bDownDays', 'Penalty Down Days', 96),
     pen('aPenalty', 'A Penalty', 110, { money: true }),
     pen('bPenalty', 'B Penalty', 110, { money: true }),
     pen('totalPenalty', 'Total Penalty', 118, { money: true }),

@@ -12,6 +12,7 @@ import { upPenalty, penaltyBand, PRIO_RANGE, UP_GRACE_DAYS } from '../shared/upP
 import { htmlTableRows, excelDayOfText, columnLetter, looksLikeHtml } from '../shared/htmlTable.mjs';
 import { upAreaOf, UP_AREAS } from '../shared/upAreas.mjs';
 import { Builder, addHtmlRows, STATE_BY_ID, detectState, COLUMNS } from '../shared/schema.mjs';
+import { BLANK, applyFilters, buildChoices, filterField, upColumns, whenOf } from '../src/data/meeting.js';
 
 const TODAY = day('2026-09-23');
 
@@ -146,4 +147,60 @@ test('an Uttar Pradesh export becomes a dataset, zones filled from the district'
 test('another report saved under the name is refused, not misread', () => {
   const wrong = '<table><tr><th>Sl No</th><th>Ticket</th></tr><tr><td>1</td><td>9</td></tr></table>';
   assert.throws(() => addHtmlRows(new Builder(STATE_BY_ID.up), wrong), /column B should be "MptId"/);
+});
+
+/* ---- the tracker's date columns (the user, 23 Sep: "make it in date format, like filter like in excel") */
+
+test('a date and time from the export reads as the page writes one', () => {
+  const w = whenOf('22/09/2026 02:20:26 PM');
+  assert.equal(w.shown, '22 Sep 2026, 02:20 pm');
+  assert.equal(w.day, '22 Sep 2026');
+  assert.equal(w.at, Date.UTC(2026, 8, 22, 14, 20, 26));
+  // Twelve o'clock both ways round, which is where AM and PM go wrong.
+  assert.equal(whenOf('01/10/2026 12:05:00 AM').at, Date.UTC(2026, 9, 1, 0, 5, 0));
+  assert.equal(whenOf('01/10/2026 12:05:00 PM').at, Date.UTC(2026, 9, 1, 12, 5, 0));
+});
+
+test('a blank cell is blank, a bare date has no time, and anything else is left alone', () => {
+  assert.deepEqual(whenOf(''), { shown: '', day: '', at: null });
+  assert.deepEqual(whenOf(null), { shown: '', day: '', at: null });
+  const bare = whenOf('07/09/2026');
+  assert.equal(bare.shown, '07 Sep 2026');
+  assert.equal(bare.day, '07 Sep 2026');
+  assert.deepEqual(whenOf('not recorded'), { shown: 'not recorded', day: 'not recorded', at: null });
+});
+
+test('sorted by the moment, 01/10 comes after 22/09', () => {
+  assert.ok(whenOf('01/10/2026 09:00:00 AM').at > whenOf('22/09/2026 11:00:00 PM').at);
+});
+
+test('every date column filters by its day, in the tree', () => {
+  const cols = upColumns();
+  const byKey = Object.fromEntries(cols.map((c) => [c.key, c]));
+  for (const k of ['receivedAt', 'respondedAt', 'attendedAt', 'completedAt']) {
+    assert.equal(byKey[k].date, true, `${k} is not a date column`);
+    assert.equal(filterField(byKey[k]), k.replace(/At$/, 'Day'));
+  }
+  assert.equal(byKey.bStart.date, true);
+  // The other columns filter on what they show.
+  assert.equal(filterField(byKey.district), 'district');
+});
+
+test('"B" is off the start date and the down days, and only those', () => {
+  const labels = Object.fromEntries(upColumns().map((c) => [c.key, c.label]));
+  assert.equal(labels.bStart, 'Penalty Start Date');
+  assert.equal(labels.bDownDays, 'Penalty Down Days');
+  assert.equal(labels.bPenalty, 'B Penalty');
+});
+
+test('ticking a day keeps every call of that day, whatever its time', () => {
+  const cols = upColumns().filter((c) => c.key === 'ticket' || c.key === 'receivedAt');
+  const rows = ['22/09/2026 09:15:00 AM', '22/09/2026 06:40:00 PM', '23/09/2026 10:00:00 AM', '']
+    .map((t, i) => { const w = whenOf(t); return { ticket: String(i), receivedAt: w.shown, receivedDay: w.day }; });
+  // What the filter offers: days, with how many calls each.
+  const choices = buildChoices(rows, cols, []);
+  assert.deepEqual(choices.receivedAt, [['22 Sep 2026', 2], ['23 Sep 2026', 1], [BLANK, 1]]);
+  // And what a tick keeps. The grid hands the filters over keyed by filterField.
+  const kept = applyFilters(rows, [[filterField(cols[1]), ['22 Sep 2026']]]);
+  assert.deepEqual(kept.map((r) => r.ticket), ['0', '1']);
 });

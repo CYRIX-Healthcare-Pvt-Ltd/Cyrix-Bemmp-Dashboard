@@ -6,8 +6,8 @@ import { trackerSummary } from '../data/summary.js';
 import TrackerSummary from './TrackerSummary.jsx';
 import {
   ALL_FIELDS, BLANK, BLANK_LABEL, MEETING_FIELDS, applyFilters, asChoice, holdRows,
-  buildChoices, computeField, ensureRows, exportColumns, fieldsFor, isComputed, loadLog,
-  loadNotes, reconcileOpen, saveField, upColumns,
+  buildChoices, computeField, ensureRows, exportColumns, fieldsFor, filterField, isComputed,
+  loadLog, loadNotes, reconcileOpen, saveField, upColumns, whenOf,
 } from '../data/meeting.js';
 import { upPenalty } from '../../shared/upPenalty.mjs';
 
@@ -38,19 +38,6 @@ function asDate(value) {
 function todaySerial() {
   const d = new Date();
   return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000 + 25569;
-}
-
-/**
- * "22/09/2026 02:20:26 PM" as a moment, for sorting — Uttar Pradesh's export
- * writes its dates as text, and text sorts 01/10 before 22/09. Null when the
- * cell is blank, so it sorts to the end either way round.
- */
-function momentOf(text) {
-  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?)?/i.exec(String(text ?? '').trim());
-  if (!m) return null;
-  let h = Number(m[4] ?? 0);
-  if (m[7]) h = (h % 12) + (m[7].toUpperCase() === 'PM' ? 12 : 0);
-  return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), h, Number(m[5] ?? 0), Number(m[6] ?? 0));
 }
 
 /** Rupees to the paisa, as the penalty workbook shows them. */
@@ -149,7 +136,7 @@ const SIZE_KEY = 'bemmp.tracker.filter-size';
  * cell shows. Named here so the filter and the sort cannot disagree
  * about which columns those are.
  */
-export const isDateColumn = (c) => c.entry?.kind === 'date'
+export const isDateColumn = (c) => c.entry?.kind === 'date' || c.date === true
   || c.key === 'logged' || c.key === 'installed';
 
 /**
@@ -1179,20 +1166,30 @@ export default function MeetingTab({
   const upText = (f, row) => (cols[f] && dict[f] ? label(dict[f], cols[f][row], '') : '');
   const upColumnsOf = (row) => {
     const at = (f) => upText(f, row);
+    // Each date and time as the page writes one, the day it filters by, and
+    // the moment it sorts by (whenOf, data/meeting.js).
+    const received = whenOf(at('receivedAt'));
+    const responded = whenOf(at('respondedAt'));
+    const attended = whenOf(at('attendedAt'));
+    const completed = whenOf(at('completedAt'));
     return {
       division: at('division'),
       facilityType: label(dict.facilityType, cols.facilityType[row], ''),
       serialNo: at('serialNo'),
       department: label(dict.department, cols.department[row], ''),
       contactNo: at('contactNo'),
-      receivedAt: at('receivedAt'),
-      respondedAt: at('respondedAt'),
-      attendedAt: at('attendedAt'),
-      completedAt: at('completedAt'),
-      receivedOrder: momentOf(at('receivedAt')),
-      respondedOrder: momentOf(at('respondedAt')),
-      attendedOrder: momentOf(at('attendedAt')),
-      completedOrder: momentOf(at('completedAt')),
+      receivedAt: received.shown,
+      respondedAt: responded.shown,
+      attendedAt: attended.shown,
+      completedAt: completed.shown,
+      receivedDay: received.day,
+      respondedDay: responded.day,
+      attendedDay: attended.day,
+      completedDay: completed.day,
+      receivedOrder: received.at,
+      respondedOrder: responded.at,
+      attendedOrder: attended.at,
+      completedOrder: completed.at,
     };
   };
   const upSearchText = (row) => ['division', 'serialNo', 'contactNo'].map((f) => upText(f, row))
@@ -1464,11 +1461,16 @@ export default function MeetingTab({
    * `Array.isArray` rather than a length test, so the empty list survives
    * into applyFilters — where `[].includes(x)` is false for every x, which
    * is exactly what filtering to nothing means.
+   *
+   * Keyed by what each column filters on (filterField) rather than by the
+   * column: a date and time is ticked by the day it falls on.
    */
-  const activeFilters = useMemo(
-    () => Object.entries(filters).filter(([, v]) => Array.isArray(v)),
-    [filters],
-  );
+  const activeFilters = useMemo(() => {
+    const fieldOf = new Map(columns.map((c) => [c.key, filterField(c)]));
+    return Object.entries(filters)
+      .filter(([, v]) => Array.isArray(v))
+      .map(([key, v]) => [fieldOf.get(key) ?? key, v]);
+  }, [filters, columns]);
 
   /*
    * Each column's list, narrowed by the other columns.
