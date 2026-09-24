@@ -17,7 +17,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
-  STATES, Builder, addHtmlRows, createCellRegex, sharedStringText, FTFR_MAX_DAYS,
+  STATES, Builder, HeadingReader, addHtmlRows, createCellRegex, decodeXml, sharedStringText, FTFR_MAX_DAYS,
 } from '../shared/schema.mjs';
 import { looksLikeHtml } from '../shared/htmlTable.mjs';
 
@@ -157,7 +157,19 @@ async function readWorkbookRows(source, state, builder) {
   const field = {};
 
   process.stdout.write(`[${state.short}] scanning rows... `);
+  // A state read by its headings (Uttar Pradesh) is read that way here too.
+  const reader = state.byHeading ? new HeadingReader(builder) : null;
   for await (const row of chunkedBy(openEntry(source, entries, sheet), '</row>')) {
+    if (reader) {
+      const cells = [];
+      cellRe.lastIndex = 0;
+      let c;
+      while ((c = cellRe.exec(row)) !== null) {
+        if (c[3] !== undefined) cells.push([c[1], c[2] === 's' ? shared[+c[3]] : decodeXml(c[3])]);
+      }
+      reader.offer(cells, Number(/<row r="(\d+)"/.exec(row)?.[1] ?? 0));
+      continue;
+    }
     if (row.indexOf('<row r="1"') !== -1) continue; // header
 
     for (const k in field) delete field[k];
@@ -176,6 +188,7 @@ async function readWorkbookRows(source, state, builder) {
 
     builder.addRow(field);
   }
+  reader?.finish();
 }
 
 function writeState(state, builder, started) {

@@ -15,13 +15,110 @@ import { columnLetter, excelDayOfText, htmlTableRows } from './htmlTable.mjs';
 const loose = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * A web-page export — Uttar Pradesh's .xls — into the builder: its heading row
- * checked against the columns this state expects, so a different report is
- * refused rather than read into the wrong columns, then every row after it.
+ * Reads a state's rows by their headings rather than by position — for a
+ * state that says which heading fills which field (`byHeading`): Uttar
+ * Pradesh.
+ *
+ * A file with its columns in another order, one fewer (no Sl No) or one more
+ * reads right. One without a heading the tracker needs is refused, naming it.
+ * And every row must look like a call — its `rowCheck` — or the file is
+ * refused rather than published: on 24 Sep a file whose rows sat a column
+ * over from their headings put district names under MptId, and nothing
+ * stopped it. A stray line or two, like a total at the foot of the report, is
+ * let go.
+ *
+ * Rows are offered as [column, value] pairs — a letter from a workbook, a
+ * position from a web page — heading row included; the heading is the first
+ * row, within the first ten, carrying every heading the state needs.
+ */
+export class HeadingReader {
+  constructor(builder) {
+    this.builder = builder;
+    this.state = builder.state;
+    /** column → field, once the heading row is found */
+    this.fieldAt = null;
+    this.added = 0;
+    /** [row number, what is wrong with it] */
+    this.bad = [];
+    this.offered = 0;
+    /** The row that came closest to a heading row, for saying what it lacks. */
+    this.closest = { cells: [], found: -1 };
+  }
+
+  offer(cells, number) {
+    this.offered++;
+    if (!this.fieldAt) {
+      if (!this.#heading(cells) && this.offered >= 10) this.#refuseHeading();
+      return;
+    }
+    const field = {};
+    let any = false;
+    for (const [key, value] of cells) {
+      const name = this.fieldAt.get(key);
+      if (name && value !== '' && value != null) { field[name] = value; any = true; }
+    }
+    if (!any) return;
+    const wrong = this.state.rowCheck?.(field);
+    if (wrong) { this.bad.push([number, wrong]); return; }
+    this.builder.addRow(field);
+    this.added++;
+  }
+
+  /** Throws unless the heading row was found and nearly every row read as a call. */
+  finish() {
+    if (!this.fieldAt) this.#refuseHeading();
+    const total = this.added + this.bad.length;
+    if (this.bad.length > Math.max(2, total * 0.02)) {
+      const [n, why] = this.bad[0];
+      throw new Error(
+        `This file's rows do not line up with its headings, so it was not loaded: row ${n}: ${why}. `
+        + `${this.bad.length.toLocaleString()} of ${total.toLocaleString()} rows are like that. `
+        + 'Export it from TM again and upload that file.',
+      );
+    }
+    return this.builder;
+  }
+
+  #heading(cells) {
+    const want = new Map(Object.entries(this.state.byHeading).map(([h, f]) => [loose(h), f]));
+    const at = new Map();
+    for (const [key, text] of cells) {
+      const f = want.get(loose(text));
+      // The first column of a heading wins; a second of the same name is left alone.
+      if (f && ![...at.values()].includes(f)) at.set(key, f);
+    }
+    const found = new Set(at.values());
+    const missing = (this.state.required ?? []).filter((h) => !found.has(this.state.byHeading[h]));
+    if (at.size > this.closest.found) this.closest = { cells, found: at.size };
+    if (missing.length) return false;
+    this.fieldAt = at;
+    return true;
+  }
+
+  #refuseHeading() {
+    const found = new Set(this.closest.cells.map(([, t]) => loose(t)));
+    const missing = (this.state.required ?? []).filter((h) => !found.has(loose(h)));
+    throw new Error(
+      `This is not the ${this.state.name} TM export as the tracker reads it: no heading row with `
+      + `${missing.length ? missing.map((h) => `"${h}"`).join(', ') : 'the columns it needs'} was found.`,
+    );
+  }
+}
+
+/**
+ * A web-page export — Uttar Pradesh's .xls — into the builder: read by its
+ * headings (HeadingReader) for a state that says them, or else checked
+ * against the columns this state expects, so a different report is refused
+ * rather than read into the wrong columns, then every row after it.
  */
 export function addHtmlRows(builder, html) {
   const rows = htmlTableRows(html);
   const { state, fieldOf } = builder;
+  if (state.byHeading) {
+    const reader = new HeadingReader(builder);
+    rows.forEach((cells, i) => reader.offer(cells.map((value, c) => [c, value]), i + 1));
+    return reader.finish();
+  }
   const heading = rows[0] ?? [];
   for (const [col, want] of Object.entries(state.headings ?? {})) {
     const got = heading.find((_, i) => columnLetter(i) === col) ?? '';
@@ -46,6 +143,22 @@ export function addHtmlRows(builder, html) {
 }
 
 /**
+ * A date and time from a real workbook — an Excel serial, 46287.6 — written
+ * the way the web-page export writes one, "22/09/2026 02:20:26 PM", so the
+ * tracker reads either the same. Anything else is left as it is.
+ */
+export function asExportTime(value) {
+  const s = String(value ?? '').trim();
+  if (!/^\d{5}(\.\d+)?$/.test(s)) return value;
+  const ms = Math.round((Number(s) - 25569) * 86400000 / 1000) * 1000;
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, '0');
+  const h = d.getUTCHours();
+  return `${two(d.getUTCDate())}/${two(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} `
+    + `${two(h % 12 || 12)}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/**
  * What Uttar Pradesh's export leaves for the pipeline to work out.
  *
  * Its dates are text — "22/09/2026 02:20:26 PM" — and are kept as the export
@@ -55,6 +168,7 @@ export function addHtmlRows(builder, html) {
  * against the district").
  */
 function deriveUp(field) {
+  for (const k of ['receivedAt', 'respondedAt', 'attendedAt', 'completedAt']) field[k] = asExportTime(field[k]);
   field.loggedDay = excelDayOfText(field.receivedAt);
   field.resolvedDay = excelDayOfText(field.completedAt);
   if (!String(field.zone ?? '').trim() || !String(field.division ?? '').trim()) {
@@ -156,11 +270,29 @@ export const STATES = [
     },
     numeric: {},
     derive: deriveUp,
-    // The export's headings where the reading depends on them: another report
-    // saved under this name is refused rather than read into the wrong columns.
-    headings: {
-      B: 'MptId', C: 'District', G: 'Hospital', H: 'Asset No',
-      O: 'Call Received Date & Time', R: 'Call Completed Date & Time', S: 'Status',
+    /*
+     * Read by heading, not by position (HeadingReader): a file with its
+     * columns in another order, or without Sl No, reads right; the letters
+     * above are the export's usual layout, for the server build's notes.
+     */
+    byHeading: {
+      MptId: 'ticket', District: 'district', Division: 'division', Zone: 'zone',
+      'Hospital Type': 'facilityType', Hospital: 'facilityName', 'Asset No': 'barcode',
+      Product: 'equipment', Manufacture: 'manufacturer', 'Model No': 'model', 'Serial No': 'serialNo',
+      Department: 'department', 'Contact No': 'contactNo',
+      'Call Received Date & Time': 'receivedAt', 'Call Respond Date & Time': 'respondedAt',
+      'Call Attend Date & Time': 'attendedAt', 'Call Completed Date & Time': 'completedAt', Status: 'status',
+    },
+    // Without these there is no reading it at all.
+    required: ['MptId', 'District', 'Hospital', 'Asset No', 'Call Received Date & Time', 'Status'],
+    // What a row must look like to be one of its calls.
+    rowCheck: (field) => {
+      const ticket = String(field.ticket ?? '').trim();
+      if (!/^\d+$/.test(ticket)) return `MptId is "${ticket || 'blank'}", not a ticket number`;
+      if (excelDayOfText(asExportTime(field.receivedAt)) === '') {
+        return `Call Received Date & Time is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
+      }
+      return null;
     },
   },
 ];

@@ -11,7 +11,7 @@ import { day } from './fixture.mjs';
 import { upPenalty, penaltyBand, PRIO_RANGE, UP_GRACE_DAYS } from '../shared/upPenalty.mjs';
 import { htmlTableRows, excelDayOfText, columnLetter, looksLikeHtml } from '../shared/htmlTable.mjs';
 import { upAreaOf, UP_AREAS } from '../shared/upAreas.mjs';
-import { Builder, addHtmlRows, STATE_BY_ID, detectState, COLUMNS } from '../shared/schema.mjs';
+import { Builder, addHtmlRows, asExportTime, STATE_BY_ID, detectState, COLUMNS } from '../shared/schema.mjs';
 import { BLANK, applyFilters, buildChoices, filterField, upColumns, whenOf } from '../src/data/meeting.js';
 
 const TODAY = day('2026-09-23');
@@ -146,7 +146,7 @@ test('an Uttar Pradesh export becomes a dataset, zones filled from the district'
 
 test('another report saved under the name is refused, not misread', () => {
   const wrong = '<table><tr><th>Sl No</th><th>Ticket</th></tr><tr><td>1</td><td>9</td></tr></table>';
-  assert.throws(() => addHtmlRows(new Builder(STATE_BY_ID.up), wrong), /column B should be "MptId"/);
+  assert.throws(() => addHtmlRows(new Builder(STATE_BY_ID.up), wrong), /no heading row with "MptId"/);
 });
 
 /* ---- the tracker's date columns (the user, 23 Sep: "make it in date format, like filter like in excel") */
@@ -203,4 +203,68 @@ test('ticking a day keeps every call of that day, whatever its time', () => {
   // And what a tick keeps. The grid hands the filters over keyed by filterField.
   const kept = applyFilters(rows, [[filterField(cols[1]), ['22 Sep 2026']]]);
   assert.deepEqual(kept.map((r) => r.ticket), ['0', '1']);
+});
+
+/* ---- read by heading, every row checked (the user, 24 Sep: "why it is uploading excel with different columns?") */
+
+const HEADINGS = ['Sl No', 'MptId', 'District', 'Division', 'Zone', 'Hospital Type', 'Hospital', 'Asset No', 'Product',
+  'Manufacture', 'Model No', 'Serial No', 'Department', 'Contact No', 'Call Received Date & Time', 'Call Respond Date & Time',
+  'Call Attend Date & Time', 'Call Completed Date & Time', 'Status'];
+const ROW = ['1', '466259', 'Mainpuri', 'Agra', 'Zone1', 'Dh', 'District Male Hospital', 'MHUP - 261-0098', 'ANESTHESIA WORKSTATION',
+  'Mindray', 'WATO EX-35', 'NA', 'OT', '919000000002', '22/09/2026 02:20:26 PM', '', '', '', 'Pending'];
+const page = (heads, rows, cell = (c) => `<td>${c}</td>`) => `<table><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr>${
+  rows.map((r) => `<tr>${r.map(cell).join('')}</tr>`).join('')}</table>`;
+const readUp = (html) => {
+  const b = addHtmlRows(new Builder(STATE_BY_ID.up), html);
+  const { meta } = b.finish();
+  const text = (f, i) => { const id = b.cols[f][i]; return id < 0 ? '' : meta.dictionaries[f][id]; };
+  return { b, meta, text };
+};
+
+test('a blank cell written <td/>, and one spanning columns, keep every later cell in its column', () => {
+  const html = '<table><tr><th>A</th><th>B</th><th>C</th><th>D</th></tr>'
+    + '<tr><td/><td class="x" />two<td colspan="1">x</td><td>four</td></tr>'
+    + '<tr><td colspan="2">wide</td><td>c</td><td>d</td></tr></table>';
+  const rows = htmlTableRows(html);
+  assert.deepEqual(rows[1], ['', '', 'x', 'four']);
+  assert.deepEqual(rows[2], ['wide', '', 'c', 'd']);
+});
+
+test('a file without Sl No, or with its columns in another order, still reads by its headings', () => {
+  const noSlNo = readUp(page(HEADINGS.slice(1), [ROW.slice(1)]));
+  assert.equal(noSlNo.b.cols.ticketNo[0], 466259);
+  assert.equal(noSlNo.text('district', 0), 'Mainpuri');
+  assert.equal(noSlNo.text('facilityName', 0), 'District Male Hospital');
+  assert.equal(noSlNo.text('barcode', 0), 'MHUP - 261-0098');
+  const order = HEADINGS.map((_, i) => i).reverse();
+  const reversed = readUp(page(order.map((i) => HEADINGS[i]), [order.map((i) => ROW[i])]));
+  assert.equal(reversed.b.cols.ticketNo[0], 466259);
+  assert.equal(reversed.text('equipment', 0), 'ANESTHESIA WORKSTATION');
+  assert.equal(reversed.b.cols.loggedDay[0], day('2026-09-22'));
+});
+
+test('rows that sit a column over from their headings are refused, naming a row, not published', () => {
+  // The heading row is right; every data row has lost its Sl No cell — what put districts under MptId.
+  const rows = Array.from({ length: 20 }, () => ROW.slice(1));
+  assert.throws(() => readUp(page(HEADINGS, rows)), /row 2: MptId is "Mainpuri", not a ticket number\. 20 of 20 rows/);
+});
+
+test('a total at the foot of the report is let go', () => {
+  const rows = [...Array.from({ length: 10 }, (_, i) => [String(i + 1), String(466000 + i), ...ROW.slice(2)]),
+    ['', 'Total: 10', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
+  const { meta } = readUp(page(HEADINGS, rows));
+  assert.equal(meta.rows, 10);
+});
+
+test('a file without a heading the tracker needs is refused, naming it', () => {
+  const heads = HEADINGS.filter((h) => h !== 'Asset No');
+  assert.throws(() => readUp(page(heads, [ROW.filter((_, i) => HEADINGS[i] !== 'Asset No')])), /no heading row with "Asset No"/);
+});
+
+test('a date and time from a real workbook reads as the export writes one', () => {
+  // 22 Sep 2026, 2:20:26 PM as an Excel serial.
+  const serial = String(day('2026-09-22') + (14 * 3600 + 20 * 60 + 26) / 86400);
+  assert.equal(asExportTime(serial), '22/09/2026 02:20:26 PM');
+  assert.equal(asExportTime('22/09/2026 02:20:26 PM'), '22/09/2026 02:20:26 PM');
+  assert.equal(asExportTime(''), '');
 });

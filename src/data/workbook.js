@@ -10,7 +10,7 @@
  * produce identical figures.
  */
 import {
-  Builder, addHtmlRows, createCellRegex, sharedStringText, detectState, STATE_BY_ID,
+  Builder, HeadingReader, addHtmlRows, createCellRegex, decodeXml, sharedStringText, detectState, STATE_BY_ID,
 } from '../../shared/schema.mjs';
 import { looksLikeHtml } from '../../shared/htmlTable.mjs';
 
@@ -169,8 +169,23 @@ export async function parseWorkbook(file, { stateId, onProgress } = {}) {
   const sheetTotal = entries.get(sheet).compressedSize || 1;
   let sheetSeen = 0;
 
+  // Uttar Pradesh saved as a real workbook: read by its headings, as its web
+  // page is, rather than by where the columns happen to sit.
+  const reader = state.byHeading ? new HeadingReader(builder) : null;
+
   const stream = await openEntry(file, entries, sheet);
   for await (const row of chunkedBy(stream, '</row>', (n) => { sheetSeen += n; })) {
+    if (reader) {
+      const cells = [];
+      cellRe.lastIndex = 0;
+      let c;
+      while ((c = cellRe.exec(row)) !== null) {
+        // Text written in the cell rather than in the shared list is still XML: "Date &amp; Time".
+        if (c[3] !== undefined) cells.push([c[1], c[2] === 's' ? shared[+c[3]] : decodeXml(c[3])]);
+      }
+      reader.offer(cells, Number(/<row r="(\d+)"/.exec(row)?.[1] ?? 0));
+      continue;
+    }
     if (row.indexOf('<row r="1"') !== -1) continue; // header
 
     for (const k in field) delete field[k];
@@ -198,6 +213,7 @@ export async function parseWorkbook(file, { stateId, onProgress } = {}) {
     }
   }
 
+  reader?.finish();
   report('Summarising', 96, `${builder.rows.toLocaleString()} rows`);
   const result = builder.finish();
   report('Done', 100, `${result.meta.rows.toLocaleString()} tickets`);

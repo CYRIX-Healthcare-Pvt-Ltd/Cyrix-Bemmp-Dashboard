@@ -26,18 +26,29 @@ function decode(s) {
 /** True when the start of a file is markup rather than a zip — the web-page kind of .xls. */
 export const looksLikeHtml = (head) => /^\s*(<!doctype|<html|<head|<style|<div|<table|<meta)/i.test(head);
 
-/** The rows of a page's table, each an array of cell texts, the heading row first. */
+/**
+ * The rows of a page's table, each an array of cell texts, the heading row first.
+ *
+ * Every cell keeps its place: an empty one written `<td/>` counts as a blank
+ * cell, and one spanning columns (`colspan`) fills them all. Skipping either
+ * slid every later cell of the row one column over, under the wrong heading
+ * — the heading row itself stayed right, so nothing noticed (24 Sep).
+ */
 export function htmlTableRows(html) {
   const rows = [];
   const rowRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
-  const cellRe = /<t([hd])\b[^>]*>([\s\S]*?)<\/t\1>/gi;
+  const cellRe = /<t([hd])\b([^>]*?)(?:\/>|>([\s\S]*?)<\/t\1>)/gi;
   let row;
   while ((row = rowRe.exec(html)) !== null) {
     const cells = [];
     cellRe.lastIndex = 0;
     let cell;
     while ((cell = cellRe.exec(row[1])) !== null) {
-      cells.push(decode(cell[2].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim());
+      const text = cell[3] === undefined ? ''
+        : decode(cell[3].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+      const span = Number(/colspan\s*=\s*["']?(\d+)/i.exec(cell[2])?.[1] ?? 1);
+      cells.push(text);
+      for (let i = 1; i < Math.min(span, 50); i++) cells.push('');
     }
     if (cells.length) rows.push(cells);
   }
