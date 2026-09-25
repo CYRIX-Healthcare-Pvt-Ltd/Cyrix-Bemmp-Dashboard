@@ -92,9 +92,11 @@ export const UP_FIELDS = [
   { key: 'item', label: 'Item', kind: 'text', width: 200 },
   { key: 'pr_no', label: 'PR Number', kind: 'text', width: 130 },
   { key: 'pr_date', label: 'PR Date', kind: 'date' },
+  { key: 'pr_remark', label: 'PR Remarks', kind: 'text', width: 260 },
   { ...PR_STATUS, label: 'PR Status' },
   { key: 'po_no', label: 'PO Number', kind: 'text', width: 130 },
   { key: 'po_date', label: 'PO Date', kind: 'date' },
+  { key: 'po_remark', label: 'PO Remarks', kind: 'text', width: 260 },
   { ...PO_STATUS, label: 'PO Status' },
   { key: 'dm_name', label: 'DM Name', kind: 'text', width: 170 },
 ];
