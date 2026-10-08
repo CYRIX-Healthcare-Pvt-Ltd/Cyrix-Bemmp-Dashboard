@@ -62,7 +62,7 @@ export async function signIn(code, password) {
 }
 
 export async function signOut() {
-  if (supabase) await supabase.auth.signOut();
+  if (supabase) await supabase.auth.signOut({ scope: 'local' }) /* this device only; Sign out from all devices is the code step's (0149) */;
 }
 
 /**
