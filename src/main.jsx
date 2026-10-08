@@ -1,3 +1,4 @@
+import { startSessionGuard } from './data/sessionGuard.js'
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 // Bundled rather than fetched from a CDN, and bundled at all: the
@@ -6,6 +7,9 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import App from './App.jsx';
 import './styles.css';
+
+// Signed out within a minute when another device signs everybody out (0149).
+startSessionGuard()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
