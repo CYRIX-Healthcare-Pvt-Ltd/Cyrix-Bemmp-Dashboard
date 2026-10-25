@@ -31,8 +31,8 @@ command.
 ### First time
 
 ```bash
-git clone https://github.com/Kevi47/bemmp-dashboard.git
-cd bemmp-dashboard
+git clone https://github.com/CYRIX-Healthcare-Pvt-Ltd/Cyrix-Bemmp-Dashboard.git
+cd Cyrix-Bemmp-Dashboard
 
 cp .env.example .env          # then edit: OPENAI_API_KEY, BEMMP_PASSWORD
 mkdir -p "BEMMP DATA"         # copy the TM-*.xlsx exports into here
