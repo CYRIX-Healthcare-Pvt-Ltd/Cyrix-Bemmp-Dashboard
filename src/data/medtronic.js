@@ -21,7 +21,8 @@ export const MEDTRONIC = { id: 'mt', short: 'MT', name: 'Medtronic' };
 export function roleOf(me) {
   if (!me) return null;
   if (me.manager) return 'manager';
-  if (me.viewer || me.admin) return 'viewer';
+  // all: ticked outside the reporting line, so every work order to look at (0013).
+  if (me.viewer || me.admin || me.all) return 'viewer';
   if (me.engineer) return 'engineer';
   return null;
 }
