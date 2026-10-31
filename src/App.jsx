@@ -22,7 +22,10 @@ import {
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import Avatar from './components/Avatar.jsx';
-import StateSwitcher from './components/StateSwitcher.jsx';
+import ProjectSwitcher from './components/ProjectSwitcher.jsx';
+import ProjectHome from './components/ProjectHome.jsx';
+import MedtronicApp from './components/Medtronic.jsx';
+import { MEDTRONIC, loadMtMe, roleOf } from './data/medtronic.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
@@ -98,6 +101,36 @@ function ToPortal() {
     <div className="status-msg">
       <div className="loader" aria-hidden="true" />
     </div>
+  );
+}
+
+/**
+ * Signing in on the dev server only. There is no portal on localhost to send
+ * anybody to, so a local check of a signed-in screen had no way in (the user,
+ * 31 Oct: "i will login in local"). `import.meta.env.DEV` keeps it out of
+ * every build Vercel makes.
+ */
+function DevSignIn() {
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const go = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: `${code.trim().toLowerCase()}@cyrix.local`, password,
+    });
+    if (error) { setErr('Wrong employee code or password.'); setBusy(false); }
+  };
+  return (
+    <form className="status-msg dev-signin" onSubmit={go}>
+      <p><strong>Local sign-in</strong></p>
+      <input className="mt-select" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Employee code" autoComplete="username" />
+      <input className="mt-select" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" />
+      <button type="submit" className="mt-btn mt-btn-primary" disabled={busy || !code || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      {err && <p className="mt-err">{err}</p>}
+    </form>
   );
 }
 
@@ -299,6 +332,15 @@ const VIEW_KEY = 'bemmp-view';
  * API is absent in older Safari, where the honest default is to treat an
  * arrival as an arrival.
  */
+/*
+ * The project open, kept for a reload only. A fresh visit opens on the grid of
+ * projects, the way the portal opens on its modules (the user, 31 Oct).
+ */
+const PROJECT_KEY = 'bemmp-project';
+function savedProject() {
+  try { return wasReloaded() ? localStorage.getItem(PROJECT_KEY) || null : null; } catch { return null; }
+}
+
 function wasReloaded() {
   try {
     const [nav] = performance.getEntriesByType('navigation');
@@ -347,7 +389,10 @@ function slaExample(penaltyDays) {
 export default function App() {
   const narrow = useNarrow();
   const [states, setStates] = useState(null);
-  const [stateId, setStateId] = useState(() => localStorage.getItem(STATE_KEY) || 'kl');
+  const [picked, setPicked] = useState(savedProject);
+  const [stateId, setStateId] = useState(() => (
+    picked && picked !== MEDTRONIC.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
+  ));
   const [ds, setDs] = useState(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
@@ -392,6 +437,9 @@ export default function App() {
   // undefined while the stored session is being restored, null when signed out.
   const [session, setSession] = useState(isConfigured() ? undefined : null);
   const [profile, setProfile] = useState(null);
+  const [profileDone, setProfileDone] = useState(false);
+  // What this person is in Medtronic: undefined while asking, null for nothing.
+  const [mtMe, setMtMe] = useState(undefined);
   /* Which export the current filter selection was built for. See the loader. */
   const loadedSig = useRef(null);
 
@@ -479,7 +527,7 @@ export default function App() {
   // Role and scope decide which tabs exist, so they are loaded before the app
   // renders rather than fetched by the tab that needs them.
   useEffect(() => {
-    if (!session) { setProfile(null); return; }
+    if (!session) { setProfile(null); setProfileDone(false); return; }
     // Same reasoning as above, one level down: an identical row must not arrive
     // as a new object, or every consumer of `profile` recomputes for nothing.
     loadProfile()
@@ -487,7 +535,13 @@ export default function App() {
         prev && p && prev.id === p.id && prev.role === p.role && prev.cyra === p.cyra
           && String(prev.scope) === String(p.scope) ? prev : p
       )))
-      .catch(() => setProfile(null));
+      .catch(() => setProfile(null))
+      .finally(() => setProfileDone(true));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setMtMe(undefined); return; }
+    loadMtMe().then((m) => setMtMe(m ?? null)).catch(() => setMtMe(null));
   }, [session]);
 
   useEffect(() => {
@@ -590,9 +644,39 @@ export default function App() {
     [profile],
   );
 
+  /*
+   * Projects: the contracts with data, then Medtronic for those it is assigned
+   * to. One project opens straight away; more open on the grid until one is
+   * picked.
+   */
+  const hasMt = Boolean(profile) && (profile.scope?.includes(MEDTRONIC.id) || profile.role === 'admin')
+    && Boolean(roleOf(mtMe));
+  const projects = useMemo(() => [
+    ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
+    ...(hasMt ? [MEDTRONIC] : []),
+  ], [available, hasMt]);
+  const decided = !isConfigured() || (ready && session !== undefined
+    && (!session || (profileDone && mtMe !== undefined)));
+  const project = !decided ? null
+    : projects.some((x) => x.id === picked) ? picked
+      : projects.length === 1 ? projects[0].id : null;
+  const inMt = project === MEDTRONIC.id;
+  const contractOpen = Boolean(project) && !inMt;
+
+  const pickProject = useCallback((id) => {
+    setPicked(id);
+    try { localStorage.setItem(PROJECT_KEY, id); } catch { /* forgets on reload, nothing more */ }
+    if (id !== MEDTRONIC.id) setStateId(id);
+  }, []);
+  const toProjects = useCallback(() => {
+    setPicked(null);
+    try { localStorage.removeItem(PROJECT_KEY); } catch { /* as above */ }
+  }, []);
+
   // Dictionaries are per state, so the dataset and every filter reload together.
+  // Nothing loads until a contract is open: the grid and Medtronic need none of it.
   useEffect(() => {
-    if (!ready || !available.length) return undefined;
+    if (!ready || !available.length || !contractOpen) return undefined;
     const target = available.some((s) => s.id === stateId) ? stateId : available[0].id;
     if (target !== stateId) { setStateId(target); return undefined; }
 
@@ -700,7 +784,7 @@ export default function App() {
       })
       .catch((e) => { if (!cancelled) { setError(e.message); setBusy(false); } });
     return () => { cancelled = true; };
-  }, [ready, available, stateId, dataVersion, uploads, shared]);
+  }, [ready, available, stateId, dataVersion, uploads, shared, contractOpen]);
 
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
@@ -987,7 +1071,38 @@ export default function App() {
    * A location assignment, not a router push: the portal sits above this
    * app's /bemmp base and is a different application entirely.
    */
-  if (isConfigured() && !session) return <ToPortal />;
+  if (isConfigured() && !session) return import.meta.env.DEV ? <DevSignIn /> : <ToPortal />;
+
+  if (!decided) {
+    return (
+      <div className="status-msg">
+        <div className="loader" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (!project && projects.length > 1) {
+    return <ProjectHome projects={projects} onPick={pickProject} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
+  }
+
+  if (inMt) {
+    return (
+      <MedtronicApp
+        me={mtMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={MEDTRONIC.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
 
   if (error) {
     return (
@@ -1013,7 +1128,7 @@ export default function App() {
   if (ready && profile && !scoped.length) {
     return (
       <div className="status-msg">
-        <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
+        <p>No BEMMP project is assigned to <strong>{profile.code}</strong>.</p>
         <p>Ask your project head to add one, then sign in again.</p>
         <button type="button" className="sign-out" onClick={signOutToPortal} title="Sign out"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5" /><path d="M20 12H9" /><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" /></svg><span>Sign out</span></button>
       </div>
@@ -1106,12 +1221,15 @@ export default function App() {
             </div>
           </div>
           <div className="masthead-right">
-            <StateSwitcher
-              states={available}
-              active={stateId}
-              onChange={setStateId}
-              busy={busy}
-            />
+            {!narrow && (
+              <ProjectSwitcher
+                projects={projects}
+                active={stateId}
+                onChange={pickProject}
+                onHome={projects.length > 1 ? toProjects : undefined}
+                busy={busy}
+              />
+            )}
             <div className="toggle-group">
               <RefreshButton onRefreshed={onRefreshed} />
               {/* On a desktop, loading data, the theme and signing out live
@@ -1165,6 +1283,19 @@ export default function App() {
             )}
           </div>
         </header>
+
+        {/* On a phone the masthead is the mark and four icons; the project gets the row below it. */}
+        {narrow && (
+          <div className="project-row">
+            <ProjectSwitcher
+              projects={projects}
+              active={stateId}
+              onChange={pickProject}
+              onHome={projects.length > 1 ? toProjects : undefined}
+              busy={busy}
+            />
+          </div>
+        )}
 
         <div className="shell">
         <SideNav

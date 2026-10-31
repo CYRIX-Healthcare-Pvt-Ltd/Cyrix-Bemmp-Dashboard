@@ -24,7 +24,8 @@ const ROLES = new Set([
   'admin', 'director', 'project_head', 'coordinator', 'purchase',
   'divisional_manager', 'zonal_manager', 'district_incharge',
 ]);
-const CONTRACTS = new Set(['kl', 'ap']);
+// Uttar Pradesh was missing, so an edit here dropped it; Medtronic is a project of its own (0012).
+const CONTRACTS = new Set(['kl', 'ap', 'up', 'mt']);
 
 /**
  * The default password *is* the employee code, which is what makes "I've reset
