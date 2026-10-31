@@ -3016,6 +3016,8 @@ html.no-swipe-back body {
   /* Accounts is the one section that is not a measure, so it takes the one hue
      that encodes no data anywhere else on the page. */
   --nav-accounts:    var(--text-muted);
+  /* The PM checklist's own tab (PmChecklist.jsx), green like a row marked OK. */
+  --nav-checklist:   var(--status-good);
 }
 
 /*

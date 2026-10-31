@@ -22,10 +22,10 @@ import {
    enum. The server list is the one that decides — the page can send anything. */
 const ROLES = new Set([
   'admin', 'director', 'project_head', 'coordinator', 'purchase',
-  'divisional_manager', 'zonal_manager', 'district_incharge',
+  'divisional_manager', 'zonal_manager', 'district_incharge', 'engineer',
 ]);
-// Uttar Pradesh was missing, so an edit here dropped it; Medtronic is a project of its own (0012).
-const CONTRACTS = new Set(['kl', 'ap', 'up', 'mt']);
+// Uttar Pradesh was missing, so an edit here dropped it; Medtronic (0012) and the PM checklist (0014) are projects of their own.
+const CONTRACTS = new Set(['kl', 'ap', 'up', 'mt', 'pm']);
 
 /**
  * The default password *is* the employee code, which is what makes "I've reset

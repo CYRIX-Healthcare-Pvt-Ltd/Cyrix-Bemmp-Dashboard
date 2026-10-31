@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STATES } from '../../shared/schema.mjs';
 import { MEDTRONIC } from '../data/medtronic.js';
+import { PM_PROJECT } from '../data/pm.js';
 import {
   ROLES, ROLE_LABEL, createUser, listUsers, listAccountLog, resetPassword, setDisabled,
   updateUser,
@@ -33,7 +34,7 @@ function ScopePicker({ value, onChange, disabled }) {
   if (disabled) return <span className="scope-all">every contract</span>;
   return (
     <div className="scope-picker">
-      {[...STATES, MEDTRONIC].map((s) => {
+      {[...STATES, MEDTRONIC, PM_PROJECT].map((s) => {
         const on = value.includes(s.id);
         return (
           <label key={s.id} className={`scope-chip${on ? ' is-on' : ''}`}>

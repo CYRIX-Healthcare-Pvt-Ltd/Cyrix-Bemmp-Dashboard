@@ -13,9 +13,20 @@ const STATE_PATHS = {
   kl: "M15.3 9.4L11.8 2.2L12.5 2.0L14.2 3.5L15.7 3.8L15.6 4.4L16.7 5.0L16.9 6.7L19.2 8.6L20.5 9.0L21.0 10.0L22.4 10.3L23.5 10.0L23.7 11.0L26.5 12.1L26.7 13.1L26.0 13.6L25.1 13.5L25.0 14.2L28.0 16.1L27.1 17.4L29.5 17.1L30.1 19.0L29.4 19.1L29.3 19.9L31.3 21.6L30.7 23.0L30.8 26.2L32.0 27.0L34.2 25.8L34.7 26.4L34.9 29.7L34.2 33.2L35.6 33.3L36.3 34.5L34.0 39.0L34.8 40.5L34.2 42.5L35.1 43.6L34.4 44.1L33.9 45.9L32.3 45.2L28.0 39.9L28.7 39.7L28.3 39.6L29.2 38.9L27.8 39.5L27.4 37.3L26.7 36.6L27.0 37.6L26.2 35.8L25.0 29.7L25.5 30.8L25.7 30.4L26.0 32.2L25.8 30.6L26.2 31.0L26.2 33.9L27.6 33.8L26.7 33.4L26.5 30.8L25.1 28.2L24.8 28.1L25.1 29.3L24.5 28.2L25.1 26.9L24.6 26.6L24.7 27.3L24.2 27.1L20.2 15.8L16.1 10.3L17.0 10.4L16.9 9.9L16.3 10.1L15.8 9.6L17.0 8.2L15.3 8.7L15.3 9.4Z"
 };
 
-export const hasProjectIcon = (id) => id === 'mt' || id in STATE_PATHS;
+export const hasProjectIcon = (id) => id === 'mt' || id === 'pm' || id in STATE_PATHS;
 
 export default function ProjectIcon({ id, className = '' }) {
+  // The PM checklist is a project of the work, not of a place or a brand: a ticked clipboard.
+  if (id === 'pm') {
+    return (
+      <svg className={"project-mark " + className} viewBox="0 0 48 48" aria-hidden="true" fill="none"
+           stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="11" y="8" width="26" height="33" rx="5" />
+        <path d="M18 8.5V5.5h12v3" />
+        <path d="M17.5 25l4.5 4.5 9-9.5" />
+      </svg>
+    );
+  }
   if (id === 'mt') {
     return (
       <svg className={"project-mark is-brand " + className} viewBox="0 0 48 48" aria-hidden="true">

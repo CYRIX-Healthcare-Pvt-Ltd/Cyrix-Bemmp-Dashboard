@@ -30,6 +30,7 @@ export const ROLES = [
   { id: 'district_incharge', label: 'District incharge', hint: 'Works the meeting for their district.' },
   { id: 'coordinator', label: 'Coordinator', hint: 'Runs the daily penalty meeting.' },
   { id: 'purchase', label: 'Purchase', hint: 'Fills the purchasing fields on open calls.' },
+  { id: 'engineer', label: 'Engineer', hint: 'Fills the PM checklists.' },
   { id: 'director', label: 'Director', hint: 'Reads every figure. Cannot edit the meeting.' },
 ];
 

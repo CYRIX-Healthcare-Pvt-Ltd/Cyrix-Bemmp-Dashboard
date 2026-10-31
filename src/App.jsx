@@ -26,6 +26,8 @@ import ProjectSwitcher from './components/ProjectSwitcher.jsx';
 import ProjectHome from './components/ProjectHome.jsx';
 import MedtronicApp from './components/Medtronic.jsx';
 import { MEDTRONIC, loadMtMe, roleOf } from './data/medtronic.js';
+import PmApp from './components/PmChecklist.jsx';
+import { PM_PROJECT, loadPmMe } from './data/pm.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
@@ -391,7 +393,7 @@ export default function App() {
   const [states, setStates] = useState(null);
   const [picked, setPicked] = useState(savedProject);
   const [stateId, setStateId] = useState(() => (
-    picked && picked !== MEDTRONIC.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
+    picked && picked !== MEDTRONIC.id && picked !== PM_PROJECT.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
   ));
   const [ds, setDs] = useState(null);
   const [busy, setBusy] = useState(true);
@@ -440,6 +442,8 @@ export default function App() {
   const [profileDone, setProfileDone] = useState(false);
   // What this person is in Medtronic: undefined while asking, null for nothing.
   const [mtMe, setMtMe] = useState(undefined);
+  // The same for the PM checklist.
+  const [pmMe, setPmMe] = useState(undefined);
   /* Which export the current filter selection was built for. See the loader. */
   const loadedSig = useRef(null);
 
@@ -542,6 +546,11 @@ export default function App() {
   useEffect(() => {
     if (!session) { setMtMe(undefined); return; }
     loadMtMe().then((m) => setMtMe(m ?? null)).catch(() => setMtMe(null));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setPmMe(undefined); return; }
+    loadPmMe().then((m) => setPmMe(m ?? null)).catch(() => setPmMe(null));
   }, [session]);
 
   useEffect(() => {
@@ -651,22 +660,25 @@ export default function App() {
    */
   const hasMt = Boolean(profile) && (profile.scope?.includes(MEDTRONIC.id) || profile.role === 'admin')
     && Boolean(roleOf(mtMe));
+  const hasPm = Boolean(profile) && (profile.scope?.includes(PM_PROJECT.id) || profile.role === 'admin') && Boolean(pmMe);
   const projects = useMemo(() => [
     ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
     ...(hasMt ? [MEDTRONIC] : []),
-  ], [available, hasMt]);
+    ...(hasPm ? [PM_PROJECT] : []),
+  ], [available, hasMt, hasPm]);
   const decided = !isConfigured() || (ready && session !== undefined
-    && (!session || (profileDone && mtMe !== undefined)));
+    && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined)));
   const project = !decided ? null
     : projects.some((x) => x.id === picked) ? picked
       : projects.length === 1 ? projects[0].id : null;
   const inMt = project === MEDTRONIC.id;
-  const contractOpen = Boolean(project) && !inMt;
+  const inPm = project === PM_PROJECT.id;
+  const contractOpen = Boolean(project) && !inMt && !inPm;
 
   const pickProject = useCallback((id) => {
     setPicked(id);
     try { localStorage.setItem(PROJECT_KEY, id); } catch { /* forgets on reload, nothing more */ }
-    if (id !== MEDTRONIC.id) setStateId(id);
+    if (id !== MEDTRONIC.id && id !== PM_PROJECT.id) setStateId(id);
   }, []);
   const toProjects = useCallback(() => {
     setPicked(null);
@@ -1096,6 +1108,25 @@ export default function App() {
           <ProjectSwitcher
             projects={projects}
             active={MEDTRONIC.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
+
+  if (inPm) {
+    return (
+      <PmApp
+        me={pmMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={PM_PROJECT.id}
             onChange={pickProject}
             onHome={projects.length > 1 ? toProjects : undefined}
           />

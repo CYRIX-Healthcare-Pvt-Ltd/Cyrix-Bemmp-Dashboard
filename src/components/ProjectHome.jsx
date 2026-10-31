@@ -57,7 +57,7 @@ export function ProjectMasthead({ profile, narrow, sub, right, extra, onSignOut,
   );
 }
 
-const TINT = { kl: '#0d9488', ap: '#2563eb', up: '#d97706', mt: '#7c3aed' };
+const TINT = { kl: '#0d9488', ap: '#2563eb', up: '#d97706', mt: '#7c3aed', pm: '#059669' };
 
 /**
  * BEMMP's own home: one tile per project assigned, the way the portal shows
