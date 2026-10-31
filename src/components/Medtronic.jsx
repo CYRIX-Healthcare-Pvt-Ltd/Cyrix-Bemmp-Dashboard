@@ -30,6 +30,27 @@ function dayOf(iso) {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 const timeOf = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+
+/**
+ * A date the TM gives as text ("07/11/2026, 11:30 am", "01 Sept 2026, 12:00 pm"),
+ * written the app's way: "7 Nov 2026, 11:30 am".
+ */
+function tmWhen(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  const time = (rest) => {
+    const t = rest.match(/^[,\s]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m\.?/i);
+    return t ? `, ${Number(t[1])}:${t[2]} ${t[3].toLowerCase()}m` : '';
+  };
+  let m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) {
+    return `${Number(m[1])} ${MONTHS[Number(m[2]) - 1]} ${m[3]}${time(s.slice(m[0].length))}`;
+  }
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})/);
+  const mon = m && MONTHS.findIndex((x) => x.toLowerCase() === m[2].slice(0, 3).toLowerCase());
+  if (m && mon >= 0) return `${Number(m[1])} ${MONTHS[mon]} ${m[3]}${time(s.slice(m[0].length))}`;
+  return s;
+}
 const sameCode = (a, b) => String(a ?? '').toUpperCase() === String(b ?? '').toUpperCase();
 
 /** Where a work order stands, in the words on its badge. */
@@ -776,7 +797,7 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
             <Fact icon="calendar" label="Created" sub={age != null ? `${age} ${age === 1 ? 'day' : 'days'}` : null}>
               {t.created_on ? dayOf(t.created_on) : null}
             </Fact>
-            <Fact icon="clock" label="Preferred start">{t.preferred_start}</Fact>
+            <Fact icon="clock" label="Preferred start">{tmWhen(t.preferred_start)}</Fact>
             <Fact icon="status" label="Order status">{t.order_status}</Fact>
           </section>
 
@@ -786,8 +807,8 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
               <Row label="SAP service order">{t.sap_order}</Row>
               <Row label="SAP notification">{t.sap_notification}</Row>
               <Row label="Technician in TM">{t.technician}</Row>
-              <Row label="PM planned">{t.pm_planned}</Row>
-              <Row label="Scheduled">{t.scheduled}</Row>
+              <Row label="PM planned">{tmWhen(t.pm_planned)}</Row>
+              <Row label="Scheduled">{tmWhen(t.scheduled)}</Row>
               <Row label="Manager">{t.manager_name}</Row>
               <Row label="In the TM">{t.first_seen === t.last_seen ? dayOf(t.first_seen) : `${dayOf(t.first_seen)} – ${dayOf(t.last_seen)}`}</Row>
             </dl>

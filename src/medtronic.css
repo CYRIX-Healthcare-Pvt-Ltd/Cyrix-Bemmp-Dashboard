@@ -339,7 +339,14 @@
 .mt-sheet-x {
   width: 42px; height: 42px; flex: none; display: grid; place-items: center; border-radius: 50%;
   border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.25s var(--ease);
 }
+.mt-sheet-x:hover {
+  color: var(--status-critical); transform: rotate(90deg);
+  border-color: color-mix(in srgb, var(--status-critical) 55%, var(--control-border));
+  background: color-mix(in srgb, var(--status-critical) 12%, var(--control-bg));
+}
+.mt-sheet-x:active { transform: rotate(90deg) scale(0.92); }
 /* A column that scrolls, not a grid: a grid squeezed its rows to the sheet's height and cut them off. */
 .mt-sheet-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
