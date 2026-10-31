@@ -70,7 +70,20 @@ export default function ProjectHome({ projects, onPick, profile, narrow, onSignO
     <div className="app">
       <ProjectMasthead profile={profile} narrow={narrow} onSignOut={onSignOut} withAccount />
       <main className="project-home">
-        <h2 className="project-home-title">Projects</h2>
+        {/* The way back to the portal, as the side bar has it inside a project (the user, 31 Oct). */}
+        <div className="project-home-head">
+          <h2 className="project-home-title">Projects</h2>
+          <a className="project-home-apps" href="/" aria-label="All Cyrix modules">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8"
+                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+            </svg>
+            Modules
+          </a>
+        </div>
         <div className="project-grid">
           {projects.map((p, i) => (
             <button
