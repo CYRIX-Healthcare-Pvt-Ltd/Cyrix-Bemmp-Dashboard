@@ -108,6 +108,37 @@ export async function requireCyra(req, res) {
   return who;
 }
 
+/**
+ * One OpenAI answer's token use, to the shared database's ops_report_ai() (KPI 0236) for the Ops page.
+ *
+ * Sent as the person who asked — their own token, so the database records who and refuses anyone not
+ * signed in — with the service key only as the gateway's apikey. Model and counts are read out of the
+ * answer OpenAI returned; nothing of the question or the answer is sent. Never throws, and gives up
+ * after three seconds: metering must not be why a question fails or stalls.
+ */
+export async function meterAi(req, feature, responseText) {
+  try {
+    const header = req.headers.authorization || '';
+    if (!header.startsWith('Bearer ') || !configured()) return;
+    const body = JSON.parse(responseText);
+    const u = body?.usage;
+    if (!u || !body.model) return;
+    await fetch(`${URL_BASE}/rest/v1/rpc/ops_report_ai`, {
+      method: 'POST',
+      headers: { apikey: SERVICE_KEY, Authorization: header, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p_app: 'bemmp', p_feature: feature, p_model: body.model,
+        p_input: u.prompt_tokens ?? 0,
+        p_cached: u.prompt_tokens_details?.cached_tokens ?? 0,
+        p_output: u.completion_tokens ?? 0,
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {
+    // never let metering break the answer
+  }
+}
+
 /** Guard for the admin screen. Returns the caller, or answers the request. */
 export async function requireAdmin(req, res) {
   const who = await caller(req);
