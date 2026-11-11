@@ -673,8 +673,9 @@ export default function App() {
     ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
     ...(hasMt ? [MEDTRONIC] : []),
     ...(hasPm ? [PM_PROJECT] : []),
-    ...(qtMe ? [QT_PROJECT] : []),
-  ], [available, hasMt, hasPm, qtMe]);
+    // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role.
+    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin') ? [QT_PROJECT] : []),
+  ], [available, hasMt, hasPm, qtMe, profile]);
   const decided = !isConfigured() || (ready && session !== undefined
     && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));
   const project = !decided ? null
