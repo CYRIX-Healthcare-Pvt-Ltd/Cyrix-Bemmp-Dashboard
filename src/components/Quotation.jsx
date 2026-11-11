@@ -26,8 +26,9 @@ import '../quotation.css';
 const PERIODS = [['month', 'This month'], ['all', 'All time'], ['custom', 'Custom']];
 const SEND_BY = ['Courier', 'Transport', 'By hand', 'Post'];
 const TAXES = [0, 5, 12, 18, 28];
+const PV_ABOVE = 40000;
 /** What every form may want from the app: past vendors, recent hospitals, who is signed in. */
-const QtCtx = createContext({ vendors: [], recent: [], code: '' });
+const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false });
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is only lost on reload */ } },
@@ -92,8 +93,8 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
     const vendors = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([x]) => x);
     const seen = [...(store.get(`qt-recent-hosp:${code}`) ?? [])];
     if (me.role === 'engineer') for (const r of [...(list ?? [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) if (r.kind === 'request' && r.facility_id) seen.push(r.facility_id);
-    return { vendors, recent: [...new Set(seen)].slice(0, 5), code };
-  }, [list, code, me.role]);
+    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead) };
+  }, [list, code, me.role, me.lead]);
   const tabs = tabsFor(me);
   const mine = list?.filter((r) => r.mine && !r.done) ?? [];
   const sub = `Quotation tracker · ${ROLE_NAME[me.role] ?? ''}${me.lead && me.role !== 'viewer' ? ' (lead)' : ''}${list ? ` · ${mine.length} to do` : ''}`;
@@ -160,12 +161,14 @@ function StepBadge({ step }) {
   return <span className="qt-badge" data-tone={s.tone} data-role={roleOfStep(step) ?? undefined}>{s.label}</span>;
 }
 
+/** The clock is for whoever holds the request; in lists leads also see everyone's, but inside a request it shows only to its holder (the user, 11 Nov). */
 function Clock({ r, targets, now }) {
+  const { lead } = useContext(QtCtx);
   const c = clockOf(r, targets, now);
-  if (!c) return null;
+  if (!c || (!r.mine && !lead)) return null;
   return (
     <span className="qt-clock" data-tone={c.tone} title={c.accepted ? 'Since accepted' : 'Waiting to be accepted'}>
-      <Icon d={I.clock} size={14} />{c.accepted ? '' : <span className="qt-clock-word">Waiting </span>}{c.text}
+      <Icon d={I.clock} size={14} />{c.accepted || !r.mine ? '' : <span className="qt-clock-word">Waiting </span>}{c.text}
     </span>
   );
 }
@@ -354,23 +357,6 @@ function VendorInput({ value, onChange, label = 'Vendor' }) {
           {shown.map((x) => <button key={x} type="button" className="qt-chip" onClick={() => onChange(x)}>{x}</button>)}
         </div>
       )}
-    </div>
-  );
-}
-
-const dayBefore = (d) => new Date(Date.parse(`${d}T00:00:00Z`) - 864e5).toISOString().slice(0, 10);
-/** Today · Yesterday · Pick, instead of a calendar for the usual answer. */
-function DateChips({ label, value, onChange }) {
-  const t = todayIst(); const y = dayBefore(t);
-  const [pick, setPick] = useState(Boolean(value) && value !== t && value !== y);
-  return (
-    <div className="pm-in"><span>{label}</span>
-      <div className="qt-date-chips" role="radiogroup" aria-label={label}>
-        <button type="button" role="radio" aria-checked={!pick && value === t} onClick={() => { setPick(false); onChange(t); }}>Today</button>
-        <button type="button" role="radio" aria-checked={!pick && value === y} onClick={() => { setPick(false); onChange(y); }}>Yesterday</button>
-        <button type="button" role="radio" aria-checked={pick} onClick={() => setPick(true)}>{pick && value ? dayText(value) : 'Pick'}</button>
-      </div>
-      {pick && <input type="date" value={value ?? ''} max={t} onChange={(e) => onChange(e.target.value)} />}
     </div>
   );
 }
@@ -665,7 +651,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
       <div className="mt-sheet qt-sheet" role="dialog" aria-modal="true" aria-label={r?.no ?? 'Request'} onClick={(e) => e.stopPropagation()}>
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
-            {r && <span className="qt-card-top"><StepBadge step={r.step} /><Clock r={r} targets={targets} now={now} /></span>}
+            {r && <span className="qt-card-top"><StepBadge step={r.step} />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
             <h2>{r?.no ?? ' '}</h2>
             {r && <p>{r.spare} × {r.approved_qty ?? r.qty}{r.hospital ? ` · ${r.hospital}` : ''}</p>}
           </div>
@@ -677,14 +663,16 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
               <div className="qt-sheet-col">
               {r.mine && <Action r={r} me={me} preset={preset} onDone={changed} />}
               {!r.mine && !r.done && (
-                <p className="qt-with">With {stepOf(r.step).who}{r.accepted_by_name ? ` · ${r.accepted_by_name} accepted ${whenText(r.accepted_at)}` : ' · not accepted yet'}</p>
+                <p className="qt-with">{r.accepted_by_name
+                  ? `With ${stepOf(r.step).who} · ${r.accepted_by_name} accepted ${whenText(r.accepted_at)}`
+                  : `Sent to ${stepOf(r.step).who} ${agoText(r.step_since, now)} · not accepted yet`}</p>
               )}
               {r.done && r.close_note && <p className="qt-closed-note">{r.close_note}</p>}
               <Reopen r={r} me={me} onDone={changed} />
-              {!r.mine && <Facts r={r} />}
+              {!r.mine && <Facts r={r} now={now} />}
               </div>
               <div className="qt-sheet-col">
-              {r.mine && <Facts r={r} />}
+              {r.mine && <Facts r={r} now={now} />}
               <Quotes r={r} />
               {(r.track_photo || r.return_track_photo) && (
                 <section className="mt-card-block">
@@ -698,7 +686,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
                   <Photos paths={[...(r.equipment_photo ? [r.equipment_photo] : []), ...(r.photos ?? [])]} onOpen={setBig} />
                 </section>
               )}
-              <Timeline r={r} onDone={changed} />
+              <Timeline r={r} now={now} onDone={changed} />
               </div>
             </div>
           )}
@@ -709,6 +697,20 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
   );
 }
 
+/** "just now", "2 min ago", "3 h ago", "2 days ago". */
+function agoText(at, now) {
+  const m = Math.floor((now - Date.parse(at)) / 60000);
+  if (!Number.isFinite(m) || m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  return `${d} ${d === 1 ? 'day' : 'days'} ago`;
+}
+
+/** Raised to closed, or to now while open (the user, 11 Nov). */
+const totalTat = (r, now) => spanText(Math.max(0, ((r.closed_at ? Date.parse(r.closed_at) : now) - Date.parse(r.created_at)) / 1000));
+
 function Fact({ label, children, sub }) {
   if (children == null || children === '') return null;
   return (
@@ -716,7 +718,7 @@ function Fact({ label, children, sub }) {
   );
 }
 
-function Facts({ r }) {
+function Facts({ r, now }) {
   return (
     <section className="mt-facts qt-facts">
       <Fact label={r.kind === 'stock' ? 'For' : 'Engineer'} sub={r.team_lead_name ? `Team Lead ${r.team_lead_name}` : null}>{person(r.engineer_name, r.engineer_code)}</Fact>
@@ -734,6 +736,7 @@ function Facts({ r }) {
       <Fact label="Coordinator">{r.coord_name}</Fact>
       <Fact label="Purchase">{r.purchase_name}</Fact>
       <Fact label="PV">{r.pv_name}</Fact>
+      <Fact label="Total TAT" sub={r.done ? `Closed ${whenText(r.closed_at)}` : 'Still open'}>{totalTat(r, now ?? Date.now())}</Fact>
     </section>
   );
 }
@@ -800,7 +803,7 @@ function gapWords(ms) {
 }
 
 /** Every step with who, when and how long (idea 3), and the conversation on it (idea 11). */
-function Timeline({ r, onDone }) {
+function Timeline({ r, now, onDone }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, show, clear, at] = useErr();
@@ -811,7 +814,7 @@ function Timeline({ r, onDone }) {
   };
   return (
     <section className="mt-card-block">
-      <span className="mt-block-label">Timeline</span>
+      <span className="mt-block-label qt-tl-head">Timeline<span className="qt-tl-total">Total {totalTat(r, now ?? Date.now())}</span></span>
       <ol className="qt-timeline">
         {r.events.map((e, i) => {
           const next = r.events[i + 1];
@@ -1098,6 +1101,8 @@ function PurchaseRates({ r, onDone }) {
   const p = { ...v, quotes, orig_rate: num(v.orig_rate), orig_tax: num(v.orig_tax), comp_rate: num(v.comp_rate), comp_tax: num(v.comp_tax), lead_days: num(v.lead_days) };
   const hasO = quotes !== 'compatible'; const hasC = quotes !== 'original';
   const oT = withTax(p.orig_rate, p.orig_tax); const cT = withTax(p.comp_rate, p.comp_tax);
+  /** PV only above ₹40,000: the compatible's total when both are quoted, else the one quote's (the user, 11 Nov; 0024). */
+  const toPv = !stock && (hasC ? cT : oT) > PV_ABOVE;
   const line = stock ? money(cT) : [hasO && `Original ${money(oT)}`, hasC && `Compatible ${money(cT)}`].filter(Boolean).join(' · ');
   /** Asked first, unless the compatible is not the cheaper one (the user, 11 Nov). */
   const send = (...args) => {
@@ -1136,11 +1141,11 @@ function PurchaseRates({ r, onDone }) {
         </>
       )}
       <Field label={a === 'ask' ? 'Question' : 'Remarks'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
-      {a === 'rates' && (
-        <div className="qt-two">
-          {!stock && <button type="button" data-role="coordinator" className="mt-btn" onClick={() => send('Skip PV and go straight to PR?', [line], 'Go to PR', { ...p, action: 'rates_pr' }, `${r.no} is at PR.`)}>Straight to PR</button>}
-          <button type="button" data-role={stock ? 'coordinator' : 'pv'} className="mt-go" onClick={() => send(stock ? 'Send the price to the Coordinator?' : 'Send the rates to PV?', [line], 'Send', { ...p, action: 'rates' }, stock ? `${r.no} is at PR.` : `${r.no} sent to PV.`)}>{stock ? 'Send price' : 'Send to PV'}</button>
-        </div>
+      {a === 'rates' && (stock
+        ? <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the price to the Coordinator?', [line], 'Send', { ...p, action: 'rates' }, `${r.no} is at PR.`)}>Send price</button>
+        : toPv
+          ? <button type="button" data-role="pv" className="mt-go" onClick={() => send('Send the rates to PV?', [line], 'Send', { ...p, action: 'rates' }, `${r.no} sent to PV.`)}>Send to PV</button>
+          : <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the rates straight to PR?', [line], 'Send to PR', { ...p, action: 'rates_pr' }, `${r.no} is at PR.`)}>Send to PR</button>
       )}
       {a === 'approve_sap' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go('Approve the SAP rate?', [`${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}`], 'Approve', { action: 'approve_sap', note: v.note }, `${r.no} is at PR.`)}>Approve SAP rate</button>}
       {a === 'ask' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Ask the Coordinator about ${r.no}?`, [v.note], 'Ask', { action: 'ask', note: v.note }, 'Question sent to the Coordinator.')}>Ask the Coordinator</button>}
@@ -1168,27 +1173,51 @@ function Pv({ r, onDone }) {
 
 function CoordPr({ r, onDone }) {
   const [a, setA] = useState('pr');
-  const [v, setV] = useState({ pr_no: '', pr_date: todayIst(), item_code: r.item_code ?? '', approved_qty: r.qty, quote_submitted: '', quote_approved: '', note: '' });
+  const [v, setV] = useState({ pr_no: '', pr_date: todayIst(), item_code: r.item_code ?? '', approved_qty: r.qty, quote: '', quote_submitted: '', quote_approved: '', note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
-  const price = r.picked === 'original' ? withTax(r.orig_rate, r.orig_tax) : withTax(r.comp_rate, r.comp_tax);
-  const p = { ...v, action: a, approved_qty: Number(v.approved_qty) };
+  /** Straight to PR with both quotes: no PV pick, so the Coordinator picks; compatible by default (the user, 11 Nov; 0025). */
+  const canPick = !r.picked && r.orig_rate != null && r.comp_rate != null;
+  const [pick, setPick] = useState(r.picked ?? (r.comp_rate != null ? 'compatible' : 'original'));
+  const price = pick === 'original' ? withTax(r.orig_rate, r.orig_tax) : withTax(r.comp_rate, r.comp_tax);
+  const p = { ...v, action: a, approved_qty: Number(v.approved_qty), ...(canPick ? { picked: pick } : {}),
+    ...(a === 'pr' && v.quote !== 'yes' ? { quote_submitted: '', quote_approved: '' } : {}) };
+  const quoteNeed = a === 'pr' ? [[v.quote, 'Choose the quotation.'], ...(v.quote === 'yes' ? [[v.quote_submitted, 'Choose the quote submitted on.'], [v.quote_approved, 'Choose the quote approved on.']] : [])] : [];
+  const datesOk = () => {
+    if (v.quote === 'yes' && v.quote_submitted && v.quote_approved && v.quote_approved < v.quote_submitted) { s.show('The quote cannot be approved before it was submitted.', ['Choose the quote approved on.']); return false; }
+    return true;
+  };
   return (
     <>
-      <Quotes r={r} />
+      <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
       <Choice value={a} onChange={setA} options={[['pr', 'Raise PR', 'good', 'purchase'], ['quotation', 'Quotation only', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
       {(a === 'pr' || a === 'quotation') && (
         <div className="qt-grid">
-          {a === 'pr' && <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} /></Field>}
-          {a === 'pr' && <DateChips label="PR date" value={v.pr_date} onChange={(x) => set('pr_date', x)} />}
+          {a === 'pr' && (
+            <div className="qt-date-pair">
+              <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
+              <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
+            </div>
+          )}
           {a === 'pr' && <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>}
           {a === 'pr' && <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>}
-          <Field label="Quote submitted on"><input type="date" value={v.quote_submitted} max={todayIst()} onChange={(e) => set('quote_submitted', e.target.value)} /></Field>
-          <Field label="Quote approved on"><input type="date" value={v.quote_approved} max={todayIst()} onChange={(e) => set('quote_approved', e.target.value)} /></Field>
+          {a === 'pr' && (
+            <div className="pm-in"><span>Quotation</span>
+              <div className="qt-send-chips" role="radiogroup" aria-label="Quotation">
+                {[['yes', 'Yes'], ['no', 'No']].map(([id, label]) => <button key={id} type="button" role="radio" aria-checked={v.quote === id} onClick={() => set('quote', id)}>{label}</button>)}
+              </div>
+            </div>
+          )}
+          {(a === 'quotation' || v.quote === 'yes') && (
+            <div className="qt-date-pair">
+              <Field label="Quote submitted on"><input type="date" value={v.quote_submitted} max={todayIst()} onChange={(e) => set('quote_submitted', e.target.value)} /></Field>
+              <Field label="Quote approved on"><input type="date" value={v.quote_approved} min={v.quote_submitted || undefined} max={todayIst()} onChange={(e) => set('quote_approved', e.target.value)} /></Field>
+            </div>
+          )}
         </div>
       )}
       <Field label={a === 'pr' || a === 'quotation' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
-      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.']]) && s.go(`Raise PR ${v.pr_no || ''} for ${r.no}?`, [`${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Raise PR', p, `PR raised for ${r.no}.`)}>Raise PR</button>}
+      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.'], ...quoteNeed]) && datesOk() && s.go(`Raise PR ${v.pr_no || ''} for ${r.no}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Raise PR', p, `PR raised for ${r.no}.`)}>Raise PR</button>}
       {a === 'quotation' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go(`Close ${r.no} as quotation only?`, [person(r.engineer_name, r.engineer_code)], 'Close', p, `${r.no} closed as quotation only.`)}>Quotation only</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
@@ -1239,8 +1268,10 @@ function PurchaseDispatch({ r, onDone }) {
       {a === 'dispatch' && (
         <>
           <div className="qt-grid">
-            <Field label="PO no"><input value={v.po_no} onChange={(e) => set('po_no', e.target.value)} /></Field>
-            <DateChips label="PO date" value={v.po_date} onChange={(x) => set('po_date', x)} />
+            <div className="qt-date-pair">
+              <Field label="PO no"><input value={v.po_no} onChange={(e) => set('po_no', e.target.value)} autoComplete="off" /></Field>
+              <Field label="PO date"><input type="date" value={v.po_date} max={todayIst()} onChange={(e) => set('po_date', e.target.value)} /></Field>
+            </div>
             <VendorInput value={v.vendor} onChange={(x) => set('vendor', x)} />
             <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
           </div>
@@ -1321,7 +1352,7 @@ function Receipt({ r, onDone }) {
         <Stepper label="Faulty" value={v.faulty} onChange={(x) => set('faulty', x)} />
       </div>
       {Number(v.faulty) > 0 && <Choice value={v.faulty_kind} onChange={(x) => set('faulty_kind', x)} options={[['Faulty', 'Faulty', 'bad'], ['Mismatch', 'Mismatch', 'bad']]} />}
-      {!obs && <DateChips label="Received on" value={v.date} onChange={(x) => set('date', x)} />}
+      {!obs && <Field label="Received on"><input type="date" value={v.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>}
       <Field label="Remarks" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
       {!Number(v.faulty) && !obs && (
         <label className="qt-check"><input type="checkbox" checked={v.observe} onChange={(e) => set('observe', e.target.checked)} /> Keep under observation</label>
