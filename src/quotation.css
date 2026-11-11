@@ -574,3 +574,39 @@
 /* SAP rate: item code + vendor, then rate + tax, two to a row on desktop (the user, 11 Nov) */
 .qt-grid.qt-sap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 600px) { .qt-grid.qt-sap { grid-template-columns: 1fr; } }
+
+/* One Requests tab, five views (the user, 11 Nov); scrolls sideways on a phone rather than squeezing */
+.qt-work { display: flex; flex-direction: column; gap: 14px; }
+.qt-views { align-self: start; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.qt-views::-webkit-scrollbar { display: none; }
+.qt-views button { flex: 0 0 auto; white-space: nowrap; }
+.qt-views button b { font-weight: 700; }
+.qt-views button[data-hot] b { color: var(--accent, #e11d48); }
+
+/* Quotation, its date and remarks on one row (the user, 11 Nov); remarks drop below on a phone */
+.qt-quote-row { display: grid; grid-template-columns: auto minmax(150px, 180px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.qt-quote-row textarea { min-height: 64px; }
+@media (max-width: 560px) { .qt-quote-row { grid-template-columns: auto minmax(0, 1fr); } .qt-quote-row > :last-child { grid-column: 1 / -1; } }
+
+/* Tracking no and the slip on one row; By hand finds the person (the user, 11 Nov) */
+.qt-track-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.qt-hand { position: relative; }
+.qt-hand-list { position: absolute; z-index: 30; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none;
+  background: var(--panel, var(--surface, #1c1c1f)); border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); max-height: 260px; overflow: auto; }
+.qt-hand-list button { width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.qt-hand-list button:hover { background: rgba(127,127,127,.12); }
+.qt-hand-list span { opacity: .6; margin-left: 6px; }
+/* The slip as tall as the tracking box beside it (the user, 11 Nov) */
+.qt-track-row .qt-thumb, .qt-track-row .qt-camera { height: 48px; width: 84px; grid-auto-flow: column; gap: 6px; }
+
+/* Each view its colour (the user, 11 Nov): amber to accept, blue with you, violet with others, green closed, grey all */
+.qt-views button[data-view="accept"] { --v: #f59e0b; }
+.qt-views button[data-view="mine"] { --v: #3b82f6; }
+.qt-views button[data-view="others"] { --v: #8b5cf6; }
+.qt-views button[data-view="done"] { --v: #22c55e; }
+.qt-views button[data-view="all"] { --v: #94a3b8; }
+.qt-views button { display: inline-flex; align-items: center; gap: 6px; }
+.qt-views button i { width: 8px; height: 8px; border-radius: 50%; background: var(--v); flex: none; }
+.qt-views button b, .qt-views button[data-hot] b { color: inherit; opacity: .55; }
+.qt-views button[data-hot] b { color: var(--v); opacity: 1; }
+.qt-views button[aria-selected="true"] { background: color-mix(in srgb, var(--v) 18%, transparent); color: var(--text-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v) 45%, transparent); }

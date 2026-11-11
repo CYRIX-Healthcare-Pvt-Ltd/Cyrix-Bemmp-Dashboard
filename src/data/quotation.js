@@ -40,12 +40,13 @@ export const saveFacility = (p) => rpc('qt_save_facility', { p });
 export const savePerson = (p) => rpc('qt_save_person', { p });
 export const removePerson = (id) => rpc('qt_remove_person', { p_employee: id });
 export const saveTargets = (p) => rpc('qt_save_targets', { p });
+export const findPerson = (q) => rpc('qt_find_person', { p_q: q });
 
 /** Each step's own action, by the step's name. */
 const STEP_FN = {
   coord_initial: 'qt_coord_initial', tl_clarify: 'qt_tl_reply', purchase_rates: 'qt_purchase_rates', pv: 'qt_pv',
-  coord_pr: 'qt_coord_pr', purchase_dispatch: 'qt_purchase_dispatch', coord_decide: 'qt_coord_decide',
-  receipt: 'qt_receipt', observation: 'qt_receipt', purchase_faulty: 'qt_purchase_faulty',
+  coord_quote: 'qt_coord_quote', eng_quote: 'qt_eng_quote', coord_pr: 'qt_coord_pr', purchase_dispatch: 'qt_purchase_dispatch', coord_decide: 'qt_coord_decide',
+  receipt: 'qt_receipt_with_signed', observation: 'qt_receipt_with_signed', purchase_faulty: 'qt_purchase_faulty',
   return_dispatch: 'qt_return_dispatch', purchase_replacement: 'qt_replacement', eng_fix: 'qt_eng_fix',
 };
 export const tlDecline = (id, p) => rpc('qt_tl_decline', { p_id: id, p });
@@ -55,22 +56,24 @@ export const act = (step, id, p) => rpc(STEP_FN[step], { p_id: id, p });
 
 /** Each step in plain words, who works it, and its colour. */
 export const STEPS = {
-  tl_review: { label: 'Team Lead approval', who: 'Team Lead', tone: 'yellow' },
-  eng_fix: { label: 'Sent back to correct', who: 'Engineer', tone: 'orange' },
-  tl_clarify: { label: 'Question to Team Lead', who: 'Team Lead', tone: 'amber' },
-  coord_initial: { label: 'Coordinator check', who: 'Coordinator', tone: 'violet' },
-  purchase_rates: { label: 'Purchase rates', who: 'Purchase', tone: 'teal' },
-  pv: { label: 'Price verification', who: 'PV', tone: 'pink' },
-  coord_pr: { label: 'PR', who: 'Coordinator', tone: 'violet' },
-  on_hold: { label: 'On hold', who: 'Coordinator', tone: 'grey' },
-  purchase_dispatch: { label: 'PO and dispatch', who: 'Purchase', tone: 'teal' },
-  coord_decide: { label: 'Hold or cancel asked', who: 'Coordinator', tone: 'amber' },
-  on_hold_dispatch: { label: 'On hold', who: 'Coordinator', tone: 'grey' },
-  receipt: { label: 'Receipt', who: 'Engineer', tone: 'orange' },
-  observation: { label: 'Under observation', who: 'Engineer', tone: 'amber' },
-  purchase_faulty: { label: 'Faulty spare', who: 'Purchase', tone: 'red' },
-  return_dispatch: { label: 'Send back', who: 'Engineer', tone: 'red' },
-  purchase_replacement: { label: 'Replacement', who: 'Purchase', tone: 'teal' },
+  tl_review: { label: 'Sent to Team Lead', who: 'Team Lead', tone: 'yellow' },
+  eng_fix: { label: 'Sent back to engineer to correct', who: 'Engineer', tone: 'orange' },
+  tl_clarify: { label: 'Question sent to Team Lead', who: 'Team Lead', tone: 'amber' },
+  coord_initial: { label: 'Sent to Coordinator', who: 'Coordinator', tone: 'violet' },
+  purchase_rates: { label: 'Sent to Purchase for rates', who: 'Purchase', tone: 'teal' },
+  pv: { label: 'Sent to PV', who: 'PV', tone: 'pink' },
+  coord_quote: { label: 'Sent to Coordinator for quotation', who: 'Coordinator', tone: 'violet' },
+  eng_quote: { label: 'Quotation submitted', who: 'Engineer', tone: 'orange' },
+  coord_pr: { label: 'Quotation approved, PR to raise', who: 'Coordinator', tone: 'violet' },
+  on_hold: { label: 'On hold with Coordinator', who: 'Coordinator', tone: 'grey' },
+  purchase_dispatch: { label: 'PO requested from Purchase', who: 'Purchase', tone: 'teal' },
+  coord_decide: { label: 'Hold or cancel asked of Coordinator', who: 'Coordinator', tone: 'amber' },
+  on_hold_dispatch: { label: 'On hold with Coordinator', who: 'Coordinator', tone: 'grey' },
+  receipt: { label: 'Dispatched to engineer', who: 'Engineer', tone: 'orange' },
+  observation: { label: 'Under observation with engineer', who: 'Engineer', tone: 'amber' },
+  purchase_faulty: { label: 'Faulty reported to Purchase', who: 'Purchase', tone: 'red' },
+  return_dispatch: { label: 'Faulty spare to send back', who: 'Engineer', tone: 'red' },
+  purchase_replacement: { label: 'Faulty sent back to Purchase', who: 'Purchase', tone: 'teal' },
   completed: { label: 'Completed', tone: 'green' },
   quotation_only: { label: 'Quotation only', tone: 'green' },
   moved_to_stock: { label: 'Moved to stock', tone: 'grey' },
@@ -79,6 +82,35 @@ export const STEPS = {
   rejected: { label: 'Rejected', tone: 'red' },
 };
 export const stepOf = (s) => STEPS[s] ?? { label: s, tone: 'grey' };
+/**
+ * The status in words, by role (the user, 11 Nov): sent to someone, then that someone at work once accepted.
+ * [before Accept, after Accept]; steps with no Accept have one wording.
+ */
+const STATUS = {
+  tl_review: ['Sent to Team Lead', 'Team Lead reviewing'],
+  eng_fix: ['Sent back to engineer to correct'],
+  tl_clarify: ['Question sent to Team Lead', 'Team Lead answering'],
+  coord_initial: ['Sent to Coordinator', 'Coordinator checking'],
+  purchase_rates: ['Sent to Purchase for rates', 'Purchase giving rates'],
+  pv: ['Sent to PV', 'PV verifying the price'],
+  coord_quote: ['Sent to Coordinator for quotation', 'Coordinator preparing quotation'],
+  eng_quote: ['Quotation submitted', 'Quotation accepted by engineer'],
+  on_hold: ['On hold with Coordinator'],
+  purchase_dispatch: ['PO requested from Purchase', 'Purchase processing PO'],
+  coord_decide: ['Hold or cancel asked of Coordinator', 'Coordinator deciding'],
+  on_hold_dispatch: ['On hold with Coordinator'],
+  observation: ['Under observation with engineer'],
+  purchase_faulty: ['Faulty reported to Purchase', 'Purchase handling the faulty spare'],
+  purchase_replacement: ['Faulty sent back to Purchase', 'Purchase sending replacement'],
+};
+export const statusOf = (r) => {
+  const on = Boolean(r.accepted_by);
+  if (r.step === 'coord_pr') return on ? 'PR processing' : r.kind === 'request' ? 'Quotation approved' : 'Sent to Coordinator for PR';
+  if (r.step === 'receipt') return on ? 'Engineer confirming receipt' : (r.faulty_qty > 0 ? 'Replacement dispatched to engineer' : 'Dispatched to engineer');
+  if (r.step === 'return_dispatch') { const who = r.kind === 'stock' ? 'Coordinator' : 'Engineer'; return on ? `${who} sending the faulty spare back` : `${who} to send the faulty spare back`; }
+  const w = STATUS[r.step];
+  return w ? (on && w[1] ? w[1] : w[0]) : stepOf(r.step).label;
+};
 
 /** Each role its own colour (the user, 11 Nov): the step's buttons take the colour of whoever works it. */
 const ROLE_KEY = { Engineer: 'engineer', 'Team Lead': 'team_lead', Coordinator: 'coordinator', Purchase: 'purchase', PV: 'pv' };
@@ -86,7 +118,7 @@ export const roleOfStep = (s) => ROLE_KEY[STEPS[s]?.who] ?? null;
 export const NO_ACCEPT = new Set(['on_hold', 'on_hold_dispatch', 'observation', 'eng_fix']);
 
 /** Stages for TAT, in the order a request meets them. */
-export const TAT_STEPS = ['tl_review', 'coord_initial', 'tl_clarify', 'purchase_rates', 'pv', 'coord_pr',
+export const TAT_STEPS = ['tl_review', 'coord_initial', 'tl_clarify', 'purchase_rates', 'pv', 'coord_quote', 'eng_quote', 'coord_pr',
   'purchase_dispatch', 'coord_decide', 'receipt', 'purchase_faulty', 'return_dispatch', 'purchase_replacement'];
 
 /** What each event says in the timeline. */
@@ -101,7 +133,7 @@ export const ACTIONS = {
   replacement_received: 'Received the replacement', cancel_po: 'Cancelled the PO', to_stock: 'Moved to stock',
   returned: 'Sent the faulty spare back', replacement: 'Dispatched a replacement', reopen: 'Reopened', note: 'Note',
   consume: 'Used from stock', send_back: 'Sent back to correct', reject: 'Rejected', resend: 'Corrected and sent again',
-  withdraw: 'Withdrawn',
+  withdraw: 'Withdrawn', quote: 'Sent the quotation', quote_yes: 'Customer approved the quotation', quote_no: 'Customer did not approve the quotation',
 };
 
 /* ------------------------------------------------------------- time -- */

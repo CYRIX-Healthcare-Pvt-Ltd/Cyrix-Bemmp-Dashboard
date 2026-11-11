@@ -7,7 +7,7 @@ import { supabase } from '../data/supabase.js';
 import {
   loadList, loadOne, loadFacilities, loadEquipmentAt, loadPeople, loadTargets, loadEvents,
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, consume, resume, act,
-  saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf,
+  saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person,
 } from '../data/quotation.js';
@@ -24,7 +24,7 @@ import '../quotation.css';
  */
 
 const PERIODS = [['month', 'This month'], ['all', 'All time'], ['custom', 'Custom']];
-const SEND_BY = ['Courier', 'Transport', 'By hand', 'Post'];
+const SEND_BY = ['Courier', 'Transport', 'Post', 'By hand'];
 const TAXES = [0, 5, 12, 18, 28];
 const PV_ABOVE = 40000;
 /** What every form may want from the app: past vendors, recent hospitals, who is signed in. */
@@ -36,7 +36,7 @@ const store = {
 const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', viewer: 'Viewer' };
 
 function tabsFor(me) {
-  const r = me.role; const t = [{ id: 'todo', label: 'To do', short: 'To do' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
+  const r = me.role; const t = [{ id: 'requests', label: 'Requests', short: 'Requests' }];
   if (r === 'engineer' || r === 'team_lead') t.push({ id: 'new', label: 'New request', short: 'New' });
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
@@ -47,7 +47,7 @@ function tabsFor(me) {
 }
 
 export default function QuotationApp({ me, profile, narrow, switcher, onSignOut }) {
-  const [tab, setTab] = useState('todo');
+  const [tab, setTab] = useState('requests');
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
   const [list, setList] = useState(null);
   const [targets, setTargets] = useState({});
@@ -107,7 +107,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
       <ProjectMasthead profile={profile} narrow={narrow} sub={sub}
                        right={<div className="qt-head-right"><Bell onOpen={open} />{switcher}</div>} onSignOut={onSignOut} />
       <div className="shell">
-        <SideNav tabs={tabs.map((t) => ({ ...t, label: t.id === 'todo' && mine.length ? `${t.label} · ${mine.length}` : t.label }))}
+        <SideNav tabs={tabs.map((t) => ({ ...t, label: t.id === 'requests' && mine.length ? `${t.label} · ${mine.length}` : t.label }))}
                  active={tab} onSelect={setTab} onSignOut={onSignOut} signedIn={Boolean(profile)} profile={profile} showAccountControls={!narrow} />
         <div className="work">
           {toast && <div className="mt-toast" role="status">{toast}</div>}
@@ -121,11 +121,10 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
             <div className="status-msg"><div className="loader" aria-hidden="true" /></div>
           ) : (
             <div className="tabview" key={tab}>
-              {tab === 'todo' && <Todo me={me} list={mine} targets={targets} now={now} onOpen={open} onDone={done} sub={todoSub} setSub={setTodoSub} />}
-              {tab === 'requests' && <Requests list={list} targets={targets} now={now} period={period} setPeriod={setPeriod} onOpen={open} />}
+              {tab === 'requests' && <Work me={me} list={list} mine={mine} targets={targets} now={now} period={period} setPeriod={setPeriod} onOpen={open} onDone={done} view={todoSub} setView={setTodoSub} />}
               {tab === 'new' && (me.role === 'coordinator'
-                ? <StockForm onDone={(m) => { done(m); setTab('requests'); }} />
-                : <RaiseForm me={me} onDone={(m) => { done(m); setTab('requests'); }} />)}
+                ? <StockForm onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />
+                : <RaiseForm me={me} onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />)}
               {tab === 'stock' && <StockRegister me={me} list={list} onOpen={open} onDone={done} />}
               {tab === 'tat' && <TatBoard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onOpen={open} onToast={setToast} />}
               {tab === 'hospitals' && <Hospitals />}
@@ -135,7 +134,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
         </div>
       </div>
       {openId && <RequestSheet id={openId} preset={preset} me={me} targets={targets} now={now} onClose={() => open(null)} onChanged={done}
-                                 onFinished={(stillMine) => { open(null); reload(); setTab('todo'); setTodoSub(stillMine ? 'mine' : null); }} />}
+                                 onFinished={(stillMine) => { open(null); reload(); setTab('requests'); setTodoSub(stillMine ? 'mine' : null); }} />}
     </div>
     </QtCtx.Provider>
   );
@@ -158,9 +157,9 @@ const I = {
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
 };
 
-function StepBadge({ step }) {
-  const s = stepOf(step);
-  return <span className="qt-badge" data-tone={s.tone} data-role={roleOfStep(step) ?? undefined}>{s.label}</span>;
+function StepBadge({ r }) {
+  const s = stepOf(r.step);
+  return <span className="qt-badge" data-tone={s.tone} data-role={roleOfStep(r.step) ?? undefined}>{statusOf(r)}</span>;
 }
 
 /** The clock is for whoever holds the request; in lists leads also see everyone's, but inside a request it shows only to its holder (the user, 11 Nov). */
@@ -298,7 +297,7 @@ function Photos({ paths }) {
 
 /** Camera or gallery, several at once; uploaded into the folder given. */
 function PhotoAdd({ folder, paths, onChange, label, max = 6 }) {
-  label = label ?? (max > 1 ? 'Add photos' : 'Photo');
+  label = label ?? (max > 1 ? 'Add photos' : 'Photo'); // '' shows the camera alone
   const input = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -320,8 +319,8 @@ function PhotoAdd({ folder, paths, onChange, label, max = 6 }) {
           </span>
         ))}
         {paths.length < max && (
-          <button type="button" className="qt-camera" onClick={() => input.current?.click()} disabled={busy}>
-            <Icon d={I.camera} size={22} /><span>{busy ? 'Adding…' : label}</span>
+          <button type="button" className="qt-camera" onClick={() => input.current?.click()} disabled={busy} aria-label={label || 'Add a photo'}>
+            <Icon d={I.camera} size={22} />{(label || busy) && <span>{busy ? 'Adding…' : label}</span>}
           </button>
         )}
       </div>
@@ -398,7 +397,7 @@ function Search({ value, onChange, placeholder }) {
 }
 
 const hay = (r) => [r.no, r.hospital, r.district, r.spare, r.part_no, r.equipment, r.make, r.model, r.serial, r.engineer_name, r.engineer_code,
-  r.pr_no, r.po_no, r.track_no, r.item_code, stepOf(r.step).label].filter(Boolean).join(' ').toLowerCase();
+  r.pr_no, r.po_no, r.track_no, r.item_code, statusOf(r)].filter(Boolean).join(' ').toLowerCase();
 const matches = (r, q) => q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay(r).includes(w));
 
 /* ============================================================== bell == */
@@ -461,9 +460,9 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
         </button>
       )}
       <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
-        <span className="qt-card-top"><span className="qt-no">{r.no}</span><StepBadge step={r.step} /><Clock r={r} targets={targets} now={now} /></span>
+        <span className="qt-card-top"><span className="qt-no">{r.no}</span><StepBadge r={r} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
-        <span className="qt-card-line"><span className="qt-card-step">{stepOf(r.step).label} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
+        <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
         {!r.mine && !r.done && (
           <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
         )}
@@ -477,17 +476,16 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
 
 /* =============================================================== to do == */
 
-function Todo({ me, list, targets, now, onOpen, onDone, sub, setSub }) {
+function Todo({ me, list, targets, now, onOpen, onDone, sub }) {
   const [sel, setSel] = useState(new Set());
   const [only, setOnly] = useState('');
   const [ask, box] = useAsk();
   const stop = () => setSel(new Set());
   /* Sub-tabs (the user, 11 Nov): To accept | With you, one list at a time; opens on To accept when anything waits. */
   const isWaiting = (r) => !r.accepted_at && !NO_ACCEPT.has(r.step);
-  const nWait = list.filter(isWaiting).length;
-  const nWork = list.length - nWait;
-  const tab = sub ?? (nWait ? 'accept' : 'mine');
-  const pool = useMemo(() => list.filter((r) => (tab === 'accept') === isWaiting(r)), [list, tab]);
+  const tab = sub;
+  useEffect(() => { setOnly(''); setSel(new Set()); }, [sub]);
+  const pool = list;
   const steps = useMemo(() => {
     const m = new Map(); for (const r of pool) m.set(r.step, (m.get(r.step) ?? 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
@@ -511,20 +509,8 @@ function Todo({ me, list, targets, now, onOpen, onDone, sub, setSub }) {
     ok: 'Accept', run: () => accept([r.id]), after: () => { onDone(`${r.no} accepted.`); onOpen(r.id); },
   });
 
-  if (!list.length) {
-    return (
-      <div className="qt-empty">
-        <span className="qt-empty-mark"><Icon d={I.check} size={28} /></span>
-        <h2>Nothing waiting for you</h2>
-      </div>
-    );
-  }
   return (
     <div className="qt-todo">
-      <div className="segmented qt-sub" role="tablist" aria-label="To do">
-        <button type="button" role="tab" aria-selected={tab === 'accept'} onClick={() => { setSub('accept'); setOnly(''); stop(); }}>To accept · {nWait}</button>
-        <button type="button" role="tab" aria-selected={tab === 'mine'} onClick={() => { setSub('mine'); setOnly(''); stop(); }}>With you · {nWork}</button>
-      </div>
       {!sorted.length && <p className="empty-inline pm-empty">{tab === 'accept' ? 'Nothing to accept.' : 'Nothing with you.'}</p>}
       {steps.length > 1 && (
         <div className="qt-chips" role="tablist" aria-label="Step">
@@ -605,14 +591,36 @@ function nextLabel(r) {
 
 /* ============================================================ requests == */
 
-const SHOW = [['others', 'With others'], ['done', 'Closed'], ['all', 'All']];
+/** One Requests tab (the user, 11 Nov): To accept · With you · With others · Closed · All. */
+function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone, view, setView }) {
+  const isWaiting = (r) => !r.accepted_at && !NO_ACCEPT.has(r.step);
+  const nWait = mine.filter(isWaiting).length;
+  const nWork = mine.length - nWait;
+  const nOthers = list.filter((r) => !r.done && !r.mine).length;
+  const v = view ?? (nWait ? 'accept' : nWork ? 'mine' : 'others');
+  const views = [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
+  return (
+    <div className="qt-work">
+      <PeriodBar period={period} setPeriod={setPeriod} />
+      <div className="segmented qt-views" role="tablist" aria-label="Requests">
+        {views.map(([id, label, n]) => (
+          <button key={id} type="button" role="tab" aria-selected={v === id} data-view={id} data-hot={n ? 'true' : undefined}
+                  onClick={() => setView(id)}><i aria-hidden="true" />{label}{n != null ? <b> {n}</b> : null}</button>
+        ))}
+      </div>
+      {v === 'accept' || v === 'mine'
+        ? <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} />
+        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} />}
+    </div>
+  );
+}
+
 const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
 
-function Requests({ list, targets, now, period, setPeriod, onOpen }) {
+function Requests({ list, targets, now, onOpen, show }) {
   const [q, setQ] = useState('');
-  const [show, setShow] = useState('others');
   const [step, setStep] = useState('');
   const [sort, setSort] = useState('new');
   const steps = useMemo(() => {
@@ -628,11 +636,7 @@ function Requests({ list, targets, now, period, setPeriod, onOpen }) {
   }, [list, show, step, q, sort, targets, now]);
   return (
     <div className="mt-tickets qt-requests">
-      <PeriodBar period={period} setPeriod={setPeriod} />
       <div className="mt-filters qt-filters">
-        <div className="segmented" role="tablist" aria-label="Show">
-          {SHOW.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={show === id} onClick={() => setShow(id)}>{label}{id === 'others' ? ` · ${list.filter((r) => !r.done && !r.mine).length}` : ''}</button>)}
-        </div>
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
         <Picker value={sort} options={SORTS} onChange={setSort} title="Sort" />
@@ -670,7 +674,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
       <div className="mt-sheet qt-sheet" role="dialog" aria-modal="true" aria-label={r?.no ?? 'Request'} onClick={(e) => e.stopPropagation()}>
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
-            {r && <span className="qt-card-top"><StepBadge step={r.step} />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
+            {r && <span className="qt-card-top"><StepBadge r={r} />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
             <h2>{r?.no ?? ' '}</h2>
             {r && <p>{r.spare} × {r.approved_qty ?? r.qty}{r.hospital ? ` · ${r.hospital}` : ''}</p>}
           </div>
@@ -693,6 +697,12 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
               <div className="qt-sheet-col">
               {r.mine && <Facts r={r} now={now} />}
               <Quotes r={r} onlyPicked={me.role === 'engineer'} />
+              {(r.quote_file || r.quote_signed) && (
+                <section className="mt-card-block">
+                  <span className="mt-block-label">Quotation{r.quote_date ? ` · ${r.quote_date.split('-').reverse().join('-')}` : ''}{r.quote_ok === true ? ' · approved' : r.quote_ok === false ? ' · not approved' : ''}</span>
+                  <Photos paths={[r.quote_file, r.quote_signed].filter(Boolean)} />
+                </section>
+              )}
               {(r.track_photo || r.return_track_photo) && (
                 <section className="mt-card-block">
                   <span className="mt-block-label">Slips</span>
@@ -858,7 +868,7 @@ function Timeline({ r, now, onDone }) {
               <span className="qt-tl-dot" />
               {gap !== null && <span className="qt-tl-gap" data-long={gap >= 86400000 ? 'true' : undefined} title={`${gapWords(gap)} to the next step`}>{gapLabel(gap)}</span>}
               <div className="qt-tl-text">
-                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
+                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
                 <span className="qt-tl-who">{person(e.by_name, e.by_code)} · {whenText(e.at)}</span>
                 {e.note && <span className="qt-tl-note">{e.note}</span>}
               </div>
@@ -906,7 +916,7 @@ function Action({ r, me, preset, onDone, onFinish }) {
   if (!r.accepted_at && !NO_ACCEPT.has(r.step)) {
     return (
       <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}>
-        <p className="qt-action-title">{stepOf(r.step).label}</p>
+        <p className="qt-action-title">{statusOf(r)}</p>
         <p className="qt-action-sub">Waiting since {whenText(r.step_since)}</p>
         <button type="button" className="mt-go" onClick={() => ask({
           title: `Accept ${r.no}?`, lines: [`${r.spare} × ${r.qty} · ${r.hospital ?? 'Stock'}`, person(r.engineer_name, r.engineer_code)], ok: 'Accept',
@@ -917,7 +927,7 @@ function Action({ r, me, preset, onDone, onFinish }) {
     );
   }
   const F = FORMS[r.step];
-  return F ? <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}><p className="qt-action-title">{stepOf(r.step).label}</p><F r={r} me={me} preset={preset} onDone={onFinish ?? onDone} /></section> : null;
+  return F ? <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}><p className="qt-action-title">{statusOf(r)}</p><F r={r} me={me} preset={preset} onDone={onFinish ?? onDone} /></section> : null;
 }
 
 /** Shared by forms: the decision asked first, sent, the message, the error beside the button. */
@@ -1198,54 +1208,94 @@ function Pv({ r, onDone }) {
   );
 }
 
+/** Quotation before PR (the user, 11 Nov): the Coordinator attaches it; the engineer gets the customer's answer. */
+function CoordQuote({ r, onDone }) {
+  const [a, setA] = useState('quote');
+  const [v, setV] = useState({ quote_file: '', quote_date: '', note: '' });
+  const s = useSend(r, onDone);
+  const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
+  const canPick = !r.picked && r.orig_rate != null && r.comp_rate != null;
+  const [pick, setPick] = useState(r.picked ?? (r.comp_rate != null ? 'compatible' : 'original'));
+  const said = r.quote_ok === false ? [...(r.events ?? [])].reverse().find((e) => e.action === 'quote_no') : null;
+  const p = { ...v, action: a, ...(canPick ? { picked: pick } : {}) };
+  return (
+    <>
+      {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
+      <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
+      <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
+      {a === 'quote' ? (
+        <div className="qt-quote-row">
+          <div className="pm-in"><span>Quotation</span>
+            <PhotoAdd folder={r.id} paths={v.quote_file ? [v.quote_file] : []} onChange={(x) => set('quote_file', x[x.length - 1] ?? '')} label="Attach" max={1} />
+          </div>
+          <Field label="Quotation date"><input type="date" value={v.quote_date} max={todayIst()} onChange={(e) => set('quote_date', e.target.value)} /></Field>
+          <Field label="Remarks"><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+        </div>
+      ) : <Field label="Reason" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>}
+      {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.quote_file, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.']]) && s.go(`Submit the quotation of ${r.no}?`, [`To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>Submit quotation</button>}
+      {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
+      {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
+      <Err text={s.err} at={s.at} />
+      {s.box}
+    </>
+  );
+}
+
+/** The engineer confirms the customer's answer; the signed copy now or at the last receipt. */
+function EngQuote({ r, onDone }) {
+  const [v, setV] = useState({ approved: '', signed: '', note: '' });
+  const s = useSend(r, onDone);
+  const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
+  return (
+    <>
+      <div className="pm-in"><span>Quotation</span><Photos paths={[r.quote_file].filter(Boolean)} /></div>
+      <div className="pm-in"><span>Approved by the customer</span>
+        <div className="qt-send-chips" role="radiogroup" aria-label="Approved by the customer">
+          {[['yes', 'Yes'], ['no', 'No']].map(([id, label]) => <button key={id} type="button" role="radio" aria-checked={v.approved === id} onClick={() => set('approved', id)}>{label}</button>)}
+        </div>
+      </div>
+      {v.approved === 'yes' && (
+        <div className="pm-in"><span>Signed quotation</span>
+          <PhotoAdd folder={r.id} paths={v.signed ? [v.signed] : []} onChange={(x) => set('signed', x[x.length - 1] ?? '')} label="Attach" max={1} />
+        </div>
+      )}
+      <Field label={v.approved === 'no' ? 'Reason' : 'Remarks'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+      <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.approved, 'Choose whether the customer approved it.'], ...(v.approved === 'no' ? [[v.note, 'Write the reason.']] : [])]) && s.go(
+        v.approved === 'yes' ? `Customer approved the quotation of ${r.no}?` : `Customer did not approve ${r.no}?`,
+        v.approved === 'yes' ? [v.signed ? 'Signed copy attached.' : 'The signed copy is needed when you confirm the receipt.', 'The Coordinator raises the PR.'] : [v.note, 'It goes back to the Coordinator.'],
+        'Confirm', v, v.approved === 'yes' ? 'Sent to the Coordinator for PR.' : 'Sent back to the Coordinator.')}>Confirm quotation</button>
+      <Err text={s.err} at={s.at} />
+      {s.box}
+    </>
+  );
+}
+
 function CoordPr({ r, onDone }) {
   const [a, setA] = useState('pr');
-  const [v, setV] = useState({ pr_no: '', pr_date: '', item_code: r.item_code ?? '', approved_qty: r.qty, quote: '', quote_submitted: '', quote_approved: '', note: '' });
+  const [v, setV] = useState({ pr_no: '', pr_date: '', item_code: r.item_code ?? '', approved_qty: r.qty, note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   /** Straight to PR with both quotes: no PV pick, so the Coordinator picks; compatible by default (the user, 11 Nov; 0025). */
   const canPick = !r.picked && r.orig_rate != null && r.comp_rate != null;
   const [pick, setPick] = useState(r.picked ?? (r.comp_rate != null ? 'compatible' : 'original'));
   const price = pick === 'original' ? withTax(r.orig_rate, r.orig_tax) : withTax(r.comp_rate, r.comp_tax);
-  const p = { ...v, action: a, approved_qty: Number(v.approved_qty), ...(canPick ? { picked: pick } : {}),
-    ...(a === 'pr' && v.quote !== 'yes' ? { quote_submitted: '', quote_approved: '' } : {}) };
-  const quoteNeed = a === 'pr' ? [[v.quote, 'Choose the quotation.'], ...(v.quote === 'yes' ? [[v.quote_submitted, 'Choose the quote submitted on.'], [v.quote_approved, 'Choose the quote approved on.']] : [])] : [];
-  const datesOk = () => {
-    if (v.quote === 'yes' && v.quote_submitted && v.quote_approved && v.quote_approved < v.quote_submitted) { s.show('The quote cannot be approved before it was submitted.', ['Choose the quote approved on.']); return false; }
-    return true;
-  };
+  const p = { ...v, action: a, quote: 'no', approved_qty: Number(v.approved_qty), ...(canPick ? { picked: pick } : {}) };
   return (
     <>
       <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
-      <Choice value={a} onChange={setA} options={[['pr', 'Raise PR', 'good', 'purchase'], ['quotation', 'Quotation only', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
-      {(a === 'pr' || a === 'quotation') && (
+      <Choice value={a} onChange={setA} options={[['pr', 'Request PO', 'good', 'purchase'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
+      {a === 'pr' && (
         <div className="qt-grid">
-          {a === 'pr' && (
-            <div className="qt-date-pair">
-              <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
-              <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
-            </div>
-          )}
-          {a === 'pr' && <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>}
-          {a === 'pr' && <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>}
-          {a === 'pr' && (
-            <div className="pm-in"><span>Quotation</span>
-              <div className="qt-send-chips" role="radiogroup" aria-label="Quotation">
-                {[['yes', 'Yes'], ['no', 'No']].map(([id, label]) => <button key={id} type="button" role="radio" aria-checked={v.quote === id} onClick={() => set('quote', id)}>{label}</button>)}
-              </div>
-            </div>
-          )}
-          {(a === 'quotation' || v.quote === 'yes') && (
-            <div className="qt-date-pair">
-              <Field label="Quote submitted on"><input type="date" value={v.quote_submitted} max={todayIst()} onChange={(e) => set('quote_submitted', e.target.value)} /></Field>
-              <Field label="Quote approved on"><input type="date" value={v.quote_approved} min={v.quote_submitted || undefined} max={todayIst()} onChange={(e) => set('quote_approved', e.target.value)} /></Field>
-            </div>
-          )}
+          <div className="qt-date-pair">
+            <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
+            <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
+          </div>
+          <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
+          <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>
         </div>
       )}
-      <Field label={a === 'pr' || a === 'quotation' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
-      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.'], ...quoteNeed]) && datesOk() && s.go(`Request PO for ${r.no}${v.pr_no ? ` · PR ${v.pr_no}` : ''}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Request PO', p, `PO requested for ${r.no}.`)}>Request PO</button>}
-      {a === 'quotation' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go(`Close ${r.no} as quotation only?`, [person(r.engineer_name, r.engineer_code)], 'Close', p, `${r.no} closed as quotation only.`)}>Quotation only</button>}
+      <Field label={a === 'pr' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.']]) && s.go(`Request PO for ${r.no}${v.pr_no ? ` · PR ${v.pr_no}` : ''}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Request PO', p, `PO requested for ${r.no}.`)}>Request PO</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
       <Err text={s.err} at={s.at} />
@@ -1266,6 +1316,40 @@ function OnHold({ r, onDone }) {
   );
 }
 
+/** By hand: whom it was handed to, found by name or employee code (the user, 11 Nov; 0034). */
+function HandedTo({ value, onChange }) {
+  const [q, setQ] = useState(value);
+  const [found, setFound] = useState([]);
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open || q.trim().length < 2) { setFound([]); return undefined; }
+    let on = true;
+    const t = setTimeout(() => findPerson(q).then((x) => { if (on) setFound(x ?? []); }).catch(() => {}), 250);
+    return () => { on = false; clearTimeout(t); };
+  }, [q, open]);
+  useEffect(() => {
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); };
+  }, []);
+  return (
+    <div className="qt-hand" ref={box}>
+      <Field label="Handed to"><input value={q} placeholder="Name or employee code" autoComplete="off"
+        onChange={(e) => { setQ(e.target.value); onChange(''); setOpen(true); }} onFocus={() => setOpen(true)} /></Field>
+      {open && found.length > 0 && (
+        <ul className="qt-hand-list" role="listbox">
+          {found.map((p) => (
+            <li key={p.ecode}><button type="button" onClick={() => { const t = `${p.name} (${p.ecode})`; setQ(t); onChange(t); setOpen(false); }}>
+              {p.name} <span>{p.ecode}</span></button></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** How it went, the tracking number and a photo of the slip. */
 function SendBy({ v, set, folder }) {
   return (
@@ -1275,10 +1359,14 @@ function SendBy({ v, set, folder }) {
           {SEND_BY.map((x) => <button key={x} type="button" role="radio" aria-checked={v.track_mode === x} onClick={() => set('track_mode', x)}>{x}</button>)}
         </div>
       </div>
-      <Field label={v.track_mode === 'By hand' ? 'Handed to' : 'Tracking no'}><input value={v.track_no} onChange={(e) => set('track_no', e.target.value)} autoComplete="off" /></Field>
-      <div className="pm-in"><span>Slip photo</span>
-        <PhotoAdd folder={folder} paths={v.photo ? [v.photo] : []} onChange={(p) => set('photo', p[p.length - 1] ?? '')} label="Slip" max={1} />
-      </div>
+      {v.track_mode === 'By hand' ? <HandedTo value={v.track_no} onChange={(x) => set('track_no', x)} /> : (
+        <div className="qt-track-row">
+          <Field label="Tracking no"><input value={v.track_no} onChange={(e) => set('track_no', e.target.value)} autoComplete="off" /></Field>
+          <div className="pm-in"><span>Receipt</span>
+            <PhotoAdd folder={folder} paths={v.photo ? [v.photo] : []} onChange={(p) => set('photo', p[p.length - 1] ?? '')} label="" max={1} />
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1299,8 +1387,10 @@ function PurchaseDispatch({ r, onDone }) {
               <Field label="PO no"><input value={v.po_no} onChange={(e) => set('po_no', e.target.value)} autoComplete="off" /></Field>
               <Field label="PO date"><input type="date" value={v.po_date} max={todayIst()} onChange={(e) => set('po_date', e.target.value)} /></Field>
             </div>
-            <VendorInput value={v.vendor} onChange={(x) => set('vendor', x)} />
-            <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
+            <div className="qt-date-pair">
+              <VendorInput value={v.vendor} onChange={(x) => set('vendor', x)} />
+              <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
+            </div>
           </div>
           <SendBy v={v} set={set} folder={r.id} />
         </>
@@ -1354,12 +1444,14 @@ function Receipt({ r, onDone }) {
   const obs = r.step === 'observation';
   const expect = repl ? r.faulty_qty : (r.approved_qty ?? r.qty);
   const left = obs ? r.received_qty - r.used_qty - r.faulty_qty : 0;
-  const [v, setV] = useState({ received: obs ? 0 : expect, used: obs ? left : 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false });
+  const [v, setV] = useState({ received: obs ? 0 : expect, used: obs ? left : 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false, signed: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const room = Number(v.received || 0) + (obs ? r.received_qty - r.used_qty - r.faulty_qty : 0);
   const over = Number(v.used || 0) + Number(v.faulty || 0) > room;
   const p = { ...v, received: Number(v.received || 0), used: Number(v.used || 0), faulty: Number(v.faulty || 0) };
+  // Completing it needs the signed quotation if it was not attached before (the user, 11 Nov; 0033).
+  const needSigned = r.kind === 'request' && r.quote_file && !r.quote_signed && !Number(v.faulty) && !v.observe;
   return (
     <>
       {repl && <p className="qt-question">Replacement for {r.faulty_qty} faulty.</p>}
@@ -1378,8 +1470,13 @@ function Receipt({ r, onDone }) {
       {!Number(v.faulty) && !obs && (
         <label className="qt-check"><input type="checkbox" checked={v.observe} onChange={(e) => setV((o) => ({ ...o, observe: e.target.checked, used: e.target.checked ? 0 : o.used }))} /> Keep under observation</label>
       )}
+      {needSigned && (
+        <div className="pm-in"><span>Signed quotation</span>
+          <PhotoAdd folder={r.id} paths={v.signed ? [v.signed] : []} onChange={(x) => set('signed', x[x.length - 1] ?? '')} label="Attach" max={1} />
+        </div>
+      )}
       {over && <p className="mt-err qt-err">Used and faulty together cannot be more than {room}.</p>}
-      <button type="button" data-role={Number(v.faulty) ? 'purchase' : 'engineer'} className="mt-go" disabled={over} onClick={() => s.go(`Confirm receipt of ${r.no}?`,
+      <button type="button" data-role={Number(v.faulty) ? 'purchase' : 'engineer'} className="mt-go" disabled={over} onClick={() => s.need(needSigned ? [[v.signed, 'Attach the signed quotation.']] : []) && s.go(`Confirm receipt of ${r.no}?`,
         [`${p.received} received · ${p.used} used · ${p.faulty} ${p.faulty ? v.faulty_kind.toLowerCase() : 'faulty'}`, p.faulty ? 'Purchase is told about the faulty one.' : v.observe ? 'It stays under observation.' : 'The request is completed.'],
         'Confirm', p, p.faulty ? `${v.faulty_kind} reported to Purchase.` : `Receipt of ${r.no} confirmed.`)}>Confirm receipt</button>
       <Err text={s.err} at={s.at} />
@@ -1434,6 +1531,8 @@ const FORMS = {
   tl_clarify: TlClarify,
   purchase_rates: PurchaseRates,
   pv: Pv,
+  coord_quote: CoordQuote,
+  eng_quote: EngQuote,
   coord_pr: CoordPr,
   on_hold: OnHold,
   on_hold_dispatch: OnHold,
