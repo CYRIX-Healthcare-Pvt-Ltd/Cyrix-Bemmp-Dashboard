@@ -1913,12 +1913,20 @@ function UseStock({ r, onClose, onDone }) {
  * against its target, as a graph. Leads see everybody; an observer sees the team of the role observed
  * (Purchase's observer: the Purchase people and Purchase's stages only), with a member filter.
  */
+const HOLDER = { engineer: 'engineer_id', team_lead: 'team_lead_id', coordinator: 'coord_id', purchase: 'purchase_id', pv: 'pv_id' };
 function perfOf(ids, events, list, targets, opts = {}) {
   const evs = events.filter((e) => ids.has(e.by) && e.action !== 'note');
   const handled = new Set(evs.map((e) => e.request_id)).size;
   const moves = evs.filter((e) => e.to_step && e.to_step !== e.step);
-  const pending = list.filter((r) => !r.done && (ids.has(r.accepted_by)
-    || (!r.accepted_by && ((opts.me && r.mine) || (opts.role && roleOfStep(r.step) === opts.role)))));
+  // Pending: accepted by them, or still waiting for Accept with the person named for that step (or, unnamed, with their role).
+  const pending = list.filter((r) => {
+    if (r.done) return false;
+    if (r.accepted_by) return ids.has(r.accepted_by);
+    const role = r.step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(r.step);
+    const named = role && r[HOLDER[role]];
+    if (named) return ids.has(named);
+    return (opts.me && r.mine) || (opts.role ? role === opts.role : !!opts.roles?.has(role));
+  });
   const stages = new Map();
   const st = (k) => stages.get(k) ?? stages.set(k, { step: k, done: 0, acc: 0, accN: 0, accOk: 0, pro: 0, proN: 0, proOk: 0 }).get(k);
   for (const e of evs) {
@@ -2003,7 +2011,7 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
   const role = me.role === 'observer' ? me.observes ?? null : null;
   const idsOf = (w) => (w === 'all' ? new Set(team.map((x) => x.id)) : new Set([w]));
   const pid = who;
-  const p = useMemo(() => (events ? perfOf(idsOf(pid), events, list, targets, { me: pid === me.id, role: pid === 'all' ? role : null }) : null),
+  const p = useMemo(() => (events ? perfOf(idsOf(pid), events, list, targets, { me: pid === me.id, role: pid === 'all' ? role : null, roles: pid === 'all' ? new Set(team.map((x) => x.role)) : null }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [events, pid, list, targets, me.id, team, role]);
   const rows = useMemo(() => (events && teamView ? team.map((x) => ({ ...x, ...perfOf(new Set([x.id]), events, list, targets, { me: x.id === me.id }) })).filter((x) => x.handled || x.pending) : []), [events, team, list, targets, me.id, teamView]);
