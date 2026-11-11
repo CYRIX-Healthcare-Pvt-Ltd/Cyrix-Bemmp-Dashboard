@@ -715,6 +715,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
                   <Photos paths={[...(r.equipment_photo ? [r.equipment_photo] : []), ...(r.photos ?? [])]} onOpen={setBig} />
                 </section>
               )}
+              <RoleTime r={r} now={now} />
               <Timeline r={r} now={now} onDone={changed} />
               </div>
             </div>
@@ -846,6 +847,58 @@ function gapWords(ms) {
   return [part(d, 'day'), part(h, 'hour'), d > 0 ? '' : part(m, 'minute')].filter(Boolean).join(' ');
 }
 
+/**
+ * Time by role (the user, 11 Nov): how long the request sat with each role, from the moment it was sent to
+ * that role until it moved on, and its share of the total. Roles it never reached are left out; observers hold nothing.
+ */
+const ROLE_ORDER = ['engineer', 'team_lead', 'coordinator', 'purchase', 'pv'];
+function roleTimes(r, now) {
+  const moves = (r.events ?? []).filter((e) => e.to_step && e.to_step !== e.step);
+  const end = r.closed_at ? Date.parse(r.closed_at) : now;
+  const out = new Map();
+  moves.forEach((e, i) => {
+    const step = e.to_step;
+    if (!STEPS[step]?.who) return;
+    const role = step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(step);
+    if (!role) return;
+    const from = Date.parse(e.at);
+    const to = moves[i + 1] ? Date.parse(moves[i + 1].at) : end;
+    out.set(role, (out.get(role) ?? 0) + Math.max(0, to - from));
+  });
+  const keys = ROLE_ORDER.filter((k) => out.has(k));
+  const total = keys.reduce((a, k) => a + out.get(k), 0);
+  // Shares that add up: each part rounded so the parts make the whole (the user, 11 Nov: 6 + 2 + 123 + 5 must be the total).
+  const fair = (whole, unit) => {
+    const raw = keys.map((k) => (out.get(k) / unit)); const base = raw.map(Math.floor);
+    let left = Math.round(whole) - base.reduce((a, b) => a + b, 0);
+    raw.map((x, i) => [x - base[i], i]).sort((x, y) => y[0] - x[0]).forEach(([, i]) => { if (left > 0) { base[i] += 1; left -= 1; } });
+    return base;
+  };
+  const unit = total >= 86400000 ? 3600000 : 60000; // whole hours past a day, as spanText shows them
+  const spans = fair(Math.floor(((r.closed_at ? Date.parse(r.closed_at) : now) - Date.parse(r.created_at)) / unit), unit);
+  const pcts = total ? fair(100, total / 100) : keys.map(() => 0);
+  return keys.map((k, i) => ({ role: k, secs: spans[i] * unit / 1000, pct: pcts[i] }));
+}
+
+function RoleTime({ r, now }) {
+  const rows = roleTimes(r, now ?? Date.now());
+  if (!rows.length) return null;
+  return (
+    <section className="mt-card-block">
+      <span className="mt-block-label qt-tl-head">Time by role<span className="qt-tl-total">Total {totalTat(r, now ?? Date.now())}</span></span>
+      <ul className="qt-roletime">
+        {rows.map((x) => (
+          <li key={x.role} data-role={x.role}>
+            <span className="qt-rt-name">{ROLE_NAME[x.role]}</span>
+            <span className="qt-rt-bar"><i style={{ width: `${Math.max(2, x.pct)}%` }} /></span>
+            <span className="qt-rt-val">{spanText(x.secs)} · <b>{x.pct}%</b></span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Every step with who, when and how long (idea 3), and the conversation on it (idea 11). */
 function Timeline({ r, now, onDone }) {
   const [note, setNote] = useState('');
@@ -858,7 +911,7 @@ function Timeline({ r, now, onDone }) {
   };
   return (
     <section className="mt-card-block">
-      <span className="mt-block-label qt-tl-head">Timeline<span className="qt-tl-total">Total {totalTat(r, now ?? Date.now())}</span></span>
+      <span className="mt-block-label">Timeline</span>
       <ol className="qt-timeline">
         {r.events.map((e, i) => {
           const next = r.events[i + 1];
@@ -868,7 +921,7 @@ function Timeline({ r, now, onDone }) {
               <span className="qt-tl-dot" />
               {gap !== null && <span className="qt-tl-gap" data-long={gap >= 86400000 ? 'true' : undefined} title={`${gapWords(gap)} to the next step`}>{gapLabel(gap)}</span>}
               <div className="qt-tl-text">
-                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
+                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action === 'accept' && STEPS[e.step]?.who ? ` · ${STEPS[e.step].who}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
                 <span className="qt-tl-who">{person(e.by_name, e.by_code)} · {whenText(e.at)}</span>
                 {e.note && <span className="qt-tl-note">{e.note}</span>}
               </div>

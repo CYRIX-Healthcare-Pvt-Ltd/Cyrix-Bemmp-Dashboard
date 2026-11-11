@@ -610,3 +610,12 @@
 .qt-views button b, .qt-views button[data-hot] b { color: inherit; opacity: .55; }
 .qt-views button[data-hot] b { color: var(--v); opacity: 1; }
 .qt-views button[aria-selected="true"] { background: color-mix(in srgb, var(--v) 18%, transparent); color: var(--text-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v) 45%, transparent); }
+
+/* Time by role above the timeline (the user, 11 Nov): each role's colour, its time and share */
+.qt-roletime { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.qt-roletime li { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+.qt-rt-name { font-weight: 650; color: var(--role-text, var(--role)); }
+.qt-rt-bar { height: 8px; border-radius: 99px; background: var(--track-bg); overflow: hidden; }
+.qt-rt-bar i { display: block; height: 100%; border-radius: 99px; background: var(--role); }
+.qt-rt-val { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.qt-rt-val b { color: var(--text-primary); }
