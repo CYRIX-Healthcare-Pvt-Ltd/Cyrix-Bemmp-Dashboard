@@ -2845,7 +2845,9 @@ html.no-swipe-back body {
     box-shadow: 0 50vh 0 var(--surface);
   }
   .sidenav-list {
-    grid-auto-flow: column; grid-auto-columns: minmax(68px, max-content);
+    /* Few sections share the whole width; many keep their own width and scroll (the user, 11 Nov:
+       four buttons left the right of the bar empty). */
+    grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr);
     gap: 0;
     overflow-x: auto; overscroll-behavior-x: contain;
     scrollbar-width: none; padding: 0;
@@ -2857,6 +2859,7 @@ html.no-swipe-back body {
      them the bar is six identical grey words where the desktop rail is
      colour-coded. */
   .sidenav-item {
+    min-width: 68px;
     flex-direction: column; justify-content: center; gap: 3px;
     padding: 7px 6px; border-radius: var(--radius-sm);
     font-size: 10.5px; line-height: 1.15; text-align: center;
