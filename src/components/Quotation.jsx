@@ -125,7 +125,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
                 ? <StockForm onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />
                 : <RaiseForm me={me} onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />)}
               {tab === 'stock' && <StockRegister me={me} list={list} onOpen={open} onDone={done} />}
-              {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} />}
+              {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} onGo={(v) => { setTodoSub(v); setTab('requests'); }} />}
               {tab === 'hospitals' && <Hospitals />}
               {tab === 'settings' && <Settings targets={targets} onDone={done} />}
             </div>
@@ -596,8 +596,13 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   const nWait = mine.filter(isWaiting).length;
   const nWork = mine.length - nWait;
   const nOthers = list.filter((r) => !r.done && !r.mine).length;
-  const v = view ?? (nWait ? 'accept' : 'mine'); // To accept when anything waits, else With you (the user, 11 Nov)
-  const views = [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
+  // An observer (or a viewer) never holds a request: Open · Closed · All only (the user, 11 Nov).
+  const watcher = me.role === 'observer' || me.role === 'viewer';
+  const nOpen = list.filter((r) => !r.done).length;
+  const v = view ?? (watcher ? 'open' : nWait ? 'accept' : 'mine'); // To accept when anything waits, else With you (the user, 11 Nov)
+  const views = watcher
+    ? [['open', 'Open', nOpen], ['done', 'Closed'], ['all', 'All']]
+    : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
   return (
     <div className="qt-work">
       <PeriodBar period={period} setPeriod={setPeriod} />
@@ -622,21 +627,31 @@ function Requests({ list, targets, now, onOpen, show }) {
   const [q, setQ] = useState('');
   const [step, setStep] = useState('');
   const [sort, setSort] = useState('new');
+  const [role, setRole] = useState('');
+  // Pending with a role (the user, 11 Nov): open requests by the role they now wait with.
+  const roleOf = (r) => (r.step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(r.step));
+  const roles = useMemo(() => {
+    const m = new Map(); for (const r of list) if (!r.done && roleOf(r)) m.set(roleOf(r), (m.get(roleOf(r)) ?? 0) + 1);
+    return [{ value: '', label: 'Pending with anyone' }, ...ROLE_ORDER.filter((k) => m.has(k)).map((k) => ({ value: k, label: `${ROLE_NAME[k]} · ${m.get(k)}` }))];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
   const steps = useMemo(() => {
     const m = new Map(); for (const r of list) m.set(r.step, (m.get(r.step) ?? 0) + 1);
     return [{ value: '', label: 'Every step' }, ...[...m.entries()].map(([k, n]) => ({ value: k, label: `${stepOf(k).label} · ${n}` }))];
   }, [list]);
   const shown = useMemo(() => {
-    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : !r.done && !r.mine)) && (!step || r.step === step) && (!q || matches(r, q)));
+    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : show === 'open' ? !r.done : !r.done && !r.mine)) && (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
     if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
     else if (sort === 'wait') out.sort((a, b) => (clockOf(b, targets, now)?.secs ?? -1) - (clockOf(a, targets, now)?.secs ?? -1));
     else out.sort((a, b) => b.created_at.localeCompare(a.created_at));
     return out;
-  }, [list, show, step, q, sort, targets, now]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, show, step, role, q, sort, targets, now]);
   return (
     <div className="mt-tickets qt-requests">
       <div className="mt-filters qt-filters">
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
+        <Picker value={role} options={roles} onChange={setRole} title="Pending with" />
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
         <Picker value={sort} options={SORTS} onChange={setSort} title="Sort" />
       </div>
@@ -708,10 +723,15 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
                   <Photos paths={[r.track_photo, r.return_track_photo].filter(Boolean)} />
                 </section>
               )}
-              {(r.photos?.length > 0 || r.equipment_photo) && (
+              {/* Spare and equipment photos apart, side by side in one block (the user, 11 Nov). */}
+              {(r.photos?.length > 0 || r.equipment_photos?.length > 0 || r.equipment_photo) && (
                 <section className="mt-card-block">
-                  <span className="mt-block-label">Photos</span>
-                  <Photos paths={[...(r.equipment_photo ? [r.equipment_photo] : []), ...(r.photos ?? [])]} onOpen={setBig} />
+                  <div className="qt-photo-groups">
+                    {r.photos?.length > 0 && <div><span className="mt-block-label">Spare photos</span><Photos paths={r.photos} /></div>}
+                    {(r.equipment_photos?.length > 0 || r.equipment_photo) && (
+                      <div><span className="mt-block-label">Equipment photos</span><Photos paths={r.equipment_photos?.length ? r.equipment_photos : [r.equipment_photo]} /></div>
+                    )}
+                  </div>
                 </section>
               )}
               <RoleTime r={r} now={now} />
@@ -852,7 +872,9 @@ function gapWords(ms) {
  */
 const ROLE_ORDER = ['engineer', 'team_lead', 'coordinator', 'purchase', 'pv'];
 function roleTimes(r, now) {
-  const moves = (r.events ?? []).filter((e) => e.to_step && e.to_step !== e.step);
+  // Before the move from the old tracker only some steps are known, so time by role counts from the move on.
+  const cut = (r.events ?? []).find((e) => e.action === 'Moved from the old tracker')?.at;
+  const moves = (r.events ?? []).filter((e) => e.to_step && e.to_step !== e.step && (!cut || e.at >= cut));
   const end = r.closed_at ? Date.parse(r.closed_at) : now;
   const out = new Map();
   moves.forEach((e, i) => {
@@ -1698,7 +1720,7 @@ function RaiseForm({ me, onDone }) {
       lines: [`${f?.name}`, `${v.equipment}${v.make ? ` · ${v.make}` : ''}`, ...spares.map((s) => `${s.spare} × ${s.qty}`),
         me.role === 'team_lead' ? 'It goes to the Coordinator.' : `It goes to ${me.team_lead_name ?? 'your Team Lead'}.`],
       ok: 'Send',
-      run: () => raise({ ...v, equipment_photo: eqPhotos[0] ?? null, client_token: token, spares: spares.map((s) => ({ ...s, qty: Number(s.qty), photos: [...eqPhotos.slice(1), ...s.photos] })) }),
+      run: () => raise({ ...v, equipment_photo: eqPhotos[0] ?? null, equipment_photos: eqPhotos, client_token: token, spares: spares.map((s) => ({ ...s, qty: Number(s.qty), photos: s.photos })) }),
       after: (nos) => {
         sent.current = true; store.set(key, null);
         store.set(`qt-recent-hosp:${code}`, [v.facility_id, ...(store.get(`qt-recent-hosp:${code}`) ?? []).filter((x) => x !== v.facility_id)].slice(0, 5));
@@ -1919,8 +1941,10 @@ function perfOf(ids, events, list, targets, opts = {}) {
   const handled = new Set(evs.map((e) => e.request_id)).size;
   const moves = evs.filter((e) => e.to_step && e.to_step !== e.step);
   // Pending: accepted by them, or still waiting for Accept with the person named for that step (or, unnamed, with their role).
+  // My own view: exactly what To accept + With you hold, so the Dashboard and the Requests tab agree (the user, 11 Nov).
   const pending = list.filter((r) => {
     if (r.done) return false;
+    if (opts.me) return Boolean(r.mine);
     if (r.accepted_by) return ids.has(r.accepted_by);
     const role = r.step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(r.step);
     const named = role && r[HOLDER[role]];
@@ -1944,9 +1968,13 @@ function perfOf(ids, events, list, targets, opts = {}) {
   const n = rows.reduce((a, s) => a + s.accN + s.proN, 0);
   const ok = rows.reduce((a, s) => a + s.accOk + s.proOk, 0);
   const byStatus = new Map(); for (const r of pending) { const k = statusOf(r); byStatus.set(k, { n: (byStatus.get(k)?.n ?? 0) + 1, tone: stepOf(r.step).tone }); }
+  const passedIds = new Set(moves.map((e) => e.request_id)); const passed = passedIds.size; // requests their part is done on
+  const totalIds = new Set([...evs.map((e) => e.request_id), ...pending.map((r) => r.id)]);
   return {
-    handled, done: moves.length, pending: pending.length,
-    donePct: moves.length + pending.length ? Math.round((moves.length / (moves.length + pending.length)) * 100) : null,
+    handled, done: passed, pending: pending.length,
+    total: totalIds.size, // every request they worked on or hold
+    ids: { total: totalIds, closed: passedIds, open: new Set(pending.map((r) => r.id)) },
+    donePct: passed + pending.length ? Math.round((passed / (passed + pending.length)) * 100) : null,
     onTime: n ? Math.round((ok / n) * 100) : null, ok, n, rows,
     byStatus: [...byStatus.entries()].sort((a, b) => b[1].n - a[1].n),
   };
@@ -1986,7 +2014,7 @@ function TatGraph({ rows, targets }) {
   );
 }
 
-function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
+function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
   const [events, setEvents] = useState(null);
   const [staff, setStaff] = useState([]);
   // A team only for those who look after one (the user, 11 Nov): an observer, the team observed; a Team Lead, their engineers. Everybody else sees themselves.
@@ -2009,7 +2037,9 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
     .map((x) => ({ id: x.employee_id, name: x.name, code: x.ecode, role: x.role }))
     .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || (a.name ?? '').localeCompare(b.name ?? ''))), [staff, teamView, me]);
   const role = me.role === 'observer' ? me.observes ?? null : null;
-  const idsOf = (w) => (w === 'all' ? new Set(team.map((x) => x.id)) : new Set([w]));
+  // Localhost only, for testing (the user, 11 Nov): the test coordinator E7777 sees Namitha K V's figures as its own.
+  const asId = (w) => (import.meta.env.DEV && w === me.id && me.id === '99f48e76-ec4c-4f63-bd23-b248fcdf3c26' ? '2bcbb69c-bd77-4ff7-8345-6282f6464534' : w);
+  const idsOf = (w) => (w === 'all' ? new Set(team.map((x) => x.id)) : new Set([asId(w)]));
   const pid = who;
   const p = useMemo(() => (events ? perfOf(idsOf(pid), events, list, targets, { me: pid === me.id, role: pid === 'all' ? role : null, roles: pid === 'all' ? new Set(team.map((x) => x.role)) : null }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2018,6 +2048,18 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
   const sel = pid === 'all' ? null : team.find((x) => x.id === pid) ?? (pid === me.id ? { name: me.name, role: me.role } : null);
   const whose = pid === me.id ? 'my' : pid === 'all' ? 'the team\'s' : `${sel?.name?.split(' ')[0] ?? 'their'}'s`;
   const avg = (s, n) => (n ? spanText(s / n) : '—');
+  // A tile opens the Requests tab on its view (the user, 11 Nov).
+  const watcher = me.role === 'observer' || me.role === 'viewer';
+  const VIEW = { total: 'all', closed: 'done', open: watcher ? 'open' : pid === me.id ? null : 'others' };
+  const Tile = ({ k, id, label, n, sub }) => (
+    <button type="button" className="qt-tile" data-k={k} onClick={() => onGo(VIEW[id])}>
+      <span>{label}</span><b>{n}</b><small>{sub}</small>
+    </button>
+  );
+  const tot = useMemo(() => {
+    const closed = list.filter((r) => r.done).length; const all = list.length;
+    return { all, closed, open: all - closed, pct: all ? Math.round((closed / all) * 100) : null };
+  }, [list]);
   const options = [
     ...(teamView ? [{ value: 'all', label: role ? `All ${ROLE_NAME[role]} · ${team.length}` : `Everybody · ${team.length}` }] : []),
     ...(me.role !== 'observer' && me.role !== 'viewer' ? [{ value: me.id, label: `Me · ${me.name ?? ''}` }] : []),
@@ -2033,14 +2075,22 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
       {!p ? <div className="loader" aria-hidden="true" /> : (
         <>
           {pid !== me.id && <p className="qt-dash-who" data-role={sel?.role ?? role ?? undefined}>{pid === 'all' ? (role ? `${ROLE_NAME[role]} team` : 'Everybody') : `${sel?.name ?? ''} · ${ROLE_NAME[sel?.role] ?? ''}`}</p>}
-          <div className="qt-dash-tiles">
-            <div className="qt-tile" data-k="handled"><span>Handled</span><b>{p.handled}</b><small>requests</small></div>
-            <div className="qt-tile" data-k="done"><span>Finished</span><b>{p.done}</b><small>sent to the next person</small></div>
-            <div className="qt-tile" data-k="pending"><span>Pending now</span><b>{p.pending}</b><small>{pid === me.id ? 'with me' : 'with them'}</small></div>
-            <div className="qt-tile" data-k="pct" data-tone={pctTone(p.donePct)}><span>Completed</span><b>{p.donePct == null ? '—' : `${p.donePct}%`}</b><small>{p.done} of {p.done + p.pending}</small></div>
-            <div className="qt-tile" data-k="ontime" data-tone={pctTone(p.onTime)}><span>On time</span><b>{p.onTime == null ? '—' : `${p.onTime}%`}</b><small>{p.ok} of {p.n}</small></div>
-          </div>
-
+          {/* Everybody: the requests themselves; one person: their part (the user, 11 Nov). */}
+          {pid === 'all' ? (
+            <div className="qt-dash-tiles">
+              <Tile k="handled" id="total" label="Total" n={tot.all} sub="requests" />
+              <Tile k="done" id="closed" label="Closed" n={tot.closed} sub="requests" />
+              <Tile k="pending" id="open" label="Open" n={tot.open} sub="requests" />
+              <div className="qt-tile" data-k="pct" data-tone={pctTone(tot.pct)}><span>Completed</span><b>{tot.pct == null ? '—' : `${tot.pct}%`}</b><small>{tot.closed} of {tot.all}</small></div>
+            </div>
+          ) : (
+            <div className="qt-dash-tiles">
+              <Tile k="handled" id="total" label="Total" n={p.total} sub="requests" />
+              <Tile k="done" id="closed" label="Closed" n={p.done} sub={pid === me.id ? 'my part done' : 'their part done'} />
+              <Tile k="pending" id="open" label="Open" n={p.pending} sub={pid === me.id ? 'pending with me' : 'pending with them'} />
+              <div className="qt-tile" data-k="pct" data-tone={pctTone(p.donePct)}><span>Completed</span><b>{p.donePct == null ? '—' : `${p.donePct}%`}</b><small>{p.done} of {p.done + p.pending}</small></div>
+            </div>
+          )}
           {p.byStatus.length > 0 && (
             <section className="panel mt-panel">
               <h3 className="qt-panel-h">Pending by status</h3>
@@ -2051,7 +2101,7 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
           )}
 
           <section className="panel mt-panel">
-            <h3 className="qt-panel-h">TAT at each stage</h3>
+            <h3 className="qt-panel-h">TAT at each stage{p.onTime != null && <span className="qt-panel-sub" data-tone={pctTone(p.onTime)}> · {p.onTime}% on time</span>}</h3>
             {!p.rows.length ? <p className="empty-inline">Nothing in this period.</p> : (
               <>
                 <TatGraph rows={p.rows} targets={targets} />
@@ -2079,11 +2129,11 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
             <section className="panel mt-panel">
               <h3 className="qt-panel-h">Team</h3>
               <div className="qt-dash-team">
-                <div className="qt-dash-team-row is-head"><span>Person</span><span>Handled</span><span>Done</span><span>Pending</span><span>Completed</span><span>On time</span></div>
+                <div className="qt-dash-team-row is-head"><span>Person</span><span>Closed</span><span>Open</span><span>Completed</span><span>On time</span></div>
                 {rows.map((x) => (
                   <button key={x.id} type="button" className="qt-dash-team-row" data-role={x.role ?? undefined} aria-pressed={x.id === pid} onClick={() => setWho(x.id)}>
                     <span className="qt-dash-team-name">{x.name}<small>{ROLE_NAME[x.role] ?? ''}</small></span>
-                    <span>{x.handled}</span><span>{x.done}</span><span>{x.pending}</span>
+                    <span>{x.done}</span><span>{x.pending}</span>
                     <span data-tone={pctTone(x.donePct)}>{x.donePct == null ? '—' : `${x.donePct}%`}</span>
                     <span data-tone={pctTone(x.onTime)}>{x.onTime == null ? '—' : `${x.onTime}%`}</span>
                   </button>

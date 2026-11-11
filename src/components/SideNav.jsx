@@ -214,6 +214,7 @@ export default function SideNav({
             <button
               type="button"
               className="sidenav-item"
+              style={{ '--ic': `var(--nav-${t.id}, var(--text-secondary))` }}
               aria-current={active === t.id ? 'page' : undefined}
               // The label is clipped away in the rail but must still reach a
               // screen reader and a hover.

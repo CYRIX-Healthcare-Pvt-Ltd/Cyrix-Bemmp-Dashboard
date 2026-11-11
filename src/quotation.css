@@ -434,6 +434,25 @@
 
 .qt-card-step { display: none; }
 
+/* Wider screens (the user, 11 Nov): every card in a row is as tall as the tallest, its button on the bottom edge
+   so the buttons line up; the badge always sits on its own line under the number; rows breathe apart. */
+@media (min-width: 701px) {
+  .qt-cards { column-gap: 14px; row-gap: 18px; align-items: stretch; }
+  .qt-card-body { flex: 1 1 auto; align-content: start; }
+  .qt-card > .mt-go, .qt-card > .mt-btn, .qt-card > .qt-card-acts { margin-top: auto; }
+  .qt-card-top { row-gap: 6px; }
+  .qt-card-top .qt-badge { order: 3; }
+  .qt-card-top .qt-clock { order: 5; }
+  .qt-card-top::before, .qt-card-top::after { content: ''; flex-basis: 100%; height: 0; }
+  .qt-card-top::before { order: 2; } .qt-card-top::after { order: 4; }
+  .qt-card { box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 4px 10px -2px rgba(0, 0, 0, 0.10), 0 14px 28px -14px rgba(0, 0, 0, 0.28); }
+  .qt-card > .mt-go, .qt-card > .mt-btn, .qt-card > .qt-card-acts { margin-bottom: 16px; }
+  :root[data-theme='dark'] .qt-card { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 26px -12px rgba(0, 0, 0, 0.8); }
+}
+@media (min-width: 701px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .qt-card { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 26px -12px rgba(0, 0, 0, 0.8); }
+}
+
 /* Phone: compact cards, about twice as many on a screen (the user, 11 Nov). The tick box sits on the left,
    one action is a short button on the right; the Team Lead's three stay in a low row underneath. */
 @media (max-width: 700px) {
@@ -602,6 +621,7 @@
 /* Each view its colour (the user, 11 Nov): amber to accept, blue with you, violet with others, green closed, grey all */
 .qt-views button[data-view="accept"] { --v: #f59e0b; }
 .qt-views button[data-view="mine"] { --v: #3b82f6; }
+.qt-views button[data-view="open"] { --v: #3b82f6; }
 .qt-views button[data-view="others"] { --v: #8b5cf6; }
 .qt-views button[data-view="done"] { --v: #22c55e; }
 .qt-views button[data-view="all"] { --v: #94a3b8; }
@@ -627,8 +647,8 @@
 /* Dashboard (the user, 11 Nov): one look at how a person performs */
 .qt-dash { display: flex; flex-direction: column; gap: 14px; }
 .qt-dash-who { font-weight: 700; color: var(--role-text, var(--role)); margin: 0; }
-.qt-dash-tiles { display: grid; gap: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-@media (max-width: 900px) { .qt-dash-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .qt-dash-tiles > :last-child { grid-column: 1 / -1; } }
+.qt-dash-tiles { display: grid; gap: 10px; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .qt-dash-tiles { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } .qt-dash-tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; } }
 .qt-tile { display: grid; gap: 2px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); border-top: 3px solid var(--k, var(--border)); }
 .qt-tile[data-k="handled"] { --k: #3b82f6; } .qt-tile[data-k="done"] { --k: #8b5cf6; } .qt-tile[data-k="pending"] { --k: #f59e0b; }
 .qt-tile[data-k="pct"], .qt-tile[data-k="ontime"] { --k: #94a3b8; }
@@ -650,7 +670,7 @@
 .qt-dash-ontime { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ok, var(--text-secondary)); }
 .qt-dash-ontime .qt-rt-bar i { background: var(--ok, #94a3b8); }
 .qt-dash-team { display: grid; margin-top: 8px; overflow-x: auto; }
-.qt-dash-team-row { display: grid; grid-template-columns: minmax(150px, 2fr) repeat(5, minmax(64px, 1fr)); gap: 8px; align-items: center; padding: 10px 8px;
+.qt-dash-team-row { display: grid; grid-template-columns: minmax(150px, 2fr) repeat(4, minmax(64px, 1fr)); gap: 8px; align-items: center; padding: 10px 8px;
   border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; font-variant-numeric: tabular-nums; }
 .qt-dash-team-row.is-head { cursor: default; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); }
 .qt-dash-team-row[aria-pressed="true"] { background: color-mix(in srgb, var(--role, #94a3b8) 10%, transparent); }
@@ -672,3 +692,22 @@
 .qt-graph-key i { display: inline-block; width: 18px; height: 8px; border-radius: 99px; background: #16a34a; margin-right: -6px; }
 .qt-graph-key i[data-late] { background: #dc2626; }
 .qt-graph-key em { display: inline-block; width: 2px; height: 12px; background: var(--text-primary); opacity: .7; margin-right: -6px; }
+.qt-panel-sub { font-weight: 600; color: var(--text-secondary); }
+.qt-panel-sub[data-tone="good"] { color: #22c55e; } .qt-panel-sub[data-tone="warn"] { color: #f59e0b; } .qt-panel-sub[data-tone="bad"] { color: #ef4444; }
+button.qt-tile { text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform .12s ease, background .15s ease; }
+button.qt-tile:active { transform: scale(.98); }
+button.qt-tile:hover { border-color: var(--k); }
+.qt-photo-groups { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
+.qt-photo-groups > div { display: grid; gap: 8px; min-width: 0; }
+.qt-photo-groups > div + div { padding-left: 28px; border-left: 1px solid var(--border); margin-left: -1px; }
+/* Card buttons are a soft tint of the role colour, solid only on hover, so a screen of cards stays calm
+   (the user, 11 Nov: the solid purple was too strong); inside a request the action stays solid. */
+:root .qt-app .qt-card > .mt-go:not(.qt-btn-bad), :root .qt-app .qt-card-acts > .mt-go:not(.qt-btn-bad) {
+  background: color-mix(in srgb, var(--role, var(--ink)) 13%, var(--surface));
+  color: var(--role-text, var(--role, var(--text-primary))) !important;
+  border: 1px solid color-mix(in srgb, var(--role, var(--ink)) 30%, transparent);
+  box-shadow: none;
+}
+:root .qt-app .qt-card > .mt-go:not(.qt-btn-bad):not(:disabled):hover, :root .qt-app .qt-card-acts > .mt-go:not(.qt-btn-bad):not(:disabled):hover {
+  background: var(--role, var(--ink)); color: var(--role-ink, #fff) !important; filter: none;
+}

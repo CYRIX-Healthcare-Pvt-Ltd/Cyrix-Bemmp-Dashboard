@@ -4005,3 +4005,20 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
   padding-left: 11px;
 }
 .meeting-table .th-static:hover { background: none; color: var(--text-secondary); }
+
+/* Open, the nav is set apart from the page by a thin line in the gap (the user, 11 Nov). */
+.sidenav::after {
+  content: ''; position: absolute; top: -4px; bottom: -4px; right: -11px; width: 1px;
+  background: var(--border); opacity: 0; transition: opacity var(--dur) var(--ease-out); pointer-events: none;
+}
+.sidenav.is-open::after { opacity: 1; }
+@media (max-width: 860px) { .sidenav::after { display: none; } }
+/* Hover takes the section's own icon colour as a soft wash (the user, 11 Nov). */
+@media (hover: hover) {
+  .sidenav-item[style*='--ic']:hover {
+    background: color-mix(in srgb, var(--ic) 12%, transparent);
+    border-color: color-mix(in srgb, var(--ic) 28%, transparent);
+    color: var(--text-primary);
+  }
+  .sidenav-item[style*='--ic'][aria-current='page']:hover { background: color-mix(in srgb, var(--ic) 8%, var(--surface)); }
+}
