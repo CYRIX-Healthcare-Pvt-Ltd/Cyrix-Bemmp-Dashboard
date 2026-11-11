@@ -3018,6 +3018,14 @@ html.no-swipe-back body {
   --nav-accounts:    var(--text-muted);
   /* The PM checklist's own tab (PmChecklist.jsx), green like a row marked OK. */
   --nav-checklist:   var(--status-good);
+  /* Quotation tracker (Quotation.jsx). */
+  --nav-todo:        var(--status-critical);
+  --nav-requests:    var(--series-1);
+  --nav-new:         var(--status-good);
+  --nav-stock:       var(--series-5);
+  --nav-tat:         var(--status-warning);
+  --nav-hospitals:   var(--series-1);
+  --nav-settings:    var(--text-muted);
 }
 
 /*

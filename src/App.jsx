@@ -28,6 +28,8 @@ import MedtronicApp from './components/Medtronic.jsx';
 import { MEDTRONIC, loadMtMe, roleOf } from './data/medtronic.js';
 import PmApp from './components/PmChecklist.jsx';
 import { PM_PROJECT, loadPmMe } from './data/pm.js';
+import QuotationApp from './components/Quotation.jsx';
+import { QT_PROJECT, loadQtMe } from './data/quotation.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
@@ -393,7 +395,7 @@ export default function App() {
   const [states, setStates] = useState(null);
   const [picked, setPicked] = useState(savedProject);
   const [stateId, setStateId] = useState(() => (
-    picked && picked !== MEDTRONIC.id && picked !== PM_PROJECT.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
+    picked && picked !== MEDTRONIC.id && picked !== PM_PROJECT.id && picked !== QT_PROJECT.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
   ));
   const [ds, setDs] = useState(null);
   const [busy, setBusy] = useState(true);
@@ -444,6 +446,7 @@ export default function App() {
   const [mtMe, setMtMe] = useState(undefined);
   // The same for the PM checklist.
   const [pmMe, setPmMe] = useState(undefined);
+  const [qtMe, setQtMe] = useState(undefined);
   /* Which export the current filter selection was built for. See the loader. */
   const loadedSig = useRef(null);
 
@@ -551,6 +554,11 @@ export default function App() {
   useEffect(() => {
     if (!session) { setPmMe(undefined); return; }
     loadPmMe().then((m) => setPmMe(m ?? null)).catch(() => setPmMe(null));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setQtMe(undefined); return; }
+    loadQtMe().then((m) => setQtMe(m ?? null)).catch(() => setQtMe(null));
   }, [session]);
 
   useEffect(() => {
@@ -665,20 +673,22 @@ export default function App() {
     ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
     ...(hasMt ? [MEDTRONIC] : []),
     ...(hasPm ? [PM_PROJECT] : []),
-  ], [available, hasMt, hasPm]);
+    ...(qtMe ? [QT_PROJECT] : []),
+  ], [available, hasMt, hasPm, qtMe]);
   const decided = !isConfigured() || (ready && session !== undefined
-    && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined)));
+    && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));
   const project = !decided ? null
     : projects.some((x) => x.id === picked) ? picked
       : projects.length === 1 ? projects[0].id : null;
   const inMt = project === MEDTRONIC.id;
   const inPm = project === PM_PROJECT.id;
-  const contractOpen = Boolean(project) && !inMt && !inPm;
+  const inQt = project === QT_PROJECT.id;
+  const contractOpen = Boolean(project) && !inMt && !inPm && !inQt;
 
   const pickProject = useCallback((id) => {
     setPicked(id);
     try { localStorage.setItem(PROJECT_KEY, id); } catch { /* forgets on reload, nothing more */ }
-    if (id !== MEDTRONIC.id && id !== PM_PROJECT.id) setStateId(id);
+    if (id !== MEDTRONIC.id && id !== PM_PROJECT.id && id !== QT_PROJECT.id) setStateId(id);
   }, []);
   const toProjects = useCallback(() => {
     setPicked(null);
@@ -1108,6 +1118,25 @@ export default function App() {
           <ProjectSwitcher
             projects={projects}
             active={MEDTRONIC.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
+
+  if (inQt) {
+    return (
+      <QuotationApp
+        me={qtMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={QT_PROJECT.id}
             onChange={pickProject}
             onHome={projects.length > 1 ? toProjects : undefined}
           />

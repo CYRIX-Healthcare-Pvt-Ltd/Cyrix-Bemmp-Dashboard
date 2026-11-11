@@ -43,6 +43,14 @@ const ICONS = {
   money: <><path d="M7 5h10M7 9h10M8 5c4 0 6 1.6 6 4s-2 4-6 4h-1l7 6" /></>,
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
   checklist: <><rect x="5" y="4" width="14" height="17" rx="2.5" /><path d="M9 4.5V3h6v1.5" /><path d="M8.5 12.5l2.3 2.3 4.7-4.8" /></>,
+  /* Quotation tracker (Quotation.jsx). */
+  todo: <><circle cx="12" cy="12" r="8.5" /><path d="M8 12.5l2.7 2.7L16 9.8" /></>,
+  requests: <><path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" /><path d="M14 3.5V8h4" /><path d="M9 12.5h6M9 16h4" /></>,
+  new: <><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></>,
+  stock: <><path d="M3.5 8 12 4l8.5 4v8.5L12 20.5 3.5 16.5z" /><path d="M3.5 8 12 12l8.5-4M12 12v8.5" /></>,
+  tat: <><circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2M9.5 3h5" /></>,
+  hospitals: <><rect x="4" y="5" width="16" height="15.5" rx="1.5" /><path d="M12 9v6M9 12h6" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
 };
 
 export default function SideNav({
@@ -59,6 +67,14 @@ export default function SideNav({
 }) {
   const [open, setOpen] = useState(false);
   const navRef = useRef(null);
+  /*
+   * A mouse resting on the rail opens it, and leaving closes it again — but
+   * only a panel the hover opened (the user, 11 Nov). One opened by a press
+   * stays until the page is pressed, as before. Touch has no hover, so phones
+   * and tablets are unchanged.
+   */
+  const byHover = useRef(false);
+  const hoverTimer = useRef(null);
 
   /*
    * How tall the rail can be without hanging off the screen.
@@ -175,6 +191,16 @@ export default function SideNav({
         the next one — which is the mistake the comment above `select`
         exists to record.
       */
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'touch' || open || !window.matchMedia(HAS_RAIL).matches) return
+        clearTimeout(hoverTimer.current)
+        hoverTimer.current = setTimeout(() => { byHover.current = true; setOpen(true) }, 120)
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'touch') return
+        clearTimeout(hoverTimer.current)
+        if (byHover.current) { byHover.current = false; setOpen(false) }
+      }}
       onClick={(e) => {
         if (open) return
         if (!window.matchMedia(HAS_RAIL).matches) return

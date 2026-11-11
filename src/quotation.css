@@ -1,0 +1,557 @@
+/* Quotation tracker (Quotation.jsx) — built on the Medtronic and PM classes. */
+
+[data-tone='blue']   { --tone: #2563eb; }
+[data-tone='violet'] { --tone: #9333ea; }
+[data-tone='indigo'] { --tone: #4f46e5; }
+[data-tone='teal']   { --tone: #0d9488; }
+[data-tone='green']  { --tone: var(--status-good); }
+[data-tone='amber']  { --tone: var(--status-warning); }
+[data-tone='red']    { --tone: var(--status-critical); }
+[data-tone='grey']   { --tone: var(--text-muted); }
+
+.qt-head-right { display: flex; align-items: center; gap: 8px; }
+
+.qt-badge {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: var(--radius-pill);
+  font-size: 12px; font-weight: 650; white-space: nowrap;
+  color: var(--tone, var(--text-secondary)); background: color-mix(in srgb, var(--tone, var(--text-muted)) 13%, transparent);
+}
+.qt-clock {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 650;
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.qt-clock[data-tone='near'] { color: var(--status-warning); }
+.qt-clock[data-tone='late'] { color: var(--status-critical); }
+
+.qt-h { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.qt-h span { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.qt-todo { display: grid; gap: 18px; padding-bottom: 90px; }
+.qt-todo section { min-width: 0; }
+
+/* ---------------------------------------------------------------- cards -- */
+
+.qt-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.qt-card {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  border-radius: 16px; background: var(--surface); border: 1px solid var(--border);
+  border-left: 4px solid var(--tone, var(--border)); overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.qt-card[data-picked='true'] { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
+.qt-card-body {
+  display: grid; gap: 5px; padding: 13px 14px 12px; text-align: left; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; min-width: 0;
+}
+/* Hover lights the whole card, not a box round its text (the user, 11 Nov). */
+.qt-card { transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.qt-card:has(.qt-card-body:hover) {
+  background: color-mix(in srgb, var(--role, var(--text-muted)) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--role, var(--text-muted)) 45%, var(--border));
+  border-left-color: var(--role, var(--tone, var(--border)));
+}
+.qt-card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-right: 34px; }
+.qt-no { font-weight: 750; font-size: 14px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-card-spare { font-size: 16px; font-weight: 650; color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-card-spare b { font-weight: 650; color: var(--text-secondary); }
+.qt-card-line, .qt-card-foot { font-size: 13.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-card-foot { color: var(--text-muted); font-size: 12.5px; }
+.qt-card > .mt-go, .qt-card > .mt-btn { margin: 0 14px 13px; width: calc(100% - 28px); }
+.qt-card-acts { display: flex; gap: 8px; padding: 0 14px 13px; }
+.qt-card-acts > * { flex: 1 1 0; min-width: 0; width: auto; margin: 0; padding-left: 8px; padding-right: 8px; }
+.qt-card-acts > .mt-go { flex-grow: 1.4; }
+.qt-card-acts > * { font-size: 15px; min-height: 46px; }
+
+/* One spare photo on the card (the user, 11 Nov). */
+.qt-card-body { grid-template-columns: minmax(0, 1fr) auto; }
+.qt-card-body > :not(.qt-card-photo) { grid-column: 1; }
+.qt-card-photo {
+  grid-column: 2; grid-row: 2 / span 3; align-self: start; width: 64px; height: 64px;
+  border-radius: 12px; overflow: hidden; background: var(--track-bg); border: 1px solid var(--border);
+}
+.qt-card-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Every button answers the pointer (the user, 11 Nov: "no hover for review?"). */
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three, .qt-note-row, .qt-filters, .modal-foot) .mt-btn {
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+}
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three, .qt-note-row, .qt-filters, .modal-foot) .mt-btn:not(:disabled):hover {
+  background: var(--hover-wash); border-color: var(--text-muted); color: var(--text-primary);
+}
+.qt-card-acts .qt-btn-line-bad:not(:disabled):hover, .qt-action .qt-btn-line-bad:not(:disabled):hover {
+  background: color-mix(in srgb, var(--status-critical) 12%, transparent); border-color: var(--status-critical); color: var(--status-critical);
+}
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three) .mt-go:not(:disabled):hover { filter: brightness(1.08); }
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three) :is(.mt-btn, .mt-go):not(:disabled):active { transform: scale(0.97); }
+.qt-select:hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-accept { min-height: 46px; }
+.qt-left { font-size: 13px; font-weight: 700; color: var(--status-good); }
+
+.qt-pick {
+  position: absolute; top: 11px; right: 11px; z-index: 1; width: 26px; height: 26px; padding: 0;
+  display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+  border: 1.5px solid var(--control-border); background: var(--control-bg); color: var(--page);
+}
+.qt-pick[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); }
+
+.qt-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(640px, calc(100% - 32px)); }
+@media (max-width: 860px) { .qt-bar { bottom: 78px; } }
+.qt-bar-n { flex: 1; font-weight: 700; font-size: 14px; }
+.qt-bar-x { background: transparent; color: var(--page); border-color: color-mix(in srgb, var(--page) 35%, transparent); }
+.qt-bar-go { width: auto; flex: none; padding: 11px 20px; box-shadow: none; }
+.qt-bar-note { font-size: 13px; opacity: 0.75; }
+
+.qt-empty { display: grid; justify-items: center; gap: 10px; padding: 56px 16px; text-align: center; }
+.qt-empty h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
+.qt-empty-mark { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; color: var(--status-good); background: color-mix(in srgb, var(--status-good) 13%, transparent); }
+
+/* --------------------------------------------------------------- lists -- */
+
+.qt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.qt-search { flex: 1 1 240px; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.qt-search input { flex: 1; min-width: 0; }
+.qt-total { font-weight: 700; color: var(--status-good); font-size: 14px; }
+
+.qt-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-rows button {
+  width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 14px;
+  border-radius: 14px; border: 1px solid var(--border); background: var(--surface); text-align: left;
+  font: inherit; color: var(--text-secondary); cursor: pointer;
+}
+.qt-rows button:hover { background: var(--hover-wash); }
+.qt-rows strong { color: var(--text-primary); font-weight: 650; flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.qt-rows span { font-size: 13.5px; }
+.qt-rows small { flex-basis: 100%; font-size: 12px; color: var(--text-muted); }
+
+/* --------------------------------------------------------------- sheet -- */
+
+.qt-sheet .mt-sheet-title h2 { font-variant-numeric: tabular-nums; }
+.qt-sheet .mt-sheet-body { display: flex; flex-direction: column; gap: 14px; }
+.qt-sheet .mt-sheet-body > * { flex: none; }
+.qt-with { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--track-bg); font-size: 14px; color: var(--text-secondary); }
+.qt-closed-note { margin: 0; font-size: 14px; color: var(--text-secondary); }
+
+.qt-action {
+  display: grid; gap: 12px; padding: 14px; border-radius: 16px;
+  background: color-mix(in srgb, var(--series-1) 6%, var(--surface)); border: 1.5px solid color-mix(in srgb, var(--series-1) 35%, var(--border));
+}
+.qt-action-title { margin: 0; font-size: 16px; font-weight: 750; color: var(--text-primary); }
+.qt-action-sub { margin: -6px 0 0; font-size: 13px; color: var(--text-muted); }
+.qt-action .mt-go { width: 100%; }
+.qt-question { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-question b { color: var(--text-primary); }
+
+.qt-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.qt-choices .pm-choice { flex: 1 1 auto; min-height: 42px; padding: 8px 12px; font-size: 14px; }
+
+.qt-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); }
+.qt-grid.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qt-grid.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 480px) { .qt-grid.is-three { grid-template-columns: 1fr; } }
+.qt-wide { grid-column: 1 / -1; }
+.qt-two, .qt-three { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qt-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 480px) { .qt-two, .qt-three { grid-template-columns: 1fr; } }
+.qt-two > *, .qt-three > * { width: 100%; }
+.qt-btn-bad, .mt-go.qt-btn-bad, .mt-btn-primary.qt-btn-bad { background: var(--status-critical); border-color: var(--status-critical); }
+.qt-btn-line-bad { color: var(--status-critical); border-color: color-mix(in srgb, var(--status-critical) 45%, var(--border)); }
+.qt-err { margin: 0; }
+.qt-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); }
+.qt-check input { width: 20px; height: 20px; }
+
+.qt-stepper-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; }
+.qt-stepper-row .mt-btn { padding: 0; min-height: 44px; font-size: 20px; }
+.qt-stepper-row input { text-align: center; font-weight: 700; min-width: 0; }
+
+/* quotes side by side */
+.qt-quotes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.qt-quote, .qt-quote-in {
+  display: grid; gap: 4px; align-content: start; padding: 12px; border-radius: 14px; text-align: left;
+  border: 1.5px solid var(--border); background: var(--surface); font: inherit; color: inherit; min-width: 0;
+}
+.qt-quote-in { gap: 10px; }
+.qt-quote.is-pick { cursor: pointer; transition: border-color 0.15s, transform 0.12s; }
+.qt-quote.is-pick:hover { border-color: var(--status-good); }
+.qt-quote.is-pick:active { transform: scale(0.98); }
+.qt-quote[data-picked='true'] { border-color: var(--status-good); background: color-mix(in srgb, var(--status-good) 7%, var(--surface)); }
+.qt-quote-kind { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.qt-quote-mark { display: inline-flex; align-items: center; gap: 3px; color: var(--status-good); text-transform: none; letter-spacing: 0; }
+.qt-quote-vendor { font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-quote-total { font-size: 22px; font-weight: 750; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-quote-sub { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.qt-quote-more { margin: 8px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* timeline */
+.qt-timeline { list-style: none; margin: 4px 0 0; padding: 0; display: grid; }
+.qt-timeline li { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding-bottom: 14px; }
+.qt-timeline li::before { content: ''; position: absolute; left: 8px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
+.qt-timeline li:last-child::before { display: none; }
+/* Each dot in the colour of the role of who did it (the user, 11 Nov: "role colors only"). */
+.qt-tl-dot { width: 12px; height: 12px; margin: 4px 0 0 3px; border-radius: 50%; background: var(--role, var(--text-muted)); z-index: 1; }
+.qt-tl-text { display: grid; gap: 2px; min-width: 0; }
+.qt-tl-what { font-size: 14px; font-weight: 650; color: var(--text-primary); }
+.qt-tl-who { font-size: 12.5px; color: var(--text-muted); }
+.qt-tl-note { margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: var(--track-bg); font-size: 13.5px; color: var(--text-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
+.qt-note-row { display: flex; gap: 8px; }
+.qt-note-row input { flex: 1; min-width: 0; }
+
+/* photos */
+.qt-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.qt-thumb, .qt-camera {
+  width: 72px; height: 72px; padding: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
+  border: 1px solid var(--border); background: var(--track-bg); display: grid; place-items: center;
+}
+.qt-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.qt-thumb-pdf { font-size: 13px; font-weight: 750; color: var(--status-critical); }
+.qt-thumb-wait { width: 20px; height: 20px; border-radius: 50%; background: var(--border); }
+.qt-thumb-wrap { position: relative; }
+.qt-thumb-x {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; border: 2px solid var(--surface); background: var(--ink); color: var(--page); cursor: pointer;
+}
+.qt-camera { gap: 2px; align-content: center; border-style: dashed; border-width: 1.5px; color: var(--text-secondary); font: inherit; font-size: 11.5px; font-weight: 650; }
+.qt-lightbox { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.88); }
+.qt-lightbox img { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); object-fit: contain; border-radius: 8px; }
+/* The close stays visible on any photo: dark disc, white cross (the user, 11 Nov). */
+.qt-lightbox .qt-lightbox-x {
+  position: absolute; top: 14px; right: 14px; z-index: 1;
+  color: #fff; background: rgba(0, 0, 0, 0.62); border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.qt-lightbox .qt-lightbox-x:hover { color: #fff; background: var(--status-critical); border-color: var(--status-critical); }
+
+/* Confirm boxes open above the request sheet (.mt-scrim is 70; .modal-scrim's own 60 was winning). */
+.modal-scrim.qt-scrim-top { z-index: 1100; }
+.qt-modal-body { display: grid; gap: 12px; }
+
+/* --------------------------------------------------------------- raise -- */
+
+.qt-raise { padding-bottom: 20px; }
+.qt-steps { display: flex; gap: 8px; margin-bottom: 12px; }
+.qt-steps span { flex: 1; padding: 8px 10px; border-radius: var(--radius-pill); text-align: center; font-size: 13px; font-weight: 650; background: var(--track-bg); color: var(--text-muted); }
+.qt-steps span[data-on='true'] { background: var(--ink); color: var(--page); }
+.qt-summary-card { display: flex; align-items: center; gap: 10px; }
+.qt-summary-card div { display: grid; gap: 2px; min-width: 0; }
+.qt-summary-card strong { color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-summary-card span { font-size: 13px; color: var(--text-muted); }
+.qt-another { width: 100%; display: inline-flex; justify-content: center; align-items: center; gap: 6px; margin: 4px 0 14px; min-height: 46px; }
+
+.qt-hosp { position: relative; }
+.qt-hosp-picked {
+  display: grid; gap: 2px; padding: 11px 12px; border-radius: 12px; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--status-good); background: color-mix(in srgb, var(--status-good) 6%, var(--surface)); font: inherit; color: inherit;
+}
+.qt-hosp-picked strong, .qt-hosp-list strong { color: var(--text-primary); font-weight: 650; }
+.qt-hosp-picked span, .qt-hosp-list span { font-size: 12.5px; color: var(--text-muted); }
+.qt-hosp-list {
+  list-style: none; margin: 6px 0 0; padding: 4px; max-height: 300px; overflow-y: auto;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.qt-hosp-list button { width: 100%; display: grid; gap: 1px; padding: 9px 10px; border: 0; border-radius: 9px; background: none; text-align: left; font: inherit; cursor: pointer; }
+.qt-hosp-list button:hover { background: var(--hover-wash); }
+.qt-hosp-none { padding: 10px; font-size: 13.5px; color: var(--text-muted); }
+
+.qt-before { display: grid; gap: 6px; }
+.qt-before-label { font-size: 12.5px; font-weight: 650; color: var(--text-muted); }
+.qt-before-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.qt-chip {
+  padding: 7px 12px; border-radius: var(--radius-pill); cursor: pointer; font: inherit; font-size: 13px;
+  border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+}
+.qt-chip:hover { border-color: var(--series-1); color: var(--text-primary); }
+
+/* ----------------------------------------------------------------- TAT -- */
+
+.qt-tat { display: grid; gap: 14px; }
+.qt-panel-h { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.qt-stage-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); }
+.qt-stage { display: grid; gap: 5px; padding: 12px; border-radius: 14px; border: 1px solid var(--border); border-top: 3px solid var(--tone); background: var(--surface); }
+.qt-stage-name { font-weight: 700; font-size: 14px; color: var(--text-primary); }
+.qt-stage-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.qt-stage-row b { color: var(--text-primary); font-size: 15px; font-variant-numeric: tabular-nums; }
+.qt-stage-row em, .qt-person-n em { font-style: normal; font-weight: 700; font-size: 12px; color: var(--status-critical); }
+.qt-stage-target { font-size: 12px; color: var(--text-muted); }
+.qt-people, .qt-late { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-person {
+  width: 100%; display: grid; gap: 4px 14px; grid-template-columns: minmax(0, 1.4fr) 1fr 1fr; align-items: center;
+  padding: 11px 13px; border-radius: 13px; border: 1px solid var(--border); background: var(--surface);
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.qt-person:disabled { cursor: default; }
+.qt-person:not(:disabled):hover { background: var(--hover-wash); }
+.qt-person-name { display: grid; font-weight: 650; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
+.qt-person-name small { font-weight: 500; font-size: 12px; color: var(--text-muted); }
+.qt-person-n { display: grid; font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .qt-person { grid-template-columns: 1fr 1fr; } .qt-person-name { grid-column: 1 / -1; } }
+.qt-late button { width: 100%; display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
+.qt-late strong { color: var(--text-primary); }
+.qt-late span, .qt-late time { font-size: 13px; color: var(--text-muted); }
+
+/* ------------------------------------------------------------ settings -- */
+
+.qt-settings { display: grid; gap: 14px; }
+.qt-targets { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) 84px 84px; align-items: center; margin-bottom: 14px; }
+.qt-target-row { display: contents; }
+.qt-target-row span { font-size: 14px; color: var(--text-secondary); }
+.qt-target-row input { text-align: center; min-width: 0; }
+.qt-target-h { font-size: 12px; font-weight: 700; color: var(--text-muted); text-align: center; }
+
+/* ---------------------------------------------------------------- bell -- */
+
+.qt-bell { position: relative; }
+.qt-bell .icon-toggle { position: relative; }
+.qt-bell-n {
+  position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 750; color: #fff; background: var(--brand-red);
+}
+.qt-bell-scrim { position: fixed; inset: 0; z-index: 1000; }
+.qt-bell-list {
+  position: absolute; top: 60px; right: 12px; width: min(380px, calc(100vw - 24px)); max-height: 70vh; overflow-y: auto;
+  padding: 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+}
+.qt-bell-list h3 { margin: 0 0 8px; font-size: 15px; }
+.qt-bell-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.qt-bell-list button { width: 100%; display: grid; gap: 2px; padding: 9px 10px; border: 0; border-radius: 10px; background: none; text-align: left; font: inherit; cursor: pointer; color: var(--text-secondary); }
+.qt-bell-list button:hover { background: var(--hover-wash); }
+.qt-bell-list strong { color: var(--text-primary); font-size: 14px; }
+.qt-bell-list span { font-size: 13px; }
+.qt-bell-list time { font-size: 12px; color: var(--text-muted); }
+
+/* No up/down arrows on number boxes: − and + do that (the user, 11 Nov). */
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number']::-webkit-inner-spin-button,
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Select: the tick boxes come only after pressing it (the user, 11 Nov: "is it image?"). */
+.qt-select {
+  margin-left: auto; padding: 6px 14px; border-radius: var(--radius-pill); cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 650; color: var(--text-primary);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+}
+
+/* Green buttons: white text in light mode, black in dark (the user, 11 Nov); red ones stay white. */
+.qt-app .mt-go:not(.qt-btn-bad) { color: #fff; }
+:root[data-theme='dark'] .qt-app .mt-go:not(.qt-btn-bad) { color: #0b0d10; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-app .mt-go:not(.qt-btn-bad) { color: #0b0d10; } }
+
+/* Each role its own colour (the user, 11 Nov): Engineer orange, Team Lead yellow, Coordinator purple,
+   Purchase teal, PV pink. A step's box, its chosen option and its main button take the colour of whoever works it.
+   Dark mode uses the lighter shade with black text, as the green did. */
+[data-role] { --role-ink: #fff; }
+[data-role='engineer']    { --role: #ea580c; }
+[data-role='team_lead']   { --role: #eab308; --role-ink: #0b0d10; --role-text: #a16207; }
+[data-role='coordinator'] { --role: #9333ea; }
+[data-role='purchase']    { --role: #0d9488; }
+[data-role='pv']          { --role: #db2777; }
+:root[data-theme='dark'] [data-role] { --role-ink: #0b0d10; }
+:root[data-theme='dark'] [data-role='engineer']    { --role: #fb923c; }
+:root[data-theme='dark'] [data-role='team_lead']   { --role: #facc15; --role-text: #facc15; }
+:root[data-theme='dark'] [data-role='coordinator'] { --role: #c084fc; }
+:root[data-theme='dark'] [data-role='purchase']    { --role: #2dd4bf; }
+:root[data-theme='dark'] [data-role='pv']          { --role: #f472b6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) [data-role] { --role-ink: #0b0d10; }
+  :root:not([data-theme='light']) [data-role='engineer']    { --role: #fb923c; }
+  :root:not([data-theme='light']) [data-role='team_lead']   { --role: #facc15; --role-text: #facc15; }
+  :root:not([data-theme='light']) [data-role='coordinator'] { --role: #c084fc; }
+  :root:not([data-theme='light']) [data-role='purchase']    { --role: #2dd4bf; }
+  :root:not([data-theme='light']) [data-role='pv']          { --role: #f472b6; }
+}
+.qt-app [data-role] .mt-go:not(.qt-btn-bad) {
+  background: var(--role); color: var(--role-ink); box-shadow: 0 10px 24px -12px var(--role);
+}
+.qt-app [data-role] .pm-choice:not([data-tone='bad'])[aria-pressed='true'] {
+  background: var(--role); border-color: var(--role); color: var(--role-ink);
+}
+.qt-app [data-role] .pm-choice:not([data-tone='bad']):not([aria-pressed='true']):hover { border-color: var(--role); color: var(--role-text, var(--role)); }
+.qt-action[data-role] {
+  background: color-mix(in srgb, var(--role) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--role) 40%, var(--border));
+}
+.qt-action[data-role] .qt-action-title { color: var(--role-text, var(--role)); }
+[data-tone='orange'] { --tone: #ea580c; }
+[data-tone='pink']   { --tone: #db2777; }
+
+/* A button takes the colour of the role it sends the request to (the user, 11 Nov):
+   "Ask the Team Lead" blue, "Ask Purchase for rates" teal, "Send to PV" pink. */
+.qt-app .mt-go[data-role]:not(.qt-btn-bad) { background: var(--role); color: var(--role-ink); box-shadow: 0 10px 24px -12px var(--role); }
+.qt-app .pm-choice[data-role]:not([aria-pressed='true']):hover { border-color: var(--role); color: var(--role-text, var(--role)); }
+.qt-app .mt-btn[data-role]:not(.qt-btn-line-bad) { color: var(--role-text, var(--role)); border-color: color-mix(in srgb, var(--role) 55%, var(--border)); }
+.qt-app .mt-btn[data-role]:not(.qt-btn-line-bad):not(:disabled):hover { background: color-mix(in srgb, var(--role) 10%, transparent); border-color: var(--role); color: var(--role-text, var(--role)); }
+
+[data-tone='yellow'] { --tone: #ca8a04; }
+:root[data-theme='dark'] [data-tone='yellow'] { --tone: #facc15; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) [data-tone='yellow'] { --tone: #facc15; } }
+
+/* Badges and card edges in the colour of whoever works the step; finished ones keep green/red/grey. */
+.qt-badge[data-role] { color: var(--role-text, var(--role)); background: color-mix(in srgb, var(--role) 15%, transparent); }
+.qt-card[data-role] { border-left-color: var(--role); }
+.qt-stage[data-role] { border-top-color: var(--role); }
+
+/* How long from each step to the next, on the thread between them, as Revive Lab (the user, 11 Nov). A day or more in amber. */
+.qt-timeline li[data-next='true'] { padding-bottom: 40px; }
+.qt-tl-gap {
+  position: absolute; left: 9px; top: calc(50% + 10px); transform: translate(-50%, -50%); z-index: 1;
+  padding: 1px 8px; border-radius: var(--radius-pill); white-space: nowrap;
+  font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+  color: var(--text-muted); background: var(--surface); box-shadow: 0 0 0 1px var(--border);
+}
+.qt-tl-gap[data-long='true'] { color: var(--status-warning); box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-warning) 55%, var(--border)); }
+.qt-timeline li { grid-template-columns: 18px minmax(0, 1fr); column-gap: 22px; }
+
+/* The request on a desktop: wide, the step's form on the left, everything about the request beside it (the user, 11 Nov). */
+.qt-sheet-cols, .qt-sheet-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.qt-sheet-col > * { flex: none; }
+.qt-sheet-col:empty { display: none; }
+@media (min-width: 900px) {
+  .mt-sheet.qt-sheet { width: min(1180px, 100%); max-height: min(92vh, 1000px); }
+  .qt-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+  .qt-sheet-cols:not([data-acting]) { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+  .qt-sheet .mt-sheet-body { padding: 18px 20px; }
+  .qt-sheet .qt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 900px) {
+  /* One line for the header on a desktop (the user, 11 Nov: "dont need this much height"). */
+  .qt-sheet .mt-sheet-head { padding: 12px 16px 12px 20px; align-items: center; }
+  .qt-sheet .mt-sheet-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+  .qt-sheet .mt-sheet-title h2 { font-size: 20px; order: -1; }
+  .qt-sheet .mt-sheet-title p { font-size: 14px; }
+  .qt-sheet .mt-sheet-x { width: 36px; height: 36px; }
+}
+
+/* Step chips with counts above To do (the user, 11 Nov): one press shows only that step. */
+.qt-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 2px; }
+.qt-chips::-webkit-scrollbar { display: none; }
+.qt-step-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-pill);
+  font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.qt-step-chip b { font-weight: 750; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.qt-step-chip:hover { border-color: var(--role, var(--text-muted)); color: var(--role-text, var(--text-primary)); }
+.qt-step-chip[aria-selected='true'] { background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); color: var(--role-ink, var(--page)); }
+.qt-step-chip[aria-selected='true'] b { color: inherit; }
+
+.qt-card-step { display: none; }
+
+/* Phone: compact cards, about twice as many on a screen (the user, 11 Nov). The tick box sits on the left,
+   one action is a short button on the right; the Team Lead's three stay in a low row underneath. */
+@media (max-width: 700px) {
+  .qt-cards { gap: 8px; }
+  .qt-card { flex-direction: row; flex-wrap: wrap; align-items: center; border-radius: 14px; }
+  .qt-card-body { flex: 1 1 0; padding: 10px 10px 10px 12px; gap: 2px; grid-template-columns: minmax(0, 1fr) auto; }
+  .qt-card-top { padding-right: 0; gap: 6px; }
+  .qt-no { font-size: 13px; }
+  .qt-badge { padding: 2px 7px; font-size: 11px; }
+  .qt-clock { font-size: 11.5px; }
+  .qt-card-spare { font-size: 15px; }
+  .qt-card-line { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qt-card-foot { display: none; }
+  .qt-card-photo { grid-row: 1 / span 3; align-self: center; width: 46px; height: 46px; border-radius: 10px; margin-left: 4px; }
+  .qt-pick { position: static; order: -1; flex: none; margin-left: 12px; }
+  .qt-card-acts { flex: none; padding: 0 12px 0 2px; }
+  .qt-card-acts > * { min-height: 38px; padding: 8px 14px; font-size: 14px; border-radius: 12px; box-shadow: none; }
+  .qt-card-acts:has(> :nth-child(2)) { flex-basis: 100%; padding: 0 12px 10px; }
+  .qt-card-acts:has(> :nth-child(2)) > * { flex: 1 1 0; }
+  .qt-card > .mt-go, .qt-card > .mt-btn { flex: none; width: auto; margin: 0 12px 0 2px; min-height: 38px; padding: 8px 14px; font-size: 14px; }
+}
+@media (max-width: 700px) {
+  .qt-card .qt-card-top { flex-wrap: nowrap; min-width: 0; }
+  .qt-card .qt-card-top .qt-badge { display: none; }
+  .qt-card .qt-card-step { display: inline; font-weight: 650; color: var(--role-text, var(--role, var(--text-secondary))); }
+  .qt-card .qt-card-top .qt-no, .qt-card .qt-card-top .qt-clock { flex: none; }
+  .qt-card .qt-clock-word { display: none; }
+  .qt-card-photo { width: 42px; height: 42px; }
+  .qt-card-acts > * { padding: 8px 12px; }
+}
+
+/* To do's sub-tabs, full width on a phone (the user, 11 Nov). */
+.qt-sub { align-self: start; }
+@media (max-width: 700px) { .qt-sub { display: flex; width: 100%; } .qt-sub button { flex: 1 1 0; } }
+.qt-todo { gap: 12px; }
+
+@media (min-width: 900px) {
+  /* Each column scrolls on its own, so the form's buttons are reached without scrolling the details (the user, 11 Nov). */
+  .qt-sheet .mt-sheet-body { overflow: hidden; padding: 0; }
+  .qt-sheet .qt-sheet-cols { flex: 1 1 auto; min-height: 0; align-items: stretch; gap: 0; }
+  .qt-sheet .qt-sheet-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px 24px; }
+  .qt-sheet .qt-sheet-col + .qt-sheet-col { border-left: 1px solid var(--border); }
+}
+/* An odd last fact takes the whole row, not half a row and a grey gap. */
+.qt-facts .mt-fact:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  /* The form gets the wider side when it is yours to fill (the user, 11 Nov). */
+  .qt-sheet .qt-sheet-cols[data-acting] { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+}
+
+/* Details: compact, two to a row everywhere (the user, 11 Nov: "why this much height?"). */
+.mt-facts.qt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: 14px; }
+.qt-facts .mt-fact { padding: 8px 12px; }
+.qt-facts .mt-fact-text { gap: 0; }
+.qt-facts .mt-fact-label { font-size: 11px; }
+.qt-facts .mt-fact-value { font-size: 13.5px; line-height: 1.3; }
+.qt-facts .mt-fact-sub { font-size: 12px; line-height: 1.3; }
+
+/* ------------------------------------------------- easier forms (11 Nov) -- */
+/* Tax %, Sent by and dates: one row of presses, never wrapping */
+.qt-tax, .qt-send-chips, .qt-date-chips { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; width: 100%; align-self: stretch; }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button {
+  min-height: 44px; padding: 0 4px; border-radius: 12px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 650; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; border: 1.5px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button:hover { border-color: var(--text-muted); color: var(--text-primary); }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button:active { transform: scale(0.96); }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button[aria-checked='true'] { border-color: var(--ink); background: var(--ink); color: var(--page); }
+.qt-date-chips + input { margin-top: 6px; }
+@media (max-width: 380px) { .qt-send-chips button { font-size: 12.5px; } }
+
+.qt-vendor-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qt-vendor-chips .qt-chip { padding: 5px 11px; font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.qt-total { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--track-bg); }
+.qt-total span { font-size: 13px; font-weight: 650; color: var(--text-muted); }
+.qt-total strong { font-size: 24px; font-weight: 780; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.qt-total[data-empty='true'] strong { color: var(--text-muted); }
+.qt-grid > :is(.qt-total, .pm-in:has(.qt-tax), .pm-in:has(.qt-vendor-chips), .pm-in:has(.qt-date-chips)) { grid-column: 1 / -1; }
+
+/* PV: what the cheaper one saves; lead time and warranty as chips */
+.qt-save {
+  justify-self: start; margin-top: 4px; padding: 4px 10px; border-radius: var(--radius-pill); font-size: 12.5px; font-weight: 750;
+  background: color-mix(in srgb, var(--status-good) 14%, var(--surface)); color: var(--status-good); font-variant-numeric: tabular-nums;
+}
+.qt-quote-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.qt-info-chip { padding: 5px 11px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 650; background: var(--track-bg); color: var(--text-secondary); }
+
+/* Receipt in one press */
+.qt-action .qt-all-in { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; font-weight: 700; border-color: var(--role); color: var(--role-text, var(--text-primary)); }
+
+/* the main button stays in reach while the form scrolls */
+.qt-action > :is(.mt-go, .qt-two, .qt-three) { position: sticky; bottom: 0; z-index: 2; }
+.qt-action > :is(.qt-two, .qt-three) { background: inherit; margin: -4px -14px 0; padding: 8px 14px; }
+
+/* the field a refusal names */
+.pm-in.is-bad > span { color: var(--status-critical); }
+.pm-in.is-bad :is(input, textarea, .qt-hosp-picked) { border-color: var(--status-critical) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-critical) 18%, transparent); }
+.pm-in.is-bad :is(.qt-tax, .qt-send-chips, .qt-date-chips) button { border-color: var(--status-critical); }
+
+.qt-hosp-head { padding: 8px 10px 4px; font-size: 11.5px; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.qt-steps { align-items: center; }
+.qt-steps .qt-start-again { flex: none; }
+@media (max-width: 700px) { .qt-tax .qt-pct { display: none; } }
+@media (max-width: 700px) {
+  .qt-tax button { min-height: 34px; border-radius: 10px; font-size: 13px; }
+  .qt-tax { gap: 5px; }
+}
+@media (max-width: 480px) {
+  .qt-action > .qt-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qt-action > .qt-two > * { min-height: 46px; padding-inline: 8px; font-size: 14.5px; }
+}
+/* two quote boxes side by side only when each has room; nothing inside spills over */
+.qt-quotes:has(.qt-quote-in) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); }
+.qt-quote-in > * { min-width: 0; }
+.qt-total { flex-wrap: wrap; row-gap: 2px; }
+.qt-total strong { font-size: clamp(19px, 2.2vw + 10px, 24px); overflow-wrap: anywhere; min-width: 0; }
+.qt-total { align-items: center; }
+.qt-total-label { display: grid; gap: 2px; }
+.qt-total-label small { font-size: 12px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
