@@ -33,7 +33,7 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is only lost on reload */ } },
 };
-const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', viewer: 'Viewer' };
+const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', viewer: 'Viewer' };
 
 function tabsFor(me) {
   const r = me.role; const t = [{ id: 'todo', label: 'To do', short: 'To do' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
@@ -1956,7 +1956,7 @@ function PersonEdit({ p, tls, onClose, onDone }) {
         <div className="modal-head"><h2>{p.employee_id ? p.name : 'Add person'}</h2></div>
         <div className="modal-body qt-modal-body">
           {!p.employee_id && <Field label="E-code"><input value={v.ecode} onChange={(e) => set('ecode', e.target.value.toUpperCase())} placeholder="E1234" /></Field>}
-          <Choice value={v.role} onChange={(x) => set('role', x)} options={['engineer', 'team_lead', 'coordinator', 'purchase', 'pv'].map((r) => [r, ROLE_NAME[r]])} />
+          <Choice value={v.role} onChange={(x) => set('role', x)} options={['engineer', 'team_lead', 'coordinator', 'purchase', 'pv', 'observer'].map((r) => [r, ROLE_NAME[r]])} />
           {v.role === 'engineer' && (
             <div className="pm-in"><span>Team Lead</span>
               <Picker value={v.team_lead_ecode} onChange={(x) => set('team_lead_ecode', x)} title="Team Lead"
