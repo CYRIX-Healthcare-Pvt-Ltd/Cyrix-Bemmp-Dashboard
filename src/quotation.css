@@ -559,3 +559,12 @@
 .qt-tl-total { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--track-bg); color: var(--text-primary); font-size: 12px; font-weight: 750; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
 .qt-date-pair { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .qt-date-pair input { min-width: 0; }
+/* a result, OK only */
+.qt-notice { max-width: 360px; text-align: center; }
+.qt-notice .modal-body { display: grid; justify-items: center; gap: 10px; padding-top: 22px; }
+.qt-notice .modal-body p { margin: 0; font-size: 16px; font-weight: 650; color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-notice-tick { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--status-good) 15%, var(--surface)); color: var(--status-good); }
+.qt-notice .modal-foot { justify-content: stretch; }
+.qt-notice .modal-foot .mt-btn { flex: 1; min-height: 46px; }
+.modal-scrim:has(.qt-notice) { display: grid; place-items: center; padding: 16px; }
+.qt-notice { width: min(360px, 100%); margin: 0; border-radius: 20px; }

@@ -79,6 +79,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
   }, [toast]);
 
   const [preset, setPreset] = useState(null);
+  const [todoSub, setTodoSub] = useState(null);
   const open = (id, choice = null) => {
     setOpenId(id); setPreset(choice);
     const u = new URL(window.location.href);
@@ -120,7 +121,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
             <div className="status-msg"><div className="loader" aria-hidden="true" /></div>
           ) : (
             <div className="tabview" key={tab}>
-              {tab === 'todo' && <Todo me={me} list={mine} targets={targets} now={now} onOpen={open} onDone={done} />}
+              {tab === 'todo' && <Todo me={me} list={mine} targets={targets} now={now} onOpen={open} onDone={done} sub={todoSub} setSub={setTodoSub} />}
               {tab === 'requests' && <Requests list={list} targets={targets} now={now} period={period} setPeriod={setPeriod} onOpen={open} />}
               {tab === 'new' && (me.role === 'coordinator'
                 ? <StockForm onDone={(m) => { done(m); setTab('requests'); }} />
@@ -133,7 +134,8 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
           )}
         </div>
       </div>
-      {openId && <RequestSheet id={openId} preset={preset} me={me} targets={targets} now={now} onClose={() => open(null)} onChanged={done} />}
+      {openId && <RequestSheet id={openId} preset={preset} me={me} targets={targets} now={now} onClose={() => open(null)} onChanged={done}
+                                 onFinished={(stillMine) => { open(null); reload(); setTab('todo'); setTodoSub(stillMine ? 'mine' : null); }} />}
     </div>
     </QtCtx.Provider>
   );
@@ -237,6 +239,17 @@ function Confirm({ title, lines, ok = 'Yes', tone, busy, err, onOk, onCancel }) 
           <button type="button" className="mt-btn" onClick={onCancel} disabled={busy}>Cancel</button>
           <button type="button" className={`mt-btn mt-btn-primary${tone === 'bad' ? ' qt-btn-bad' : ''}`} onClick={onOk} disabled={busy}>{busy ? 'Please wait…' : ok}</button>
         </div>
+      </div>
+    </div>, document.body);
+}
+
+/** A result: OK only, never a cross (the user's rule). */
+function Notice({ title, onOk }) {
+  return createPortal(
+    <div className="modal-scrim qt-scrim-top" role="presentation">
+      <div className="modal mt-modal qt-notice" role="alertdialog" aria-label={title}>
+        <div className="modal-body"><span className="qt-notice-tick"><Icon d={I.check} size={26} /></span><p>{title}</p></div>
+        <div className="modal-foot"><button type="button" className="mt-btn mt-btn-primary" onClick={onOk} autoFocus>OK</button></div>
       </div>
     </div>, document.body);
 }
@@ -463,10 +476,9 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
 
 /* =============================================================== to do == */
 
-function Todo({ me, list, targets, now, onOpen, onDone }) {
+function Todo({ me, list, targets, now, onOpen, onDone, sub, setSub }) {
   const [sel, setSel] = useState(new Set());
   const [only, setOnly] = useState('');
-  const [sub, setSub] = useState(null);
   const [ask, box] = useAsk();
   const stop = () => setSel(new Set());
   /* Sub-tabs (the user, 11 Nov): To accept | With you, one list at a time; opens on To accept when anything waits. */
@@ -633,7 +645,8 @@ function Requests({ list, targets, now, period, setPeriod, onOpen }) {
 
 /* ======================================================= request sheet == */
 
-function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
+function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFinished }) {
+  const [notice, setNotice] = useState(null);
   const [r, setR] = useState(undefined);
   const [big, setBig] = useState(null);
   const load = useCallback(() => loadOne(id).then(setR).catch(() => setR(null)), [id]);
@@ -645,6 +658,11 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
     return () => { document.removeEventListener('keydown', esc); document.body.style.overflow = was; };
   }, [onClose]);
   const changed = (msg) => { onChanged(msg); load(); };
+  /** A form done: the result with OK, then back to To do (With you when it is still yours). */
+  const finish = async (msg) => {
+    const fresh = await loadOne(id).catch(() => null);
+    setNotice({ msg, mine: Boolean(fresh?.mine && !fresh?.done) });
+  };
 
   return (
     <div className="mt-scrim" onClick={onClose}>
@@ -661,7 +679,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
           {r === undefined ? <div className="loader" aria-hidden="true" /> : r === null ? <p>This request is not one you can see.</p> : (
             <div className="qt-sheet-cols" data-acting={r.mine ? 'true' : undefined}>
               <div className="qt-sheet-col">
-              {r.mine && <Action r={r} me={me} preset={preset} onDone={changed} />}
+              {r.mine && <Action r={r} me={me} preset={preset} onDone={changed} onFinish={finish} />}
               {!r.mine && !r.done && (
                 <p className="qt-with">{r.accepted_by_name
                   ? `With ${stepOf(r.step).who} · ${r.accepted_by_name} accepted ${whenText(r.accepted_at)}`
@@ -693,6 +711,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged }) {
         </div>
       </div>
       {big && null}
+      {notice && <Notice title={notice.msg} onOk={() => onFinished(notice.mine)} />}
     </div>
   );
 }
@@ -867,7 +886,7 @@ function Reopen({ r, me, onDone }) {
 /* ============================================================ actions == */
 
 /** The step's own form, on the request; Accept first where the step waits for one. */
-function Action({ r, me, preset, onDone }) {
+function Action({ r, me, preset, onDone, onFinish }) {
   const [ask, box] = useAsk();
   if (!r.accepted_at && !NO_ACCEPT.has(r.step)) {
     return (
@@ -883,7 +902,7 @@ function Action({ r, me, preset, onDone }) {
     );
   }
   const F = FORMS[r.step];
-  return F ? <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}><p className="qt-action-title">{stepOf(r.step).label}</p><F r={r} me={me} preset={preset} onDone={onDone} /></section> : null;
+  return F ? <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}><p className="qt-action-title">{stepOf(r.step).label}</p><F r={r} me={me} preset={preset} onDone={onFinish ?? onDone} /></section> : null;
 }
 
 /** Shared by forms: the decision asked first, sent, the message, the error beside the button. */
