@@ -82,6 +82,14 @@ export const STEPS = {
   rejected: { label: 'Rejected', tone: 'red' },
 };
 export const stepOf = (s) => STEPS[s] ?? { label: s, tone: 'grey' };
+/** Each stage as the work done in it, for TAT (the user, 11 Nov: the doer's words, not "sent to"). */
+export const WORK = {
+  tl_review: 'Team Lead approval', eng_fix: 'Correcting the request', tl_clarify: 'Answering a question', coord_initial: 'Coordinator check',
+  purchase_rates: 'Giving rates', pv: 'Price verification', coord_quote: 'Sending the quotation', eng_quote: 'Customer approval',
+  coord_pr: 'Raising the PR', purchase_dispatch: 'PO and dispatch', coord_decide: 'Hold or cancel decision', receipt: 'Confirming receipt',
+  observation: 'Under observation', purchase_faulty: 'Faulty spare', return_dispatch: 'Sending the faulty back', purchase_replacement: 'Sending a replacement',
+};
+export const workOf = (s) => WORK[s] ?? stepOf(s).label;
 /**
  * The status in words, by role (the user, 11 Nov): sent to someone, then that someone at work once accepted.
  * [before Accept, after Accept]; steps with no Accept have one wording.

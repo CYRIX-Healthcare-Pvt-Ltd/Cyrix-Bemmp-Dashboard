@@ -7,7 +7,7 @@ import { supabase } from '../data/supabase.js';
 import {
   loadList, loadOne, loadFacilities, loadEquipmentAt, loadPeople, loadTargets, loadEvents,
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, consume, resume, act,
-  saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson,
+  saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person,
 } from '../data/quotation.js';
@@ -36,18 +36,17 @@ const store = {
 const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', viewer: 'Viewer' };
 
 function tabsFor(me) {
-  const r = me.role; const t = [{ id: 'requests', label: 'Requests', short: 'Requests' }];
+  const r = me.role; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
   if (r === 'engineer' || r === 'team_lead') t.push({ id: 'new', label: 'New request', short: 'New' });
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
-  t.push({ id: 'tat', label: me.lead ? 'TAT' : 'My TAT', short: 'TAT' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
   if (me.lead) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
 }
 
 export default function QuotationApp({ me, profile, narrow, switcher, onSignOut }) {
-  const [tab, setTab] = useState('requests');
+  const [tab, setTab] = useState('dashboard');
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
   const [list, setList] = useState(null);
   const [targets, setTargets] = useState({});
@@ -108,7 +107,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
                        right={<div className="qt-head-right"><Bell onOpen={open} />{switcher}</div>} onSignOut={onSignOut} />
       <div className="shell">
         <SideNav tabs={tabs.map((t) => ({ ...t, label: t.id === 'requests' && mine.length ? `${t.label} · ${mine.length}` : t.label }))}
-                 active={tab} onSelect={setTab} onSignOut={onSignOut} signedIn={Boolean(profile)} profile={profile} showAccountControls={!narrow} />
+                 active={tab} onSelect={(t) => { if (t === 'requests') setTodoSub(null); setTab(t); }} onSignOut={onSignOut} signedIn={Boolean(profile)} profile={profile} showAccountControls={!narrow} />
         <div className="work">
           {toast && <div className="mt-toast" role="status">{toast}</div>}
           {failed ? (
@@ -126,7 +125,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
                 ? <StockForm onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />
                 : <RaiseForm me={me} onDone={(m) => { done(m); setTab('requests'); setTodoSub('others'); }} />)}
               {tab === 'stock' && <StockRegister me={me} list={list} onOpen={open} onDone={done} />}
-              {tab === 'tat' && <TatBoard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onOpen={open} onToast={setToast} />}
+              {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} />}
               {tab === 'hospitals' && <Hospitals />}
               {tab === 'settings' && <Settings targets={targets} onDone={done} />}
             </div>
@@ -397,7 +396,7 @@ function Search({ value, onChange, placeholder }) {
 }
 
 const hay = (r) => [r.no, r.hospital, r.district, r.spare, r.part_no, r.equipment, r.make, r.model, r.serial, r.engineer_name, r.engineer_code,
-  r.pr_no, r.po_no, r.track_no, r.item_code, statusOf(r)].filter(Boolean).join(' ').toLowerCase();
+  r.pr_no, r.po_no, r.track_no, r.item_code, r.ref_no, statusOf(r)].filter(Boolean).join(' ').toLowerCase();
 const matches = (r, q) => q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay(r).includes(w));
 
 /* ============================================================== bell == */
@@ -460,7 +459,7 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
         </button>
       )}
       <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
-        <span className="qt-card-top"><span className="qt-no">{r.no}</span><StepBadge r={r} /><Clock r={r} targets={targets} now={now} /></span>
+        <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
         <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
         {!r.mine && !r.done && (
@@ -597,7 +596,7 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   const nWait = mine.filter(isWaiting).length;
   const nWork = mine.length - nWait;
   const nOthers = list.filter((r) => !r.done && !r.mine).length;
-  const v = view ?? (nWait ? 'accept' : nWork ? 'mine' : 'others');
+  const v = view ?? (nWait ? 'accept' : 'mine'); // To accept when anything waits, else With you (the user, 11 Nov)
   const views = [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
   return (
     <div className="qt-work">
@@ -675,7 +674,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
             {r && <span className="qt-card-top"><StepBadge r={r} />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
-            <h2>{r?.no ?? ' '}</h2>
+            <h2>{r?.no ?? ' '}{r?.ref_no && <small className="qt-ref">{r.ref_no}</small>}</h2>
             {r && <p>{r.spare} × {r.approved_qty ?? r.qty}{r.hospital ? ` · ${r.hospital}` : ''}</p>}
           </div>
           <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close"><Icon d={I.x} size={20} /></button>
@@ -1862,7 +1861,7 @@ function StockRegister({ me, list, onOpen, onDone }) {
             return (
               <li key={r.id} className="qt-card" data-tone="green">
                 <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
-                  <span className="qt-card-top"><span className="qt-no">{r.no}</span><span className="qt-left">{left} in hand</span></span>
+                  <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><span className="qt-left">{left} in hand</span></span>
                   <span className="qt-card-spare">{r.spare}</span>
                   <span className="qt-card-line">{r.received_qty} received · {r.used_qty} used{r.faulty_qty ? ` · ${r.faulty_qty} faulty` : ''}</span>
                   <span className="qt-card-foot">{person(r.engineer_name, r.engineer_code)}{r.hospital ? ` · ${r.hospital}` : ''}</span>
@@ -1908,78 +1907,184 @@ function UseStock({ r, onClose, onDone }) {
 
 /* =============================================================== TAT == */
 
-function TatBoard({ me, list, targets, period, setPeriod, onOpen, onToast }) {
+/**
+ * Dashboard (the user, 11 Nov): one look at how a person, or a team, performs. How many requests were handled,
+ * how many steps finished at their end, what is pending now by status, the share done, and the TAT at each stage
+ * against its target, as a graph. Leads see everybody; an observer sees the team of the role observed
+ * (Purchase's observer: the Purchase people and Purchase's stages only), with a member filter.
+ */
+function perfOf(ids, events, list, targets, opts = {}) {
+  const evs = events.filter((e) => ids.has(e.by) && e.action !== 'note');
+  const handled = new Set(evs.map((e) => e.request_id)).size;
+  const moves = evs.filter((e) => e.to_step && e.to_step !== e.step);
+  const pending = list.filter((r) => !r.done && (ids.has(r.accepted_by)
+    || (!r.accepted_by && ((opts.me && r.mine) || (opts.role && roleOfStep(r.step) === opts.role)))));
+  const stages = new Map();
+  const st = (k) => stages.get(k) ?? stages.set(k, { step: k, done: 0, acc: 0, accN: 0, accOk: 0, pro: 0, proN: 0, proOk: 0 }).get(k);
+  for (const e of evs) {
+    if (!TAT_STEPS.includes(e.step)) continue;
+    if (opts.role && roleOfStep(e.step) !== opts.role) continue;
+    const t = targets?.[e.step];
+    if (e.action === 'accept' && e.accept_s != null) {
+      const s = st(e.step); s.acc += e.accept_s; s.accN += 1; if (!t || e.accept_s <= Number(t.accept_h) * 3600) s.accOk += 1;
+    } else if (e.to_step && e.to_step !== e.step) {
+      const s = st(e.step); s.done += 1;
+      if (e.process_s != null) { s.pro += e.process_s; s.proN += 1; if (!t || e.process_s <= Number(t.process_h) * 3600) s.proOk += 1; }
+    }
+  }
+  const rows = TAT_STEPS.filter((k) => stages.has(k)).map((k) => stages.get(k));
+  const n = rows.reduce((a, s) => a + s.accN + s.proN, 0);
+  const ok = rows.reduce((a, s) => a + s.accOk + s.proOk, 0);
+  const byStatus = new Map(); for (const r of pending) { const k = statusOf(r); byStatus.set(k, { n: (byStatus.get(k)?.n ?? 0) + 1, tone: stepOf(r.step).tone }); }
+  return {
+    handled, done: moves.length, pending: pending.length,
+    donePct: moves.length + pending.length ? Math.round((moves.length / (moves.length + pending.length)) * 100) : null,
+    onTime: n ? Math.round((ok / n) * 100) : null, ok, n, rows,
+    byStatus: [...byStatus.entries()].sort((a, b) => b[1].n - a[1].n),
+  };
+}
+
+const pctTone = (p) => (p == null ? undefined : p >= 90 ? 'good' : p >= 70 ? 'warn' : 'bad');
+
+/** Average accept and process at each stage against the target: one bar each, the target a line across. */
+function TatGraph({ rows, targets }) {
+  const items = rows.map((s) => {
+    const t = targets[s.step] ?? {};
+    const acc = s.accN ? s.acc / s.accN : null; const pro = s.proN ? s.pro / s.proN : null;
+    const ta = Number(t.accept_h) * 3600 || null; const tp = Number(t.process_h) * 3600 || null;
+    return { s, acc, pro, ta, tp, max: Math.max(acc ?? 0, pro ?? 0, ta ?? 0, tp ?? 0) * 1.1 || 1 };
+  });
+  const Bar = ({ v, t, max, label }) => (
+    <span className="qt-graph-bar" data-late={v != null && t && v > t ? 'true' : undefined}>
+      <span className="qt-graph-k">{label}</span>
+      <span className="qt-graph-track">
+        {v != null && <i style={{ width: `${Math.max(1.5, (v / max) * 100)}%` }} />}
+        {t && <em style={{ left: `${(t / max) * 100}%` }} title={`Target ${spanText(t)}`} />}
+      </span>
+      <span className="qt-graph-v">{v == null ? '—' : spanText(v)}</span>
+    </span>
+  );
+  return (
+    <div className="qt-graph">
+      {items.map(({ s, acc, pro, ta, tp, max }) => (
+        <div key={s.step} className="qt-graph-row" data-tone={STEPS[s.step].tone}>
+          <span className="qt-graph-name">{workOf(s.step)}<small>{s.done} done · target {spanText(ta)} · {spanText(tp)}</small></span>
+          <Bar v={acc} t={ta} max={max} label="Accept" />
+          <Bar v={pro} t={tp} max={max} label="Process" />
+        </div>
+      ))}
+      <p className="qt-graph-key"><i /> on time <i data-late="true" /> past target <em /> target</p>
+    </div>
+  );
+}
+
+function Dashboard({ me, list, targets, period, setPeriod, onToast }) {
   const [events, setEvents] = useState(null);
-  const [who, setWho] = useState(null);
+  const [staff, setStaff] = useState([]);
+  // A team only for those who look after one (the user, 11 Nov): an observer, the team observed; a Team Lead, their engineers. Everybody else sees themselves.
+  const teamView = me.role === 'observer' || me.role === 'team_lead';
+  const [who, setWho] = useState(teamView && me.role === 'observer' ? 'all' : me.id);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   useEffect(() => { const [f, t] = periodRange(period); setEvents(null); loadEvents(f, t).then(setEvents).catch(() => setEvents([])); }, [period]);
-  const tat = useMemo(() => (events ? tatOf(events, targets) : null), [events, targets]);
+  useEffect(() => { if (teamView) loadPeople().then((x) => setStaff(x ?? [])).catch(() => {}); }, [teamView]);
   const label = period.id === 'month' ? todayIst().slice(0, 7) : period.id === 'all' ? 'all-time' : `${period.from || 'start'}-to-${period.to || 'today'}`;
   const excel = async () => {
     setBusy(true); setErr(null);
     try { const all = await loadEvents(null, null); await exportAll(list, all, targets, label); onToast('Excel downloaded.'); } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  // The team: everybody for a lead; for an observer, the people of the role observed (all roles when none is set).
+  const team = useMemo(() => (!teamView ? [] : staff
+    .filter((x) => x.role !== 'observer' && x.active !== false && (me.role === 'team_lead'
+      ? x.role === 'engineer' && x.team_lead_id === me.id
+      : !me.observes || x.role === me.observes))
+    .map((x) => ({ id: x.employee_id, name: x.name, code: x.ecode, role: x.role }))
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || (a.name ?? '').localeCompare(b.name ?? ''))), [staff, teamView, me]);
+  const role = me.role === 'observer' ? me.observes ?? null : null;
+  const idsOf = (w) => (w === 'all' ? new Set(team.map((x) => x.id)) : new Set([w]));
+  const pid = who;
+  const p = useMemo(() => (events ? perfOf(idsOf(pid), events, list, targets, { me: pid === me.id, role: pid === 'all' ? role : null }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, pid, list, targets, me.id, team, role]);
+  const rows = useMemo(() => (events && teamView ? team.map((x) => ({ ...x, ...perfOf(new Set([x.id]), events, list, targets, { me: x.id === me.id }) })).filter((x) => x.handled || x.pending) : []), [events, team, list, targets, me.id, teamView]);
+  const sel = pid === 'all' ? null : team.find((x) => x.id === pid) ?? (pid === me.id ? { name: me.name, role: me.role } : null);
+  const whose = pid === me.id ? 'my' : pid === 'all' ? 'the team\'s' : `${sel?.name?.split(' ')[0] ?? 'their'}'s`;
   const avg = (s, n) => (n ? spanText(s / n) : '—');
+  const options = [
+    ...(teamView ? [{ value: 'all', label: role ? `All ${ROLE_NAME[role]} · ${team.length}` : `Everybody · ${team.length}` }] : []),
+    ...(me.role !== 'observer' && me.role !== 'viewer' ? [{ value: me.id, label: `Me · ${me.name ?? ''}` }] : []),
+    ...team.filter((x) => x.id !== me.id).map((x) => ({ value: x.id, label: `${x.name}${role ? '' : ` · ${ROLE_NAME[x.role] ?? ''}`}` })),
+  ];
   return (
-    <div className="mt-dash qt-tat">
+    <div className="mt-dash qt-dash">
       <PeriodBar period={period} setPeriod={setPeriod}>
+        {teamView && options.length > 1 && <Picker value={pid ?? ''} onChange={setWho} title="Team member" options={options} />}
         <button type="button" className="mt-btn mt-btn-primary pm-excel" onClick={excel} disabled={busy}><Icon d={I.down} size={17} /> {busy ? 'Preparing…' : 'Excel'}</button>
         {err && <span className="mt-err pm-excel-err" role="alert">{err}</span>}
       </PeriodBar>
-      {!tat ? <div className="loader" aria-hidden="true" /> : (
+      {!p ? <div className="loader" aria-hidden="true" /> : (
         <>
+          {pid !== me.id && <p className="qt-dash-who" data-role={sel?.role ?? role ?? undefined}>{pid === 'all' ? (role ? `${ROLE_NAME[role]} team` : 'Everybody') : `${sel?.name ?? ''} · ${ROLE_NAME[sel?.role] ?? ''}`}</p>}
+          <div className="qt-dash-tiles">
+            <div className="qt-tile" data-k="handled"><span>Handled</span><b>{p.handled}</b><small>requests</small></div>
+            <div className="qt-tile" data-k="done"><span>Finished</span><b>{p.done}</b><small>sent to the next person</small></div>
+            <div className="qt-tile" data-k="pending"><span>Pending now</span><b>{p.pending}</b><small>{pid === me.id ? 'with me' : 'with them'}</small></div>
+            <div className="qt-tile" data-k="pct" data-tone={pctTone(p.donePct)}><span>Completed</span><b>{p.donePct == null ? '—' : `${p.donePct}%`}</b><small>{p.done} of {p.done + p.pending}</small></div>
+            <div className="qt-tile" data-k="ontime" data-tone={pctTone(p.onTime)}><span>On time</span><b>{p.onTime == null ? '—' : `${p.onTime}%`}</b><small>{p.ok} of {p.n}</small></div>
+          </div>
+
+          {p.byStatus.length > 0 && (
+            <section className="panel mt-panel">
+              <h3 className="qt-panel-h">Pending by status</h3>
+              <div className="qt-dash-chips">
+                {p.byStatus.map(([k, v]) => <span key={k} className="qt-dash-chip" data-tone={v.tone}>{k}<b>{v.n}</b></span>)}
+              </div>
+            </section>
+          )}
+
           <section className="panel mt-panel">
-            <h3 className="qt-panel-h">{me.lead ? 'By stage' : 'Your time at each stage'}</h3>
-            {!tat.stages.length ? <p className="empty-inline">Nothing in this period.</p> : (
-              <div className="qt-stage-grid">
-                {tat.stages.map((s) => (
-                  <div key={s.step} className="qt-stage" data-tone={STEPS[s.step].tone}>
-                    <span className="qt-stage-name">{STEPS[s.step].label}</span>
-                    <span className="qt-stage-row"><span>Accept</span><b>{avg(s.acc, s.accN)}</b>{s.accLate > 0 && <em>{s.accLate} late</em>}</span>
-                    <span className="qt-stage-row"><span>Process</span><b>{avg(s.pro, s.proN)}</b>{s.proLate > 0 && <em>{s.proLate} late</em>}</span>
-                    <span className="qt-stage-target">Target {Number(targets[s.step]?.accept_h)} h · {Number(targets[s.step]?.process_h)} h</span>
-                  </div>
+            <h3 className="qt-panel-h">TAT at each stage</h3>
+            {!p.rows.length ? <p className="empty-inline">Nothing in this period.</p> : (
+              <>
+                <TatGraph rows={p.rows} targets={targets} />
+                <div className="qt-dash-stages">
+                  {p.rows.map((s) => {
+                    const n = s.accN + s.proN; const ok = s.accOk + s.proOk; const pc = n ? Math.round((ok / n) * 100) : null;
+                    return (
+                      <div key={s.step} className="qt-dash-stage" data-tone={STEPS[s.step].tone}>
+                        <span className="qt-dash-stage-name">{workOf(s.step)}</span>
+                        <span className="qt-dash-kv"><span>Accept</span><b>{avg(s.acc, s.accN)}</b></span>
+                        <span className="qt-dash-kv"><span>Process</span><b>{avg(s.pro, s.proN)}</b></span>
+                        <span className="qt-dash-ontime" data-tone={pctTone(pc)}>
+                          <span className="qt-rt-bar"><i style={{ width: `${pc ?? 0}%` }} /></span>
+                          <span>{pc == null ? '—' : `${ok} of ${n} · ${pc}% on time`}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </section>
+
+          {teamView && rows.length > 0 && (
+            <section className="panel mt-panel">
+              <h3 className="qt-panel-h">Team</h3>
+              <div className="qt-dash-team">
+                <div className="qt-dash-team-row is-head"><span>Person</span><span>Handled</span><span>Done</span><span>Pending</span><span>Completed</span><span>On time</span></div>
+                {rows.map((x) => (
+                  <button key={x.id} type="button" className="qt-dash-team-row" data-role={x.role ?? undefined} aria-pressed={x.id === pid} onClick={() => setWho(x.id)}>
+                    <span className="qt-dash-team-name">{x.name}<small>{ROLE_NAME[x.role] ?? ''}</small></span>
+                    <span>{x.handled}</span><span>{x.done}</span><span>{x.pending}</span>
+                    <span data-tone={pctTone(x.donePct)}>{x.donePct == null ? '—' : `${x.donePct}%`}</span>
+                    <span data-tone={pctTone(x.onTime)}>{x.onTime == null ? '—' : `${x.onTime}%`}</span>
+                  </button>
                 ))}
               </div>
-            )}
-          </section>
-          <section className="panel mt-panel">
-            <h3 className="qt-panel-h">{me.lead ? 'By person' : 'Your total'}</h3>
-            {!tat.people.length ? <p className="empty-inline">Nothing in this period.</p> : (
-              <ul className="qt-people">
-                {tat.people.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className="qt-person" onClick={() => setWho(p)} disabled={!p.late.length}>
-                      <span className="qt-person-name">{person(p.name, p.code)}<small>{p.stages.map((s) => STEPS[s]?.label).join(', ')}</small></span>
-                      <span className="qt-person-n"><span>Accept {avg(p.acc, p.accN)}</span>{p.accLate > 0 && <em>{p.accLate} late</em>}</span>
-                      <span className="qt-person-n"><span>Process {avg(p.pro, p.proN)}</span>{p.proLate > 0 && <em>{p.proLate} late</em>}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+            </section>
+          )}
         </>
       )}
-      {who && createPortal(
-        <div className="mt-scrim" onClick={() => setWho(null)}>
-          <div className="mt-sheet" role="dialog" aria-label={who.name} onClick={(e) => e.stopPropagation()}>
-            <header className="mt-sheet-head">
-              <div className="mt-sheet-title"><h2>{who.name}</h2><p>{who.accLate} accepted late · {who.proLate} processed late</p></div>
-              <button type="button" className="mt-sheet-x" onClick={() => setWho(null)} aria-label="Close"><Icon d={I.x} size={20} /></button>
-            </header>
-            <div className="mt-sheet-body">
-              <ul className="qt-late">
-                {who.late.map((e, i) => (
-                  <li key={i}><button type="button" onClick={() => { setWho(null); onOpen(e.request_id); }}>
-                    <strong>{e.no}</strong><span>{STEPS[e.step]?.label} · {e.kind === 'accept' ? 'accepted after' : 'took'} {spanText(e.secs)}</span><time>{whenText(e.at)}</time>
-                  </button></li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>, document.body)}
     </div>
   );
 }
@@ -2113,6 +2218,12 @@ function PersonEdit({ p, tls, onClose, onDone }) {
             <div className="pm-in"><span>Team Lead</span>
               <Picker value={v.team_lead_ecode} onChange={(x) => set('team_lead_ecode', x)} title="Team Lead"
                       options={[{ value: '', label: 'Choose the Team Lead' }, ...tls.map((t) => ({ value: t.ecode, label: `${t.name} (${t.ecode})` }))]} />
+            </div>
+          )}
+          {v.role === 'observer' && (
+            <div className="pm-in"><span>Observes</span>
+              <Picker value={v.observes ?? ''} onChange={(x) => set('observes', x || null)} title="Observes"
+                      options={[{ value: '', label: 'Every team' }, ...['engineer', 'team_lead', 'coordinator', 'purchase', 'pv'].map((r) => ({ value: r, label: ROLE_NAME[r] }))]} />
             </div>
           )}
           {(v.role === 'coordinator' || v.role === 'purchase') && (
