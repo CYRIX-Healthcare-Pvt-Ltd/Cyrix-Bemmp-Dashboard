@@ -161,12 +161,14 @@ export async function uploadPhoto(folder, file) {
   if (error) throw new Error(error.message);
   return path;
 }
+/** Signed links last an hour; reused for 50 minutes, then (or when one fails to load) a fresh one is made. */
 const urls = new Map();
-export async function photoUrl(path) {
-  if (urls.has(path)) return urls.get(path);
+export async function photoUrl(path, fresh = false) {
+  const hit = urls.get(path);
+  if (!fresh && hit && Date.now() - hit.at < 50 * 60 * 1000) return hit.url;
   const { data, error } = await supabase.storage.from('qt-photos').createSignedUrl(path, 3600);
   if (error) throw new Error(error.message);
-  urls.set(path, data.signedUrl);
+  urls.set(path, { url: data.signedUrl, at: Date.now() });
   return data.signedUrl;
 }
 

@@ -273,9 +273,10 @@ function Thumb({ path, onOpen }) {
   const [url, setUrl] = useState(null);
   useEffect(() => { let on = true; photoUrl(path).then((u) => { if (on) setUrl(u); }).catch(() => {}); return () => { on = false; }; }, [path]);
   const pdf = /\.pdf$/i.test(path);
+  const retried = useRef(false);
   return (
     <button type="button" className="qt-thumb" onClick={() => url && (pdf ? window.open(url, '_blank', 'noopener') : onOpen(url))} aria-label="See the photo">
-      {pdf ? <span className="qt-thumb-pdf">PDF</span> : url ? <img src={url} alt="" /> : <span className="qt-thumb-wait" />}
+      {pdf ? <span className="qt-thumb-pdf">PDF</span> : url ? <img src={url} alt="" onError={() => { if (!retried.current) { retried.current = true; photoUrl(path, true).then(setUrl).catch(() => {}); } }} /> : <span className="qt-thumb-wait" />}
     </button>
   );
 }
@@ -359,17 +360,9 @@ function TaxChips({ value, onChange }) {
 
 /** Vendor typed, or pressed from the vendors already used. */
 function VendorInput({ value, onChange, label = 'Vendor' }) {
-  const { vendors } = useContext(QtCtx);
-  const q = (value ?? '').trim().toLowerCase();
-  const shown = vendors.filter((x) => x.toLowerCase() !== q && (!q || x.toLowerCase().includes(q))).slice(0, 5);
   return (
     <div className="pm-in"><span>{label}</span>
       <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} autoComplete="off" />
-      {shown.length > 0 && (
-        <div className="qt-chips qt-vendor-chips">
-          {shown.map((x) => <button key={x} type="button" className="qt-chip" onClick={() => onChange(x)}>{x}</button>)}
-        </div>
-      )}
     </div>
   );
 }
@@ -451,7 +444,12 @@ function CardPhoto({ path }) {
   const [url, setUrl] = useState(null);
   useEffect(() => { let on = true; if (path) photoUrl(path).then((u) => { if (on) setUrl(u); }).catch(() => {}); return () => { on = false; }; }, [path]);
   if (!path) return null;
-  return <span className="qt-card-photo">{url && <img src={url} alt="" loading="lazy" />}</span>;
+  const retried = useRef(false);
+  const retry = (e) => {
+    if (retried.current) { e.currentTarget.parentElement.style.display = 'none'; return; }
+    retried.current = true; photoUrl(path, true).then(setUrl).catch(() => {});
+  };
+  return <span className="qt-card-photo">{url && <img src={url} alt="" loading="lazy" onError={retry} />}</span>;
 }
 
 function Card({ r, targets, now, onOpen, picked, onPick, children }) {
@@ -466,6 +464,9 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
         <span className="qt-card-top"><span className="qt-no">{r.no}</span><StepBadge step={r.step} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
         <span className="qt-card-line"><span className="qt-card-step">{stepOf(r.step).label} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
+        {!r.mine && !r.done && (
+          <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
+        )}
         <span className="qt-card-foot">{r.engineer_name}{r.engineer_code ? ` (${r.engineer_code})` : ''} · {dayText(r.created_at)}</span>
         <CardPhoto path={r.photos?.find((x) => !/\.pdf$/i.test(x)) ?? r.equipment_photo} />
       </button>
@@ -604,14 +605,14 @@ function nextLabel(r) {
 
 /* ============================================================ requests == */
 
-const SHOW = [['open', 'Open'], ['done', 'Done'], ['all', 'All']];
+const SHOW = [['others', 'With others'], ['done', 'Closed'], ['all', 'All']];
 const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
 
 function Requests({ list, targets, now, period, setPeriod, onOpen }) {
   const [q, setQ] = useState('');
-  const [show, setShow] = useState('open');
+  const [show, setShow] = useState('others');
   const [step, setStep] = useState('');
   const [sort, setSort] = useState('new');
   const steps = useMemo(() => {
@@ -619,7 +620,7 @@ function Requests({ list, targets, now, period, setPeriod, onOpen }) {
     return [{ value: '', label: 'Every step' }, ...[...m.entries()].map(([k, n]) => ({ value: k, label: `${stepOf(k).label} · ${n}` }))];
   }, [list]);
   const shown = useMemo(() => {
-    const out = list.filter((r) => (show === 'all' || (show === 'done') === r.done) && (!step || r.step === step) && (!q || matches(r, q)));
+    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : !r.done && !r.mine)) && (!step || r.step === step) && (!q || matches(r, q)));
     if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
     else if (sort === 'wait') out.sort((a, b) => (clockOf(b, targets, now)?.secs ?? -1) - (clockOf(a, targets, now)?.secs ?? -1));
     else out.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -630,7 +631,7 @@ function Requests({ list, targets, now, period, setPeriod, onOpen }) {
       <PeriodBar period={period} setPeriod={setPeriod} />
       <div className="mt-filters qt-filters">
         <div className="segmented" role="tablist" aria-label="Show">
-          {SHOW.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={show === id} onClick={() => setShow(id)}>{label}</button>)}
+          {SHOW.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={show === id} onClick={() => setShow(id)}>{label}{id === 'others' ? ` · ${list.filter((r) => !r.done && !r.mine).length}` : ''}</button>)}
         </div>
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
@@ -691,7 +692,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
               </div>
               <div className="qt-sheet-col">
               {r.mine && <Facts r={r} now={now} />}
-              <Quotes r={r} />
+              <Quotes r={r} onlyPicked={me.role === 'engineer'} />
               {(r.track_photo || r.return_track_photo) && (
                 <section className="mt-card-block">
                   <span className="mt-block-label">Slips</span>
@@ -779,8 +780,22 @@ function QuoteCard({ kind, vendor, rate, tax, photo, picked, onPick, saves }) {
     : <div className="qt-quote" data-picked={picked ? 'true' : undefined}>{body}</div>;
 }
 
-function Quotes({ r, onPick }) {
+function Quotes({ r, onPick, onlyPicked }) {
   if (r.orig_rate == null && r.comp_rate == null) return null;
+  /* Engineers see only what was bought, never the other price (the user, 11 Nov). */
+  if (onlyPicked) {
+    if (!r.picked) return null;
+    const o = r.picked === 'original';
+    return (
+      <section className="mt-card-block">
+        <span className="mt-block-label">Bought</span>
+        <div className="qt-quotes">
+          <QuoteCard kind={o ? 'Original' : 'Compatible'} vendor={o ? r.orig_vendor : r.comp_vendor} rate={o ? r.orig_rate : r.comp_rate}
+                     tax={o ? r.orig_tax : r.comp_tax} photo={o ? r.orig_photo : r.comp_photo} />
+        </div>
+      </section>
+    );
+  }
   const o = r.orig_rate != null ? withTax(r.orig_rate, r.orig_tax) : null;
   const c = r.comp_rate != null ? withTax(r.comp_rate, r.comp_tax) : null;
   const save = o > 0 && c > 0 && o !== c ? { by: Math.abs(o - c), pct: Math.round((Math.abs(o - c) / Math.max(o, c)) * 100) } : null;
@@ -952,7 +967,6 @@ function RequestEdit({ v, set }) {
 const editOf = (r) => ({ equipment: r.equipment, make: r.make, model: r.model, serial: r.serial, spare: r.spare, qty: r.qty });
 
 function TlReview({ r, preset, onDone }) {
-  const [a, setA] = useState(preset === 'send_back' || preset === 'reject' ? preset : 'approve');
   const [v, setV] = useState(editOf(r));
   const [note, setNote] = useState('');
   const [ask, box] = useAsk();
@@ -960,8 +974,8 @@ function TlReview({ r, preset, onDone }) {
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const camc = (r.category ?? '').toUpperCase() === 'CAMC';
   const who = person(r.engineer_name, r.engineer_code);
-  const decline = () => {
-    if (!note.trim()) { show(a === 'send_back' ? 'Write what to correct.' : 'Write why it is rejected.'); return; }
+  const decline = (a) => {
+    if (!note.trim()) { show('Write the remarks.'); return; }
     clear();
     ask({
       title: a === 'send_back' ? `Send ${r.no} back to ${r.engineer_name}?` : `Reject ${r.no}?`,
@@ -971,27 +985,21 @@ function TlReview({ r, preset, onDone }) {
       after: () => onDone(a === 'send_back' ? `${r.no} sent back to ${r.engineer_name}.` : `${r.no} rejected.`),
     });
   };
+  /* Three buttons at the bottom, no choice above (the user, 11 Nov); remarks needed to send back or reject. */
   return (
     <>
-      <Choice value={a} onChange={(x) => { setA(x); clear(); }} options={[['approve', 'Approve', 'good', 'coordinator'], ['send_back', 'Send back', 'good', 'engineer'], ['reject', 'Reject', 'bad']]} />
-      {a === 'approve' ? (
-        <>
-          <RequestEdit v={v} set={set} />
-          <button type="button" data-role="coordinator" className="mt-go" onClick={() => ask({
-            title: `Approve ${r.no}?`, lines: [`${v.spare} × ${v.qty} · ${r.hospital}`, who, camc ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
-            run: () => tlApprove([r.id], { ...v, qty: Number(v.qty) }), after: () => onDone(`${r.no} approved.`),
-          })}>Approve</button>
-        </>
-      ) : (
-        <>
-          <Field label={a === 'send_back' ? 'What to correct' : 'Reason'} wide>
-            <textarea rows={3} value={note} onChange={(e) => { setNote(e.target.value); clear(); }} />
-          </Field>
-          <button type="button" data-role={a === 'send_back' ? 'engineer' : undefined} className={`mt-go${a === 'reject' ? ' qt-btn-bad' : ''}`} onClick={decline}>
-            {a === 'send_back' ? `Send back to ${r.engineer_name ?? 'the engineer'}` : 'Reject'}
-          </button>
-        </>
-      )}
+      <RequestEdit v={v} set={set} />
+      <Field label="Remarks" wide>
+        <textarea rows={2} value={note} autoFocus={preset === 'send_back' || preset === 'reject'} onChange={(e) => { setNote(e.target.value); clear(); }} />
+      </Field>
+      <div className="qt-three qt-tl-acts">
+        <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => decline('reject')}>Reject</button>
+        <button type="button" data-role="engineer" className="mt-btn" onClick={() => decline('send_back')}>Send back</button>
+        <button type="button" data-role="coordinator" className="mt-go" onClick={() => { clear(); ask({
+          title: `Approve ${r.no}?`, lines: [`${v.spare} × ${v.qty} · ${r.hospital}`, who, camc ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
+          run: () => tlApprove([r.id], { ...v, qty: Number(v.qty) }), after: () => onDone(`${r.no} approved.`),
+        }); }}>Approve</button>
+      </div>
       <Err text={err} at={at} />
       {box}
     </>
@@ -1033,7 +1041,7 @@ function CoordInitial({ r, onDone }) {
     <>
       <Choice value={a} onChange={setA} options={[['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Ask the Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
       {a === 'sap' && (
-        <div className="qt-grid">
+        <div className="qt-grid qt-sap">
           <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
           <VendorInput value={v.vendor} onChange={(x) => set('vendor', x)} />
           <Field label="Rate (₹)"><MoneyInput value={v.rate} onChange={(x) => set('rate', x)} placeholder="0" /></Field>
@@ -1050,7 +1058,7 @@ function CoordInitial({ r, onDone }) {
       {a === 'sap' && (
         <div className="qt-two">
           <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
-          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Go straight to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Go to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Straight to PR</button>
+          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Convert to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Convert to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Convert to PR</button>
         </div>
       )}
       <Err text={s.err} at={s.at} />
@@ -1192,7 +1200,7 @@ function Pv({ r, onDone }) {
 
 function CoordPr({ r, onDone }) {
   const [a, setA] = useState('pr');
-  const [v, setV] = useState({ pr_no: '', pr_date: todayIst(), item_code: r.item_code ?? '', approved_qty: r.qty, quote: '', quote_submitted: '', quote_approved: '', note: '' });
+  const [v, setV] = useState({ pr_no: '', pr_date: '', item_code: r.item_code ?? '', approved_qty: r.qty, quote: '', quote_submitted: '', quote_approved: '', note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   /** Straight to PR with both quotes: no PV pick, so the Coordinator picks; compatible by default (the user, 11 Nov; 0025). */
@@ -1236,7 +1244,7 @@ function CoordPr({ r, onDone }) {
         </div>
       )}
       <Field label={a === 'pr' || a === 'quotation' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
-      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.'], ...quoteNeed]) && datesOk() && s.go(`Raise PR ${v.pr_no || ''} for ${r.no}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Raise PR', p, `PR raised for ${r.no}.`)}>Raise PR</button>}
+      {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.'], ...quoteNeed]) && datesOk() && s.go(`Request PO for ${r.no}${v.pr_no ? ` · PR ${v.pr_no}` : ''}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Request PO', p, `PO requested for ${r.no}.`)}>Request PO</button>}
       {a === 'quotation' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go(`Close ${r.no} as quotation only?`, [person(r.engineer_name, r.engineer_code)], 'Close', p, `${r.no} closed as quotation only.`)}>Quotation only</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
@@ -1277,7 +1285,7 @@ function SendBy({ v, set, folder }) {
 
 function PurchaseDispatch({ r, onDone }) {
   const [a, setA] = useState('dispatch');
-  const [v, setV] = useState({ po_no: r.po_no ?? '', po_date: r.po_date ?? todayIst(), vendor: r.vendor ?? (r.picked === 'original' ? r.orig_vendor : r.comp_vendor) ?? '', item_code: r.item_code ?? '', track_mode: '', track_no: '', photo: '', note: '' });
+  const [v, setV] = useState({ po_no: r.po_no ?? '', po_date: r.po_date ?? '', vendor: r.vendor ?? (r.picked === 'original' ? r.orig_vendor : r.comp_vendor) ?? '', item_code: r.item_code ?? '', track_mode: '', track_no: '', photo: '', note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const p = { ...v, action: a };
@@ -1330,16 +1338,13 @@ function CoordDecide({ r, onDone }) {
   );
 }
 
+/** A plain number box, no − / + (the user, 11 Nov); never below 0 or above max. */
 function Stepper({ label, value, onChange, max }) {
-  const n = Number(value) || 0;
   return (
-    <div className="pm-in qt-stepper"><span>{label}</span>
-      <div className="qt-stepper-row">
-        <button type="button" className="mt-btn" onClick={() => onChange(Math.max(0, n - 1))} aria-label={`Less ${label}`}>−</button>
-        <input type="number" inputMode="numeric" min="0" value={value} onChange={(e) => onChange(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} />
-        <button type="button" className="mt-btn" onClick={() => onChange(max != null ? Math.min(max, n + 1) : n + 1)} aria-label={`More ${label}`}>+</button>
-      </div>
-    </div>
+    <Field label={label}>
+      <input type="number" inputMode="numeric" min="0" max={max ?? undefined} value={value}
+             onChange={(e) => onChange(e.target.value === '' ? '' : Math.max(0, Math.min(max ?? Infinity, Math.floor(Number(e.target.value)))))} />
+    </Field>
   );
 }
 
@@ -1348,7 +1353,8 @@ function Receipt({ r, onDone }) {
   const repl = r.step === 'receipt' && r.faulty_qty > 0;
   const obs = r.step === 'observation';
   const expect = repl ? r.faulty_qty : (r.approved_qty ?? r.qty);
-  const [v, setV] = useState({ received: obs ? 0 : expect, used: 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false });
+  const left = obs ? r.received_qty - r.used_qty - r.faulty_qty : 0;
+  const [v, setV] = useState({ received: obs ? 0 : expect, used: obs ? left : 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const room = Number(v.received || 0) + (obs ? r.received_qty - r.used_qty - r.faulty_qty : 0);
@@ -1357,24 +1363,20 @@ function Receipt({ r, onDone }) {
   return (
     <>
       {repl && <p className="qt-question">Replacement for {r.faulty_qty} faulty.</p>}
-      {!obs && expect > 0 && (
-        <button type="button" data-role="engineer" className="mt-btn qt-all-in" onClick={() => s.go(`All ${expect} received and used?`,
-          [`${expect} received · ${expect} used · 0 faulty`, `Received on ${dayText(v.date)}`, 'The request is completed.'], 'Confirm',
-          { ...p, received: expect, used: expect, faulty: 0, observe: false }, `Receipt of ${r.no} confirmed.`)}>
-          <Icon d={I.check} size={18} /> All {expect} received, all used
-        </button>
-      )}
       {obs && <p className="qt-question">{r.received_qty - r.used_qty - r.faulty_qty} under observation.</p>}
       <div className="qt-grid is-three">
-        {!obs && <Stepper label="Received" value={v.received} onChange={(x) => set('received', x)} />}
-        <Stepper label="Used" value={v.used} onChange={(x) => set('used', x)} />
-        <Stepper label="Faulty" value={v.faulty} onChange={(x) => set('faulty', x)} />
+        {!obs && <Stepper label="Received" value={v.received} max={expect} onChange={(x) => setV((o) => {
+          const got = Number(x || 0); const used = Math.min(Number(o.used || 0), got);
+          return { ...o, received: x, used, faulty: Math.min(Number(o.faulty || 0), got - used) };
+        })} />}
+        {!v.observe && <Stepper label="Used" value={v.used} max={Math.max(0, room - Number(v.faulty || 0))} onChange={(x) => set('used', x)} />}
+        <Stepper label="Faulty" value={v.faulty} max={Math.max(0, room - Number(v.used || 0))} onChange={(x) => set('faulty', x)} />
       </div>
       {Number(v.faulty) > 0 && <Choice value={v.faulty_kind} onChange={(x) => set('faulty_kind', x)} options={[['Faulty', 'Faulty', 'bad'], ['Mismatch', 'Mismatch', 'bad']]} />}
       {!obs && <Field label="Received on"><input type="date" value={v.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>}
       <Field label="Remarks" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
       {!Number(v.faulty) && !obs && (
-        <label className="qt-check"><input type="checkbox" checked={v.observe} onChange={(e) => set('observe', e.target.checked)} /> Keep under observation</label>
+        <label className="qt-check"><input type="checkbox" checked={v.observe} onChange={(e) => setV((o) => ({ ...o, observe: e.target.checked, used: e.target.checked ? 0 : o.used }))} /> Keep under observation</label>
       )}
       {over && <p className="mt-err qt-err">Used and faulty together cannot be more than {room}.</p>}
       <button type="button" data-role={Number(v.faulty) ? 'purchase' : 'engineer'} className="mt-go" disabled={over} onClick={() => s.go(`Confirm receipt of ${r.no}?`,
@@ -1454,6 +1456,16 @@ function HospitalPick({ facilities, value, onChange, bad }) {
   const { recent } = useContext(QtCtx);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  /* Esc or a press outside closes the list (the user, 11 Nov). */
+  useEffect(() => {
+    if (!open) return undefined;
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('pointerdown', out);
+    document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc, true); };
+  }, [open]);
   const f = facilities.find((x) => x.id === value);
   const mineFirst = useMemo(() => {
     const at = new Map(recent.map((id, i) => [id, i]));
@@ -1467,7 +1479,7 @@ function HospitalPick({ facilities, value, onChange, bad }) {
     </button></li>
   );
   return (
-    <div className="pm-in qt-hosp"><span>Hospital</span>
+    <div className="pm-in qt-hosp" ref={box}><span>Hospital</span>
       {f && !open ? (
         <button type="button" className="qt-hosp-picked" onClick={() => setOpen(true)}>
           <strong>{f.name}</strong><span>{[f.district, f.state, f.category].filter(Boolean).join(' · ')}</span>
@@ -1613,7 +1625,7 @@ function RaiseForm({ me, onDone }) {
 function StockForm({ onDone }) {
   const [people, setPeople] = useState([]);
   const [facilities, setFacilities] = useState([]);
-  const [v, setV] = useState({ stakeholder_id: '', facility_id: '', address: '', pr_no: '', pr_date: todayIst() });
+  const [v, setV] = useState({ stakeholder_id: '', facility_id: '', address: '', pr_no: '', pr_date: '' });
   const [spares, setSpares] = useState([{ ...blankSpare(), item_code: '' }]);
   const [token] = useState(uuid);
   const [ask, box] = useAsk();
