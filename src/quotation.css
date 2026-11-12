@@ -711,3 +711,20 @@ button.qt-tile:hover { border-color: var(--k); }
 :root .qt-app .qt-card > .mt-go:not(.qt-btn-bad):not(:disabled):hover, :root .qt-app .qt-card-acts > .mt-go:not(.qt-btn-bad):not(:disabled):hover {
   background: var(--role, var(--ink)); color: var(--role-ink, #fff) !important; filter: none;
 }
+
+/* Phone: the bell and the module pill share the row under the header; the pill takes what the bell leaves,
+   not the whole width, or the page pans sideways on iPhone (the user, 12 Nov). */
+.project-row .qt-head-right { width: 100%; min-width: 0; }
+.project-row .qt-head-right .project-switch { flex: 1 1 auto; width: auto; min-width: 0; }
+
+/* Requests views: a dropdown on a phone instead of the sideways-scrolling row (the user, 12 Nov: option C). */
+.qt-views-pick { display: none; }
+@media (max-width: 700px) { .qt-views { display: none; } .qt-views-pick { display: block; } }
+.qt-view-opt { display: inline-flex; align-items: center; gap: 8px; }
+.qt-view-opt i { width: 8px; height: 8px; border-radius: 50%; background: var(--v); flex: none; }
+.qt-view-opt b { font-weight: 700; opacity: .55; }
+.qt-view-opt[data-view="accept"] { --v: #f59e0b; }
+.qt-view-opt[data-view="mine"], .qt-view-opt[data-view="open"] { --v: #3b82f6; }
+.qt-view-opt[data-view="others"] { --v: #8b5cf6; }
+.qt-view-opt[data-view="done"] { --v: #22c55e; }
+.qt-view-opt[data-view="all"] { --v: #94a3b8; }

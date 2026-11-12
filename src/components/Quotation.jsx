@@ -612,6 +612,11 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
                   onClick={() => setView(id)}><i aria-hidden="true" />{label}{n != null ? <b> {n}</b> : null}</button>
         ))}
       </div>
+      {/* Phone: one dropdown, so no view hides past the edge (the user, 12 Nov: option C). */}
+      <div className="qt-views-pick">
+        <Picker value={v} title="Requests" onChange={setView}
+                options={views.map(([id, label, n]) => ({ value: id, label: <span className="qt-view-opt" data-view={id}><i aria-hidden="true" />{label}{n != null ? <b> · {n}</b> : null}</span> }))} />
+      </div>
       {v === 'accept' || v === 'mine'
         ? <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} />
         : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} />}
