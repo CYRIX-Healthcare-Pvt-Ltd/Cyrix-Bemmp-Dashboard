@@ -2098,6 +2098,12 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
       <span>{label}</span><b>{n}</b><small>{sub}</small>
     </button>
   );
+  // Your work now (the user, 12 Nov: the old tracker was easier; say what waits for me first): to accept, and accepted to finish.
+  const work = useMemo(() => {
+    const mine = list.filter((r) => r.mine && !r.done);
+    const wait = mine.filter((r) => !r.accepted_at && !NO_ACCEPT.has(r.step));
+    return { accept: wait.length, doing: mine.length - wait.length };
+  }, [list]);
   const tot = useMemo(() => {
     const closed = list.filter((r) => r.done).length; const all = list.length;
     return { all, closed, open: all - closed, pct: all ? Math.round((closed / all) * 100) : null };
@@ -2114,6 +2120,23 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
         <button type="button" className="mt-btn mt-btn-primary pm-excel" onClick={excel} disabled={busy}><Icon d={I.down} size={17} /> {busy ? 'Preparing…' : 'Excel'}</button>
         {err && <span className="mt-err pm-excel-err" role="alert">{err}</span>}
       </PeriodBar>
+      {!watcher && (
+        <section className="panel mt-panel qt-work-now">
+          <h3 className="qt-panel-h">Your work now</h3>
+          <div className="qt-work-tiles">
+            <div className="qt-work-tile" data-k="accept" data-on={work.accept ? 'true' : undefined}>
+              <span className="qt-work-l"><Icon d={I.hourglass} size={14} />To accept</span>
+              <b>{work.accept}</b>
+              <button type="button" className="mt-btn qt-work-go" onClick={() => onGo('accept')}>{work.accept ? 'Accept now' : 'Open'}</button>
+            </div>
+            <div className="qt-work-tile" data-k="mine">
+              <span className="qt-work-l"><Icon d={I.check} size={14} />With you</span>
+              <b>{work.doing}</b>
+              <button type="button" className="mt-btn qt-work-go" onClick={() => onGo('mine')}>Open</button>
+            </div>
+          </div>
+        </section>
+      )}
       {!p ? <div className="loader" aria-hidden="true" /> : (
         <>
           {pid !== me.id && <p className="qt-dash-who" data-role={sel?.role ?? role ?? undefined}>{pid === 'all' ? (role ? `${ROLE_NAME[role]} team` : 'Everybody') : `${sel?.name ?? ''} · ${ROLE_NAME[sel?.role] ?? ''}`}</p>}
@@ -2138,6 +2161,9 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
               <h3 className="qt-panel-h">Pending by status</h3>
               <div className="qt-dash-chips">
                 {p.byStatus.map(([k, v]) => <span key={k} className="qt-dash-chip" data-tone={v.tone}>{k}<b>{v.n}</b></span>)}
+                {pid === me.id && work.accept > 0 && (
+                  <button type="button" className="qt-pending-chip qt-dash-accept" onClick={() => onGo('accept')}><Icon d={I.hourglass} size={13} />{work.accept} to accept</button>
+                )}
               </div>
             </section>
           )}
