@@ -25,7 +25,7 @@ import '../quotation.css';
 
 const PERIODS = [['month', 'This month'], ['all', 'All time'], ['custom', 'Custom']];
 const SEND_BY = ['Courier', 'Transport', 'Post', 'By hand'];
-const TAXES = [0, 5, 12, 18, 28];
+const TAXES = [0, 5, 18]; // 12 and 28 not used (the user, 12 Nov)
 const PV_ABOVE = 40000;
 /** What every form may want from the app: past vendors, recent hospitals, who is signed in. */
 const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false });
@@ -343,7 +343,7 @@ function MoneyInput({ value, onChange, ...rest }) {
   );
 }
 
-/** Tax % as one row of presses: 0 · 5 · 12 · 18 · 28. */
+/** Tax % as one row of presses: 0 · 5 · 18. */
 function TaxChips({ value, onChange }) {
   return (
     <div className="pm-in"><span>Tax %</span>
