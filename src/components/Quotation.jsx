@@ -1123,7 +1123,7 @@ function CoordInitial({ r, onDone }) {
   const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax) };
   return (
     <>
-      <Choice value={a} onChange={setA} options={[['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Ask the Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
+      <Choice value={a} onChange={setA} options={[['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
       {a === 'sap' && (
         <div className="qt-grid qt-sap">
           <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
@@ -1137,7 +1137,7 @@ function CoordInitial({ r, onDone }) {
         <textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} />
       </Field>
       {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
-      {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Ask the Team Lead about ${r.no}?`, [r.team_lead_name, v.note], 'Ask', p, `Question sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Ask the Team Lead</button>}
+      {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}
       {a === 'close' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Close ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Close', p, `${r.no} closed.`, 'bad')}>Close the request</button>}
       {a === 'sap' && (
         <div className="qt-two">
@@ -1205,7 +1205,7 @@ function PurchaseRates({ r, onDone }) {
   });
   const [a, setA] = useState('rates');
   const stock = r.kind === 'stock';
-  const [quotes, setQuotes] = useState(stock ? 'compatible' : r.orig_rate != null && r.comp_rate == null ? 'original' : r.comp_rate != null && r.orig_rate == null && !r.sap ? 'compatible' : 'both');
+  const [quotes, setQuotes] = useState(stock ? 'compatible' : 'both');
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const num = (x) => (x === '' || x == null ? null : Number(x));
@@ -1229,20 +1229,20 @@ function PurchaseRates({ r, onDone }) {
     <>
       {back && <p className="qt-question"><b>PV asks to revise:</b> {back.note}</p>}
       {r.sap && <Quotes r={r} />}
-      <Choice value={a} onChange={setA} options={[['rates', 'Give rates', 'good', 'purchase'], ...(r.sap ? [['approve_sap', 'Approve SAP rate', 'good', 'coordinator']] : []), ['ask', 'Ask the Coordinator', 'good', 'coordinator']]} />
+      <Choice value={a} onChange={setA} options={[['rates', 'Give rates', 'good', 'purchase'], ...(r.sap ? [['approve_sap', 'SAP rate ok', 'good', 'coordinator']] : []), ['ask', 'Clarify with Coordinator', 'good', 'coordinator']]} />
       {a === 'rates' && (
         <>
           {!stock && (
             <div className="pm-in"><span>Quotes</span>
               <div className="qt-send-chips" role="radiogroup" aria-label="Quotes">
-                {[['both', 'Both'], ['original', 'Original only'], ['compatible', 'Compatible only']].map(([id, label]) => (
+                {[['both', 'Both'], ['original', r.sap ? 'SAP rate only' : 'Original only'], ['compatible', 'Compatible only']].map(([id, label]) => (
                   <button key={id} type="button" role="radio" aria-checked={quotes === id} onClick={() => setQuotes(id)}>{label}</button>
                 ))}
               </div>
             </div>
           )}
           <div className="qt-quotes">
-            {hasO && <QuoteInputs title="Original" folder={r.id} v={v} set={set} prefix="orig" />}
+            {hasO && <QuoteInputs title={r.sap ? 'SAP · original' : 'Original'} folder={r.id} v={v} set={set} prefix="orig" />}
             {hasC && <QuoteInputs title={stock ? 'Price' : 'Compatible'} folder={r.id} v={v} set={set} prefix="comp" />}
           </div>
           <div className="qt-grid is-two">
@@ -1256,10 +1256,10 @@ function PurchaseRates({ r, onDone }) {
         ? <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the price to the Coordinator?', [line], 'Send', { ...p, action: 'rates' }, `${r.no} is at PR.`)}>Send price</button>
         : toPv
           ? <button type="button" data-role="pv" className="mt-go" onClick={() => send('Send the rates to PV?', [line], 'Send', { ...p, action: 'rates' }, `${r.no} sent to PV.`)}>Send to PV</button>
-          : <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the rates straight to PR?', [line], 'Send to PR', { ...p, action: 'rates_pr' }, `${r.no} is at PR.`)}>Send to PR</button>
+          : <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the rates to the Coordinator?', [line], 'Send', { ...p, action: 'rates_pr' }, `${r.no} sent to the Coordinator.`)}>Send to Coordinator</button>
       )}
-      {a === 'approve_sap' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go('Approve the SAP rate?', [`${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}`], 'Approve', { action: 'approve_sap', note: v.note }, `${r.no} is at PR.`)}>Approve SAP rate</button>}
-      {a === 'ask' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Ask the Coordinator about ${r.no}?`, [v.note], 'Ask', { action: 'ask', note: v.note }, 'Question sent to the Coordinator.')}>Ask the Coordinator</button>}
+      {a === 'approve_sap' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go('SAP rate ok?', [`${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}`], 'SAP rate ok', { action: 'approve_sap', note: v.note }, `SAP rate ok. ${r.no} sent to the Coordinator.`)}>SAP rate ok</button>}
+      {a === 'ask' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Coordinator?`, [v.note], 'Send', { action: 'ask', note: v.note }, 'Sent to the Coordinator.')}>Clarify with Coordinator</button>}
       <Err text={s.err} at={s.at} />
       {s.box}
     </>

@@ -372,7 +372,7 @@
 [data-tone='pink']   { --tone: #db2777; }
 
 /* A button takes the colour of the role it sends the request to (the user, 11 Nov):
-   "Ask the Team Lead" blue, "Ask Purchase for rates" teal, "Send to PV" pink. */
+   "Clarify with Team Lead" blue, "Ask Purchase for rates" teal, "Send to PV" pink. */
 .qt-app .mt-go[data-role]:not(.qt-btn-bad) { background: var(--role); color: var(--role-ink); box-shadow: 0 10px 24px -12px var(--role); }
 .qt-app .pm-choice[data-role]:not([aria-pressed='true']):hover { border-color: var(--role); color: var(--role-text, var(--role)); }
 .qt-app .mt-btn[data-role]:not(.qt-btn-line-bad) { color: var(--role-text, var(--role)); border-color: color-mix(in srgb, var(--role) 55%, var(--border)); }
