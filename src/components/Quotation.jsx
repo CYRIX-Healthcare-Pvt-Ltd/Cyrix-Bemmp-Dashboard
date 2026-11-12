@@ -2282,7 +2282,7 @@ function PersonEdit({ p, tls, onClose, onDone }) {
           {v.role === 'engineer' && (
             <div className="pm-in"><span>Team Lead</span>
               <Picker value={v.team_lead_ecode} onChange={(x) => set('team_lead_ecode', x)} title="Team Lead"
-                      options={[{ value: '', label: 'Choose the Team Lead' }, ...tls.map((t) => ({ value: t.ecode, label: `${t.name} (${t.ecode})` }))]} />
+                      options={[{ value: '', label: 'Reporting manager' }, ...tls.map((t) => ({ value: t.ecode, label: `${t.name} (${t.ecode})` }))]} />
             </div>
           )}
           {v.role === 'observer' && (
