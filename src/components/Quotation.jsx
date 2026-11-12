@@ -1235,14 +1235,14 @@ function PurchaseRates({ r, onDone }) {
           {!stock && (
             <div className="pm-in"><span>Quotes</span>
               <div className="qt-send-chips" role="radiogroup" aria-label="Quotes">
-                {[['both', 'Both'], ['original', r.sap ? 'SAP rate only' : 'Original only'], ['compatible', 'Compatible only']].map(([id, label]) => (
+                {[['both', 'Both'], ['original', 'Original only'], ['compatible', 'Compatible only']].map(([id, label]) => (
                   <button key={id} type="button" role="radio" aria-checked={quotes === id} onClick={() => setQuotes(id)}>{label}</button>
                 ))}
               </div>
             </div>
           )}
           <div className="qt-quotes">
-            {hasO && <QuoteInputs title={r.sap ? 'SAP · original' : 'Original'} folder={r.id} v={v} set={set} prefix="orig" />}
+            {hasO && <QuoteInputs title="Original" folder={r.id} v={v} set={set} prefix="orig" />}
             {hasC && <QuoteInputs title={stock ? 'Price' : 'Compatible'} folder={r.id} v={v} set={set} prefix="comp" />}
           </div>
           <div className="qt-grid is-two">
