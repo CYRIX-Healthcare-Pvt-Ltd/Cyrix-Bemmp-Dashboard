@@ -179,6 +179,25 @@ function acceptBy(r, pools) {
 }
 const orNames = (xs) => (xs.length <= 1 ? xs[0] ?? '' : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
 
+// A number that counts up to its value, and again whenever it changes (the user, 12 Nov: "make dynamic").
+function CountUp({ n }) {
+  const [v, setV] = useState(0);
+  const from = useRef(0);
+  useEffect(() => {
+    const a = from.current, b = n ?? 0;
+    if (a === b || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { from.current = b; setV(b); return undefined; }
+    let raf; const t0 = performance.now(), dur = 600;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      const x = Math.round(a + (b - a) * e); from.current = x; setV(x);
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [n]);
+  return <span key={n} className="qt-count">{v}</span>;
+}
+
 function PendingChip({ r, now, withRole }) {
   if (!acceptPending(r)) return null;
   const since = r.step_since ? new Date(r.step_since).getTime() : null;
@@ -2095,7 +2114,7 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
   const VIEW = { total: 'all', closed: 'done', open: watcher ? 'open' : pid === me.id ? null : 'others' };
   const Tile = ({ k, id, label, n, sub }) => (
     <button type="button" className="qt-tile" data-k={k} onClick={() => onGo(VIEW[id])}>
-      <span>{label}</span><b>{n}</b><small>{sub}</small>
+      <span>{label}</span><b><CountUp n={n} /></b><small>{sub}</small>
     </button>
   );
   // Your work now (the user, 12 Nov: the old tracker was easier; say what waits for me first): to accept, and accepted to finish.
@@ -2124,16 +2143,14 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
         <section className="panel mt-panel qt-work-now">
           <h3 className="qt-panel-h">Your work now</h3>
           <div className="qt-work-tiles">
-            <div className="qt-work-tile" data-k="accept" data-on={work.accept ? 'true' : undefined}>
+            <button type="button" className="qt-work-tile" data-k="accept" data-on={work.accept ? 'true' : undefined} onClick={() => onGo('accept')}>
               <span className="qt-work-l"><Icon d={I.hourglass} size={14} />To accept</span>
-              <b>{work.accept}</b>
-              <button type="button" className="mt-btn qt-work-go" onClick={() => onGo('accept')}>{work.accept ? 'Accept now' : 'Open'}</button>
-            </div>
-            <div className="qt-work-tile" data-k="mine">
+              <b><CountUp n={work.accept} /></b>
+            </button>
+            <button type="button" className="qt-work-tile" data-k="mine" data-on={work.doing ? 'true' : undefined} onClick={() => onGo('mine')}>
               <span className="qt-work-l"><Icon d={I.check} size={14} />With you</span>
-              <b>{work.doing}</b>
-              <button type="button" className="mt-btn qt-work-go" onClick={() => onGo('mine')}>Open</button>
-            </div>
+              <b><CountUp n={work.doing} /></b>
+            </button>
           </div>
         </section>
       )}
@@ -2146,7 +2163,7 @@ function Dashboard({ me, list, targets, period, setPeriod, onToast, onGo }) {
               <Tile k="handled" id="total" label="Total" n={tot.all} sub="requests" />
               <Tile k="done" id="closed" label="Closed" n={tot.closed} sub="requests" />
               <Tile k="pending" id="open" label="Open" n={tot.open} sub="requests" />
-              <div className="qt-tile" data-k="pct" data-tone={pctTone(tot.pct)}><span>Completed</span><b>{tot.pct == null ? '—' : `${tot.pct}%`}</b><small>{tot.closed} of {tot.all}</small></div>
+              <div className="qt-tile" data-k="pct" data-tone={pctTone(tot.pct)}><span>Completed</span><b>{tot.pct == null ? '—' : <><CountUp n={tot.pct} />%</>}</b><small>{tot.closed} of {tot.all}</small></div>
             </div>
           ) : (
             <div className="qt-dash-tiles">
