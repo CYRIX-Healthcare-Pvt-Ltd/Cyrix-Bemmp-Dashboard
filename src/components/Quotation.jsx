@@ -665,7 +665,7 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   const v = view ?? (watcher ? 'open' : nWait ? 'accept' : 'mine'); // To accept when anything waits, else With you (the user, 11 Nov)
   const views = watcher
     ? [['open', 'Open', nOpen], ['done', 'Closed'], ['all', 'All']]
-    : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ...(split ? [['team', me.role === 'coordinator' ? 'With Coordinators' : 'With Purchase', nTeam]] : []), ['others', 'With others', nOthers]];
+    : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ...(split ? [['team', me.role === 'coordinator' ? 'With Coordinators' : 'With Purchase', nTeam]] : []), ['others', 'With others', nOthers], ['done', 'Closed'], ['all', 'All']];
   /* Phone: one dropdown, so no view hides past the edge (the user, 12 Nov: option C); beside Sort where there is one. */
   const pick = (
     <Picker value={v} title="Requests" onChange={setView}
@@ -699,29 +699,36 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
   const [role, setRole] = useState('');
   // Pending with a role (the user, 11 Nov): open requests by the role they now wait with.
   const roleOf = roleOfReq;
+  // The filters count only what this tab shows (the user, 12 Nov: With Purchase listed every role).
+  const inView = (r) => show === 'all' || (show === 'done' ? r.done : show === 'open' ? !r.done
+    : !r.done && !r.mine && (show === 'team' ? roleOf(r) === myRole : !myRole || roleOf(r) !== myRole));
+  const base = useMemo(() => list.filter(inView),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [list, show, myRole]);
+  useEffect(() => { setRole(''); setStep(''); }, [show]);
   const roles = useMemo(() => {
-    const m = new Map(); for (const r of list) if (!r.done && roleOf(r)) m.set(roleOf(r), (m.get(roleOf(r)) ?? 0) + 1);
+    const m = new Map(); for (const r of base) if (!r.done && roleOf(r)) m.set(roleOf(r), (m.get(roleOf(r)) ?? 0) + 1);
     return [{ value: '', label: 'Pending with anyone' }, ...ROLE_ORDER.filter((k) => m.has(k)).map((k) => ({ value: k, label: `${ROLE_NAME[k]} · ${m.get(k)}` }))];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list]);
+  }, [base]);
   const steps = useMemo(() => {
-    const m = new Map(); for (const r of list) m.set(r.step, (m.get(r.step) ?? 0) + 1);
+    const m = new Map(); for (const r of base) m.set(r.step, (m.get(r.step) ?? 0) + 1);
     return [{ value: '', label: 'Every step' }, ...[...m.entries()].map(([k, n]) => ({ value: k, label: `${stepOf(k).label} · ${n}` }))];
-  }, [list]);
+  }, [base]);
   const shown = useMemo(() => {
-    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : show === 'open' ? !r.done : !r.done && !r.mine && (show === 'team' ? roleOf(r) === myRole : !myRole || roleOf(r) !== myRole))) && (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
+    const out = base.filter((r) => (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
     if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
     else if (sort === 'wait') out.sort((a, b) => (clockOf(b, targets, now)?.secs ?? -1) - (clockOf(a, targets, now)?.secs ?? -1));
     else out.sort((a, b) => b.created_at.localeCompare(a.created_at));
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, show, step, role, q, sort, targets, now]);
+  }, [base, step, role, q, sort, targets, now]);
   return (
     <div className="mt-tickets qt-requests">
       {viewPick && <div className="qt-view-sort">{viewPick}<Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></div>}
       <div className="mt-filters qt-filters">
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
-        <Picker value={role} options={roles} onChange={setRole} title="Pending with" />
+        {roles.length > 2 && <Picker value={role} options={roles} onChange={setRole} title="Pending with" />}
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
         <span className="qt-sort-wide"><Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></span>
       </div>
