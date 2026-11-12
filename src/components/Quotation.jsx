@@ -6,7 +6,7 @@ import { ProjectMasthead } from './ProjectHome.jsx';
 import { supabase } from '../data/supabase.js';
 import {
   loadList, loadOne, loadFacilities, loadEquipmentAt, loadPeople, loadTargets, loadEvents,
-  raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, consume, resume, act,
+  raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person,
@@ -92,7 +92,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
   useEffect(() => {
     loadPeople().then((x) => {
       const m = {};
-      for (const p of x ?? []) if (p.active) (m[p.role] ??= []).push({ name: p.name, test: /- *test/i.test(p.name ?? '') });
+      for (const p of x ?? []) if (p.active) (m[p.role] ??= []).push({ id: p.employee_id, name: p.name, test: /- *test/i.test(p.name ?? '') });
       setPools(m);
     }).catch(() => {});
   }, []);
@@ -156,6 +156,7 @@ const Icon = ({ d, size = 18 }) => (
 const I = {
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  swap: <><path d="M4 8h13l-3.5-3.5" /><path d="M20 16H7l3.5 3.5" /></>,
   hourglass: <><path d="M7 4h10M7 20h10" /><path d="M8 4c0 4 8 4 8 8s-8 4-8 8M16 4c0 4-8 4-8 8s8 4 8 8" /></>,
   camera: <><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" /><circle cx="12" cy="13" r="3.2" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
@@ -165,6 +166,9 @@ const I = {
   back: <path d="M15 5l-7 7 7 7" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
 };
+
+/** The role a request now waits with (a stock return goes to the Coordinator). */
+const roleOfReq = (r) => (r.step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(r.step));
 
 /** Nobody has accepted the step yet (the user, 12 Nov). */
 const acceptPending = (r) => !r.done && !r.accepted_at && !NO_ACCEPT.has(r.step) && Boolean(roleOfStep(r.step));
@@ -519,6 +523,7 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
           ? <span className="qt-card-with">Waiting for <b>{orNames(acceptBy(r, pools)) || stepOf(r.step).who}</b> to accept</span>
           : <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
         )}
+        {r.transferred_from_name && !r.done && <span className="qt-card-moved"><Icon d={I.swap} size={12} />Transferred from {r.transferred_from_name}</span>}
         <span className="qt-card-foot">{r.engineer_name}{r.engineer_code ? ` (${r.engineer_code})` : ''} · {dayText(r.created_at)}</span>
         <CardPhoto path={r.photos?.find((x) => !/\.pdf$/i.test(x)) ?? r.equipment_photo} />
       </button>
@@ -649,14 +654,18 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   const isWaiting = (r) => !r.accepted_at && !NO_ACCEPT.has(r.step);
   const nWait = mine.filter(isWaiting).length;
   const nWork = mine.length - nWait;
-  const nOthers = list.filter((r) => !r.done && !r.mine).length;
+  // A Coordinator or Purchase person sees the role's own apart from everybody else's (the user, 12 Nov).
+  const split = me.role === 'coordinator' || me.role === 'purchase';
+  const inRole = (r) => split && roleOfReq(r) === me.role;
+  const nTeam = list.filter((r) => !r.done && !r.mine && inRole(r)).length;
+  const nOthers = list.filter((r) => !r.done && !r.mine && !inRole(r)).length;
   // An observer (or a viewer) never holds a request: Open · Closed · All only (the user, 11 Nov).
   const watcher = me.role === 'observer' || me.role === 'viewer';
   const nOpen = list.filter((r) => !r.done).length;
   const v = view ?? (watcher ? 'open' : nWait ? 'accept' : 'mine'); // To accept when anything waits, else With you (the user, 11 Nov)
   const views = watcher
     ? [['open', 'Open', nOpen], ['done', 'Closed'], ['all', 'All']]
-    : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
+    : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ...(split ? [['team', me.role === 'coordinator' ? 'With Coordinators' : 'With Purchase', nTeam]] : []), ['others', 'With others', nOthers]];
   /* Phone: one dropdown, so no view hides past the edge (the user, 12 Nov: option C); beside Sort where there is one. */
   const pick = (
     <Picker value={v} title="Requests" onChange={setView}
@@ -674,7 +683,7 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
       {v === 'accept' || v === 'mine'
         ? <><div className="qt-views-pick">{pick}</div>
             <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} /></>
-        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} />}
+        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} myRole={split ? me.role : null} />}
     </div>
   );
 }
@@ -683,13 +692,13 @@ const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
 
-function Requests({ list, targets, now, onOpen, show, viewPick }) {
+function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
   const [q, setQ] = useState('');
   const [step, setStep] = useState('');
   const [sort, setSort] = useState('new');
   const [role, setRole] = useState('');
   // Pending with a role (the user, 11 Nov): open requests by the role they now wait with.
-  const roleOf = (r) => (r.step === 'return_dispatch' && r.kind === 'stock' ? 'coordinator' : roleOfStep(r.step));
+  const roleOf = roleOfReq;
   const roles = useMemo(() => {
     const m = new Map(); for (const r of list) if (!r.done && roleOf(r)) m.set(roleOf(r), (m.get(roleOf(r)) ?? 0) + 1);
     return [{ value: '', label: 'Pending with anyone' }, ...ROLE_ORDER.filter((k) => m.has(k)).map((k) => ({ value: k, label: `${ROLE_NAME[k]} · ${m.get(k)}` }))];
@@ -700,7 +709,7 @@ function Requests({ list, targets, now, onOpen, show, viewPick }) {
     return [{ value: '', label: 'Every step' }, ...[...m.entries()].map(([k, n]) => ({ value: k, label: `${stepOf(k).label} · ${n}` }))];
   }, [list]);
   const shown = useMemo(() => {
-    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : show === 'open' ? !r.done : !r.done && !r.mine)) && (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
+    const out = list.filter((r) => (show === 'all' || (show === 'done' ? r.done : show === 'open' ? !r.done : !r.done && !r.mine && (show === 'team' ? roleOf(r) === myRole : !myRole || roleOf(r) !== myRole))) && (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
     if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
     else if (sort === 'wait') out.sort((a, b) => (clockOf(b, targets, now)?.secs ?? -1) - (clockOf(a, targets, now)?.secs ?? -1));
     else out.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -752,8 +761,12 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
             {r && <span className="qt-card-top"><StepBadge r={r} /><PendingChip r={r} withRole />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
             <h2>{r?.no ?? ' '}{r?.ref_no && <small className="qt-ref">{r.ref_no}</small>}</h2>
             {r && <p>{r.spare} × {r.approved_qty ?? r.qty}{r.hospital ? ` · ${r.hospital}` : ''}</p>}
+            {r?.transferred_from_name && !r.done && <span className="qt-card-moved"><Icon d={I.swap} size={12} />Transferred from {r.transferred_from_name}</span>}
           </div>
-          <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close"><Icon d={I.x} size={20} /></button>
+          <div className="qt-sheet-acts">
+            <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close"><Icon d={I.x} size={20} /></button>
+            {r && <Transfer r={r} me={me} onDone={changed} />}
+          </div>
         </header>
         <div className="mt-sheet-body">
           {r === undefined ? <div className="loader" aria-hidden="true" /> : r === null ? <p>This request is not one you can see.</p> : (
@@ -1003,7 +1016,7 @@ function Timeline({ r, now, onDone }) {
               <span className="qt-tl-dot" />
               {gap !== null && <span className="qt-tl-gap" data-long={gap >= 86400000 ? 'true' : undefined} title={`${gapWords(gap)} to the next step`}>{gapLabel(gap)}</span>}
               <div className="qt-tl-text">
-                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action === 'accept' && STEPS[e.step]?.who ? ` · ${STEPS[e.step].who}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
+                <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.action === 'transfer' ? ` · ${e.by_name ?? ''} → ${e.to_name ?? ''}` : e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action === 'accept' && STEPS[e.step]?.who ? ` · ${STEPS[e.step].who}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
                 <span className="qt-tl-who">{person(e.by_name, e.by_code)} · {whenText(e.at)}</span>
                 {e.note && <span className="qt-tl-note">{e.note}</span>}
               </div>
@@ -1017,6 +1030,56 @@ function Timeline({ r, now, onDone }) {
       </div>
       <Err text={err} at={at} />
     </section>
+  );
+}
+
+/** Hand my Coordinator or Purchase step to another of the role (the user, 12 Nov: Namitha on leave transfers to Suhail). */
+function Transfer({ r, me, onDone }) {
+  const { pools } = useContext(QtCtx);
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState('');
+  const [why, setWhy] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const role = roleOfStep(r.step);
+  const holder = role === 'coordinator' ? r.coord_id : role === 'purchase' ? r.purchase_id : null;
+  if (r.done || !holder || holder !== me.id) return null;
+  const test = /- *test/i.test(r.engineer_name ?? '');
+  const people = (pools?.[role] ?? []).filter((p) => p.id !== me.id && p.test === test);
+  if (!people.length) return null;
+  const roleName = role === 'coordinator' ? 'Coordinator' : 'Purchase';
+  const name = people.find((p) => p.id === to)?.name;
+  const close = () => { if (!busy) { setOpen(false); setErr(null); } };
+  const go = async () => {
+    if (!to) { setErr('Choose who to transfer it to.'); return; }
+    setBusy(true); setErr(null);
+    try { await transfer(r.id, to, why.trim()); setOpen(false); setTo(''); setWhy(''); onDone(`${r.no} transferred to ${name}.`); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <button type="button" className="mt-btn qt-transfer-btn" onClick={() => setOpen(true)}><Icon d={I.swap} size={16} />Transfer</button>
+      {open && createPortal(
+        <div className="modal-scrim qt-scrim-top" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+          <div className="modal mt-modal" role="dialog" aria-label={`Transfer ${r.no}?`}>
+            <div className="modal-head"><h2>Transfer {r.no}?</h2></div>
+            <div className="modal-body qt-transfer-body">
+              <div className="qt-transfer-field"><span>To</span>
+                <Picker value={to} onChange={(v) => { setTo(v); setErr(null); }} title="To" placeholder={`Choose a ${roleName === 'Purchase' ? 'Purchase person' : 'Coordinator'}`}
+                        options={people.map((p) => ({ value: p.id, label: `${p.name} · ${roleName}` }))} />
+              </div>
+              <label className="qt-transfer-field"><span>Reason</span>
+                <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="On leave today" />
+              </label>
+              {err && <p className="mt-err" role="alert">{err}</p>}
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="mt-btn" onClick={close} disabled={busy}>Cancel</button>
+              <button type="button" className="mt-btn mt-btn-primary" onClick={go} disabled={busy}>{busy ? 'Please wait…' : name ? `Transfer to ${name.split(' ')[0]}` : 'Transfer'}</button>
+            </div>
+          </div>
+        </div>, document.body)}
+    </>
   );
 }
 

@@ -773,3 +773,29 @@ button.qt-tile:active { transform: scale(.98); }
 @keyframes qt-count-in { from { transform: translateY(4px); opacity: .4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .qt-work-tile, .qt-count, .qt-work-tile[data-k="accept"][data-on] { animation: none; transition: none; } }
 .qt-dash-accept { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; padding: 6px 12px; }
+
+/* Transfer (BEMMP 0050; the user, 12 Nov). */
+.qt-transfer-btn { flex: none; min-height: 30px; padding: 4px 12px; font-size: 12.5px; gap: 5px; transition: background .15s, border-color .15s; }
+.qt-transfer-btn:hover { background: color-mix(in srgb, #8b5cf6 14%, transparent); border-color: #8b5cf6; color: #6d28d9; }
+:root[data-theme='dark'] .qt-transfer-btn:hover { color: #c4b5fd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-transfer-btn:hover { color: #c4b5fd; } }
+.qt-transfer-btn:active { transform: scale(.96); }
+.qt-transfer-body { display: grid; gap: 12px; }
+.qt-transfer-field { display: grid; gap: 6px; }
+.qt-transfer-field > span { font-size: 13px; color: var(--text-secondary); }
+.qt-transfer-field input { width: 100%; min-height: 42px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); font: inherit; font-size: 16px; }
+.qt-card-moved { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; width: fit-content; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  color: #5b21b6; background: color-mix(in srgb, #8b5cf6 14%, transparent); }
+:root[data-theme='dark'] .qt-card-moved { color: #c4b5fd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-card-moved { color: #c4b5fd; } }
+.qt-views button[data-view="team"] { --v: #14b8a6; }
+.qt-view-opt[data-view="team"] { --v: #14b8a6; }
+/* Wide header: number, step, clock and spare on one line from the left (the user, 12 Nov: why the spare in the middle). */
+@media (min-width: 900px) {
+  .qt-sheet .mt-sheet-title .qt-card-top { padding-right: 0; flex-wrap: nowrap; }
+  .qt-sheet .mt-sheet-title .qt-card-top::before, .qt-sheet .mt-sheet-title .qt-card-top::after { display: none; }
+}
+.qt-sheet-acts { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+@media (min-width: 900px) { .qt-sheet-acts { flex-direction: row-reverse; align-items: center; } }
+/* A dropdown opened inside a popup shows above it (the user, 12 Nov: the Transfer list was hidden). */
+.mt-pick-pop, .mt-pick-scrim { z-index: 1200; }

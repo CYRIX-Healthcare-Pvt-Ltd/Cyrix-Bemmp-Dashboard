@@ -34,6 +34,8 @@ export const tlApprove = (ids, p = null) => rpc('qt_tl_approve', { p_ids: ids, p
 export const editOwn = (id, p) => rpc('qt_edit_own', { p_id: id, p });
 export const reopen = (id, note) => rpc('qt_reopen', { p_id: id, p_note: note });
 export const addNote = (id, note) => rpc('qt_note', { p_id: id, p_note: note });
+/** A Coordinator or Purchase step handed to another of the same role (BEMMP 0050; the user, 12 Nov). */
+export const transfer = (id, to, note) => rpc('qt_transfer', { p_id: id, p_to: to, p_note: note || null });
 export const consume = (id, qty, note) => rpc('qt_consume', { p_id: id, p_qty: qty, p_note: note });
 export const resume = (id) => rpc('qt_resume', { p_id: id });
 export const saveFacility = (p) => rpc('qt_save_facility', { p });
@@ -142,6 +144,7 @@ export const ACTIONS = {
   returned: 'Sent the faulty spare back', replacement: 'Dispatched a replacement', reopen: 'Reopened', note: 'Note',
   consume: 'Used from stock', send_back: 'Sent back to correct', reject: 'Rejected', resend: 'Corrected and sent again',
   withdraw: 'Withdrawn', quote: 'Sent the quotation', quote_yes: 'Customer approved the quotation', quote_no: 'Customer did not approve the quotation',
+  transfer: 'Transferred',
 };
 
 /* ------------------------------------------------------------- time -- */
