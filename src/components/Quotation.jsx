@@ -28,7 +28,7 @@ const SEND_BY = ['Courier', 'Transport', 'Post', 'By hand'];
 const TAXES = [0, 5, 18]; // 12 and 28 not used (the user, 12 Nov)
 const PV_ABOVE = 40000;
 /** What every form may want from the app: past vendors, recent hospitals, who is signed in. */
-const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false });
+const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false, pools: {} });
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is only lost on reload */ } },
@@ -87,14 +87,23 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
   };
 
   const code = profile?.code ?? '';
+  // Who can accept a step nobody holds yet, by role (the user, 12 Nov: "accept pending" shows them).
+  const [pools, setPools] = useState({});
+  useEffect(() => {
+    loadPeople().then((x) => {
+      const m = {};
+      for (const p of x ?? []) if (p.active) (m[p.role] ??= []).push({ name: p.name, test: /- *test/i.test(p.name ?? '') });
+      setPools(m);
+    }).catch(() => {});
+  }, []);
   const ctx = useMemo(() => {
     const count = new Map();
     for (const r of list ?? []) for (const x of [r.orig_vendor, r.comp_vendor, r.vendor]) { const t = x?.trim(); if (t) count.set(t, (count.get(t) ?? 0) + 1); }
     const vendors = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([x]) => x);
     const seen = [...(store.get(`qt-recent-hosp:${code}`) ?? [])];
     if (me.role === 'engineer') for (const r of [...(list ?? [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) if (r.kind === 'request' && r.facility_id) seen.push(r.facility_id);
-    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead) };
-  }, [list, code, me.role, me.lead]);
+    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead), pools };
+  }, [list, code, me.role, me.lead, pools]);
   const tabs = tabsFor(me);
   const mine = list?.filter((r) => r.mine && !r.done) ?? [];
   const sub = `Quotation tracker · ${ROLE_NAME[me.role] ?? ''}${me.lead && me.role !== 'viewer' ? ' (lead)' : ''}${list ? ` · ${mine.length} to do` : ''}`;
@@ -147,6 +156,7 @@ const Icon = ({ d, size = 18 }) => (
 const I = {
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  hourglass: <><path d="M7 4h10M7 20h10" /><path d="M8 4c0 4 8 4 8 8s-8 4-8 8M16 4c0 4-8 4-8 8s8 4 8 8" /></>,
   camera: <><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" /><circle cx="12" cy="13" r="3.2" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   bell: <><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></>,
@@ -155,6 +165,29 @@ const I = {
   back: <path d="M15 5l-7 7 7 7" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
 };
+
+/** Nobody has accepted the step yet (the user, 12 Nov). */
+const acceptPending = (r) => !r.done && !r.accepted_at && !NO_ACCEPT.has(r.step) && Boolean(roleOfStep(r.step));
+
+/** Who can accept it: the step's own person, else everybody of the role (test accounts only on test requests). */
+function acceptBy(r, pools) {
+  const role = roleOfStep(r.step);
+  const own = { team_lead: r.team_lead_name, engineer: r.engineer_name, coordinator: r.coord_name, purchase: r.purchase_name }[role];
+  if (own) return [own];
+  const test = /- *test/i.test(r.engineer_name ?? '');
+  return (pools?.[role] ?? []).filter((p) => p.test === test).map((p) => p.name);
+}
+const orNames = (xs) => (xs.length <= 1 ? xs[0] ?? '' : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
+
+function PendingChip({ r, now, withRole }) {
+  if (!acceptPending(r)) return null;
+  const since = r.step_since ? new Date(r.step_since).getTime() : null;
+  return (
+    <span className="qt-pending-chip">
+      <Icon d={I.hourglass} size={12} />Accept pending{withRole ? ` · ${stepOf(r.step).who}` : since ? ` · ${gapLabel((now ?? Date.now()) - since)}` : ''}
+    </span>
+  );
+}
 
 function StepBadge({ r }) {
   const s = stepOf(r.step);
@@ -451,6 +484,7 @@ function CardPhoto({ path }) {
 }
 
 function Card({ r, targets, now, onOpen, picked, onPick, children }) {
+  const { pools } = useContext(QtCtx);
   return (
     <li className="qt-card" data-tone={stepOf(r.step).tone} data-role={roleOfStep(r.step) ?? undefined} data-picked={picked ? 'true' : undefined}>
       {onPick && (
@@ -459,11 +493,12 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
         </button>
       )}
       <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
-        <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><Clock r={r} targets={targets} now={now} /></span>
+        <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><PendingChip r={r} now={now} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
         <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
-        {!r.mine && !r.done && (
-          <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
+        {!r.mine && !r.done && (acceptPending(r)
+          ? <span className="qt-card-with">Waiting for <b>{orNames(acceptBy(r, pools)) || stepOf(r.step).who}</b> to accept</span>
+          : <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
         )}
         <span className="qt-card-foot">{r.engineer_name}{r.engineer_code ? ` (${r.engineer_code})` : ''} · {dayText(r.created_at)}</span>
         <CardPhoto path={r.photos?.find((x) => !/\.pdf$/i.test(x)) ?? r.equipment_photo} />
@@ -695,7 +730,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
       <div className="mt-sheet qt-sheet" role="dialog" aria-modal="true" aria-label={r?.no ?? 'Request'} onClick={(e) => e.stopPropagation()}>
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
-            {r && <span className="qt-card-top"><StepBadge r={r} />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
+            {r && <span className="qt-card-top"><StepBadge r={r} /><PendingChip r={r} withRole />{r.mine && <Clock r={r} targets={targets} now={now} />}</span>}
             <h2>{r?.no ?? ' '}{r?.ref_no && <small className="qt-ref">{r.ref_no}</small>}</h2>
             {r && <p>{r.spare} × {r.approved_qty ?? r.qty}{r.hospital ? ` · ${r.hospital}` : ''}</p>}
           </div>
