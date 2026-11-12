@@ -719,7 +719,14 @@ button.qt-tile:hover { border-color: var(--k); }
 
 /* Requests views: a dropdown on a phone instead of the sideways-scrolling row (the user, 12 Nov: option C). */
 .qt-views-pick { display: none; }
-@media (max-width: 700px) { .qt-views { display: none; } .qt-views-pick { display: block; } }
+.qt-view-sort { display: none; }
+@media (max-width: 700px) {
+  .qt-work > .segmented.qt-views { display: none; }
+  .qt-views-pick { display: block; }
+  .qt-views-pick .mt-picker, .qt-view-sort .mt-picker { width: 100%; }
+  .qt-view-sort { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+  .qt-filters .qt-sort-wide { display: none; }
+}
 .qt-view-opt { display: inline-flex; align-items: center; gap: 8px; }
 .qt-view-opt i { width: 8px; height: 8px; border-radius: 50%; background: var(--v); flex: none; }
 .qt-view-opt b { font-weight: 700; opacity: .55; }

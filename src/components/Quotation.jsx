@@ -603,6 +603,11 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   const views = watcher
     ? [['open', 'Open', nOpen], ['done', 'Closed'], ['all', 'All']]
     : [['accept', 'To accept', nWait], ['mine', 'With you', nWork], ['done', 'Closed'], ['all', 'All'], ['others', 'With others', nOthers]];
+  /* Phone: one dropdown, so no view hides past the edge (the user, 12 Nov: option C); beside Sort where there is one. */
+  const pick = (
+    <Picker value={v} title="Requests" onChange={setView}
+            options={views.map(([id, label, n]) => ({ value: id, label: <span className="qt-view-opt" data-view={id}><i aria-hidden="true" />{label}{n != null ? <b> · {n}</b> : null}</span> }))} />
+  );
   return (
     <div className="qt-work">
       <PeriodBar period={period} setPeriod={setPeriod} />
@@ -612,14 +617,10 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
                   onClick={() => setView(id)}><i aria-hidden="true" />{label}{n != null ? <b> {n}</b> : null}</button>
         ))}
       </div>
-      {/* Phone: one dropdown, so no view hides past the edge (the user, 12 Nov: option C). */}
-      <div className="qt-views-pick">
-        <Picker value={v} title="Requests" onChange={setView}
-                options={views.map(([id, label, n]) => ({ value: id, label: <span className="qt-view-opt" data-view={id}><i aria-hidden="true" />{label}{n != null ? <b> · {n}</b> : null}</span> }))} />
-      </div>
       {v === 'accept' || v === 'mine'
-        ? <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} />
-        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} />}
+        ? <><div className="qt-views-pick">{pick}</div>
+            <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} /></>
+        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} />}
     </div>
   );
 }
@@ -628,7 +629,7 @@ const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
 
-function Requests({ list, targets, now, onOpen, show }) {
+function Requests({ list, targets, now, onOpen, show, viewPick }) {
   const [q, setQ] = useState('');
   const [step, setStep] = useState('');
   const [sort, setSort] = useState('new');
@@ -654,11 +655,12 @@ function Requests({ list, targets, now, onOpen, show }) {
   }, [list, show, step, role, q, sort, targets, now]);
   return (
     <div className="mt-tickets qt-requests">
+      {viewPick && <div className="qt-view-sort">{viewPick}<Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></div>}
       <div className="mt-filters qt-filters">
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
         <Picker value={role} options={roles} onChange={setRole} title="Pending with" />
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
-        <Picker value={sort} options={SORTS} onChange={setSort} title="Sort" />
+        <span className="qt-sort-wide"><Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></span>
       </div>
       {!shown.length ? <p className="empty-inline pm-empty">No request here.</p> : (
         <ul className="qt-cards">{shown.map((r) => <Card key={r.id} r={r} targets={targets} now={now} onOpen={onOpen} />)}</ul>
