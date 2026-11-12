@@ -1229,7 +1229,7 @@ function PurchaseRates({ r, onDone }) {
     <>
       {back && <p className="qt-question"><b>PV asks to revise:</b> {back.note}</p>}
       {r.sap && <Quotes r={r} />}
-      <Choice value={a} onChange={setA} options={[['rates', 'Give rates', 'good', 'purchase'], ...(r.sap ? [['approve_sap', 'SAP rate ok', 'good', 'coordinator']] : []), ['ask', 'Clarify with Coordinator', 'good', 'coordinator']]} />
+      <Choice value={a} onChange={setA} options={[['rates', 'Give rates', 'good', 'purchase'], ...(r.sap ? [['approve_sap', 'Approve SAP rates', 'good', 'coordinator']] : []), ['ask', 'Clarify with Coordinator', 'good', 'coordinator']]} />
       {a === 'rates' && (
         <>
           {!stock && (
@@ -1258,7 +1258,7 @@ function PurchaseRates({ r, onDone }) {
           ? <button type="button" data-role="pv" className="mt-go" onClick={() => send('Send the rates to PV?', [line], 'Send', { ...p, action: 'rates' }, `${r.no} sent to PV.`)}>Send to PV</button>
           : <button type="button" data-role="coordinator" className="mt-go" onClick={() => send('Send the rates to the Coordinator?', [line], 'Send', { ...p, action: 'rates_pr' }, `${r.no} sent to the Coordinator.`)}>Send to Coordinator</button>
       )}
-      {a === 'approve_sap' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go('SAP rate ok?', [`${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}`], 'SAP rate ok', { action: 'approve_sap', note: v.note }, `SAP rate ok. ${r.no} sent to the Coordinator.`)}>SAP rate ok</button>}
+      {a === 'approve_sap' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go('Approve the SAP rates?', [`${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}`], 'Approve', { action: 'approve_sap', note: v.note }, `SAP rates approved. ${r.no} sent to the Coordinator.`)}>Approve SAP rates</button>}
       {a === 'ask' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Coordinator?`, [v.note], 'Send', { action: 'ask', note: v.note }, 'Sent to the Coordinator.')}>Clarify with Coordinator</button>}
       <Err text={s.err} at={s.at} />
       {s.box}
