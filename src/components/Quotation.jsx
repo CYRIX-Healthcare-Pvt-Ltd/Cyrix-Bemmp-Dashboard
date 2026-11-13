@@ -116,7 +116,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
                        right={<div className="qt-head-right"><Bell onOpen={open} />{switcher}</div>} onSignOut={onSignOut} />
       <div className="shell">
         <SideNav tabs={tabs.map((t) => ({ ...t, label: t.id === 'requests' && mine.length ? `${t.label} · ${mine.length}` : t.label }))}
-                 active={tab} onSelect={(t) => { if (t === 'requests') setTodoSub(null); setTab(t); }} onSignOut={onSignOut} signedIn={Boolean(profile)} profile={profile} showAccountControls={!narrow} />
+                 active={tab} onSelect={(t) => { if (t === 'requests') setTodoSub(null); setTab(t); }} onSignOut={onSignOut} signedIn={Boolean(profile)} profile={profile} roleLabel={ROLE_NAME[me.role] ?? null} showAccountControls={!narrow} />
         <div className="work">
           {toast && <div className="mt-toast" role="status">{toast}</div>}
           {failed ? (

@@ -54,7 +54,7 @@ const ICONS = {
 };
 
 export default function SideNav({
-  tabs, active, onSelect, onUpload, onSignOut, signedIn, profile,
+  tabs, active, onSelect, onUpload, onSignOut, signedIn, profile, roleLabel,
   /**
    * False on a phone, where the rail is a strip along the bottom and the
    * account controls live in the header instead — the same place Spare
@@ -339,7 +339,7 @@ export default function SideNav({
             <span className="sidenav-label sidenav-me-text">
               <span className="sidenav-me-name">{profile.full_name}</span>
               <span className="sidenav-me-role">
-                {ROLE_LABEL[profile.role] ?? profile.role}
+                {roleLabel ?? ROLE_LABEL[profile.role] ?? profile.role}
               </span>
             </span>
           </div>
