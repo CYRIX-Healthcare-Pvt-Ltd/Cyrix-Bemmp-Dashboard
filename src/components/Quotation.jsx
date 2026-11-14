@@ -329,25 +329,138 @@ function Thumb({ path, onOpen }) {
   const pdf = /\.pdf$/i.test(path);
   const retried = useRef(false);
   return (
-    <button type="button" className="qt-thumb" onClick={() => url && (pdf ? window.open(url, '_blank', 'noopener') : onOpen(url))} aria-label="See the photo">
+    <button type="button" className="qt-thumb" onClick={() => url && (pdf ? window.open(url, '_blank', 'noopener') : onOpen())} aria-label="See the photo">
       {pdf ? <span className="qt-thumb-pdf">PDF</span> : url ? <img src={url} alt="" onError={() => { if (!retried.current) { retried.current = true; photoUrl(path, true).then(setUrl).catch(() => {}); } }} /> : <span className="qt-thumb-wait" />}
     </button>
   );
 }
 
-function Photos({ paths }) {
-  const [big, setBig] = useState(null);
+/** One group's photos (spare, equipment, slips); a press opens the viewer on that group only (the user, 14 Nov). */
+function Photos({ paths, name }) {
+  const [at, setAt] = useState(null);
   if (!paths?.length) return null;
+  const pics = paths.filter((p) => !/\.pdf$/i.test(p));
   return (
     <>
-      <div className="qt-thumbs">{paths.map((p) => <Thumb key={p} path={p} onOpen={setBig} />)}</div>
-      {big && createPortal(
-        <div className="qt-lightbox" onClick={() => setBig(null)} role="presentation">
-          <img src={big} alt="" />
-          <button type="button" className="mt-sheet-x qt-lightbox-x" aria-label="Close"><Icon d={I.x} size={20} /></button>
-        </div>, document.body)}
+      <div className="qt-thumbs">{paths.map((p) => <Thumb key={p} path={p} onOpen={() => setAt(pics.indexOf(p))} />)}</div>
+      {at != null && at >= 0 && <Viewer paths={pics} start={at} name={name} onClose={() => setAt(null)} />}
     </>
   );
+}
+
+/**
+  The photo viewer: ‹ › within the group (keys ← → and a swipe too), zoom by wheel, pinch or double press, drag to
+  move when zoomed, ⤓ download (the user, 14 Nov).
+*/
+function Viewer({ paths, start, name, onClose }) {
+  const [i, setI] = useState(start);
+  const [urls, setUrls] = useState({});
+  const [z, setZ] = useState({ s: 1, x: 0, y: 0 });
+  const [busy, setBusy] = useState(false);
+  const drag = useRef(null);
+  const pinch = useRef(null);
+  const swipe = useRef(null);
+  const n = paths.length;
+  const go = (d) => { setI((k) => (k + d + n) % n); setZ({ s: 1, x: 0, y: 0 }); };
+  useEffect(() => {
+    let on = true;
+    [i, (i + 1) % n, (i - 1 + n) % n].forEach((k) => {
+      if (urls[paths[k]]) return;
+      photoUrl(paths[k]).then((u) => { if (on) setUrls((o) => ({ ...o, [paths[k]]: u })); }).catch(() => {});
+    });
+    return () => { on = false; };
+  }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const key = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight' && n > 1) go(1);
+      else if (e.key === 'ArrowLeft' && n > 1) go(-1);
+    };
+    window.addEventListener('keydown', key);
+    const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key); document.body.style.overflow = was; };
+  }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clamp = (s) => Math.min(5, Math.max(1, s));
+  /** Zoom by k around the point (cx, cy) measured from the screen's centre. */
+  const zoomAt = (k, cx, cy) => setZ((o) => {
+    const s = clamp(o.s * k);
+    if (s === 1) return { s: 1, x: 0, y: 0 };
+    const f = s / o.s;
+    return { s, x: cx - (cx - o.x) * f, y: cy - (cy - o.y) * f };
+  });
+  const fromCentre = (e) => ({ cx: e.clientX - window.innerWidth / 2, cy: e.clientY - window.innerHeight / 2 });
+  const stage = useRef(null);
+  useEffect(() => {
+    const el = stage.current; if (!el) return undefined;
+    const wheel = (e) => { e.preventDefault(); const { cx, cy } = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, cx, cy); };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, []);
+  const down = (e) => {
+    if (e.touches?.length === 2) {
+      const [a, b] = e.touches;
+      pinch.current = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: z.s };
+      drag.current = null; swipe.current = null; return;
+    }
+    const p = e.touches?.[0] ?? e;
+    if (z.s > 1) drag.current = { x: p.clientX - z.x, y: p.clientY - z.y };
+    else swipe.current = { x: p.clientX, y: p.clientY };
+  };
+  const move = (e) => {
+    if (pinch.current && e.touches?.length === 2) {
+      const [a, b] = e.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const s = clamp(pinch.current.s * (d / pinch.current.d));
+      setZ((o) => (s === 1 ? { s: 1, x: 0, y: 0 } : { ...o, s }));
+      return;
+    }
+    const p = e.touches?.[0] ?? e;
+    if (drag.current) setZ((o) => ({ ...o, x: p.clientX - drag.current.x, y: p.clientY - drag.current.y }));
+  };
+  const up = (e) => {
+    const p = e.changedTouches?.[0] ?? e;
+    if (swipe.current && n > 1) {
+      const dx = p.clientX - swipe.current.x, dy = p.clientY - swipe.current.y;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+    }
+    drag.current = null; pinch.current = null; swipe.current = null;
+  };
+  const dbl = (e) => { if (z.s > 1) setZ({ s: 1, x: 0, y: 0 }); else { const { cx, cy } = fromCentre(e); zoomAt(2.5, cx, cy); } };
+
+  const save = async () => {
+    const u = urls[paths[i]]; if (!u) return;
+    setBusy(true);
+    const ext = (paths[i].match(/\.(\w+)$/)?.[1] ?? 'jpg').toLowerCase();
+    const file = `${name ? `${name}-` : ''}${i + 1}.${ext}`;
+    try {
+      const blob = await (await fetch(u)).blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = href; a.download = file; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 4000);
+    } catch { window.open(u, '_blank', 'noopener'); } finally { setBusy(false); }
+  };
+
+  const url = urls[paths[i]];
+  return createPortal(
+    <div className="qt-lightbox" role="dialog" aria-label="Photo" onClick={(e) => { if (e.target === e.currentTarget && z.s === 1) onClose(); }}>
+      <div ref={stage} className="qt-lb-stage" onClick={(e) => { if (e.target === e.currentTarget && z.s === 1) onClose(); }}
+           onMouseDown={down} onMouseMove={move} onMouseUp={up} onMouseLeave={up}
+           onTouchStart={down} onTouchMove={move} onTouchEnd={up} onDoubleClick={dbl}>
+        {url ? <img src={url} alt="" draggable={false} className={z.s > 1 ? 'qt-lb-zoomed' : ''}
+                    style={{ transform: `translate(${z.x}px, ${z.y}px) scale(${z.s})` }} />
+             : <span className="qt-thumb-wait" />}
+      </div>
+      <div className="qt-lb-bar">
+        {n > 1 && <span className="qt-lb-count">{i + 1} / {n}</span>}
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={() => void save()} disabled={!url || busy} aria-label="Download" title="Download"><Icon d={I.down} size={19} /></button>
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={onClose} aria-label="Close" title="Close"><Icon d={I.x} size={20} /></button>
+      </div>
+      {n > 1 && <>
+        <button type="button" className="qt-lb-arrow qt-lb-prev" onClick={() => go(-1)} aria-label="Previous photo"><Icon d={I.back} size={26} /></button>
+        <button type="button" className="qt-lb-arrow qt-lb-next" onClick={() => go(1)} aria-label="Next photo"><Icon d={I.back} size={26} /></button>
+      </>}
+    </div>, document.body);
 }
 
 /** Camera or gallery, several at once; uploaded into the folder given. */
@@ -801,16 +914,16 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
               {(r.track_photo || r.return_track_photo) && (
                 <section className="mt-card-block">
                   <span className="mt-block-label">Slips</span>
-                  <Photos paths={[r.track_photo, r.return_track_photo].filter(Boolean)} />
+                  <Photos paths={[r.track_photo, r.return_track_photo].filter(Boolean)} name={`${r.no}-slip`} />
                 </section>
               )}
               {/* Spare and equipment photos apart, side by side in one block (the user, 11 Nov). */}
               {(r.photos?.length > 0 || r.equipment_photos?.length > 0 || r.equipment_photo) && (
                 <section className="mt-card-block">
                   <div className="qt-photo-groups">
-                    {r.photos?.length > 0 && <div><span className="mt-block-label">Spare photos</span><Photos paths={r.photos} /></div>}
+                    {r.photos?.length > 0 && <div><span className="mt-block-label">Spare photos</span><Photos paths={r.photos} name={`${r.no}-spare`} /></div>}
                     {(r.equipment_photos?.length > 0 || r.equipment_photo) && (
-                      <div><span className="mt-block-label">Equipment photos</span><Photos paths={r.equipment_photos?.length ? r.equipment_photos : [r.equipment_photo]} /></div>
+                      <div><span className="mt-block-label">Equipment photos</span><Photos paths={r.equipment_photos?.length ? r.equipment_photos : [r.equipment_photo]} name={`${r.no}-equipment`} /></div>
                     )}
                   </div>
                 </section>
@@ -1248,10 +1361,12 @@ function EngFix({ r, onDone }) {
 
 function CoordInitial({ r, onDone }) {
   const [a, setA] = useState('to_purchase');
-  const [v, setV] = useState({ item_code: r.item_code ?? '', vendor: '', rate: '', tax: '', note: '' });
+  const [v, setV] = useState({ item_code: r.item_code ?? '', vendor: '', rate: '', tax: '', note: '', pr_no: '', pr_date: '', contract: '' });
   const s = useSend(r, onDone);
+  /** A hospital under both contracts says which one at Close; one contract asks nothing (the user, 14 Nov; 0054). */
+  const both = /amc.*&.*amc/i.test(r.category ?? '');
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
-  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax) };
+  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date, ...(both ? { contract: v.contract } : {}) } : {}) };
   return (
     <>
       <Choice value={a} onChange={setA} options={[['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
@@ -1264,12 +1379,28 @@ function CoordInitial({ r, onDone }) {
           <TotalLine rate={v.rate} tax={v.tax} />
         </div>
       )}
+      {/* Close: PR no and date if there is one, never required; the reason is (the user, 14 Nov; 0053). */}
+      {a === 'close' && both && (
+        <Field label="Contract">
+          <select value={v.contract} onChange={(e) => set('contract', e.target.value)}>
+            <option value="">Choose</option>
+            <option value="AMC">AMC</option>
+            <option value="CAMC">CAMC</option>
+          </select>
+        </Field>
+      )}
+      {a === 'close' && (
+        <div className="qt-date-pair">
+          <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
+          <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
+        </div>
+      )}
       <Field label={a === 'close' ? 'Reason' : a === 'ask_tl' ? 'Question' : 'Remarks'} wide>
         <textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} />
       </Field>
       {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
       {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}
-      {a === 'close' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Close ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Close', p, `${r.no} closed.`, 'bad')}>Close the request</button>}
+      {a === 'close' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([...(both ? [[v.contract, 'Choose the contract.']] : []), [v.note, 'Write the reason.']]) && s.go(`Close ${r.no}?`, [person(r.engineer_name, r.engineer_code), [both && v.contract, v.pr_no && `PR ${v.pr_no}`, v.pr_date && dayText(v.pr_date)].filter(Boolean).join(' · ') || null, v.note], 'Close', p, `${r.no} closed.`, 'bad')}>Close the request</button>}
       {a === 'sap' && (
         <div className="qt-two">
           <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
