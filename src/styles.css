@@ -2604,7 +2604,7 @@ html.no-swipe-back body {
 }
 /* Set by SideNav on open. Absent is the rail, which is why nothing has to be
    stamped before the first paint — the initial value is already correct. */
-:root[data-nav='full'] { --nav-w: 208px; }
+:root[data-nav='full'] { --nav-w: var(--nav-full, 208px); } /* --nav-full: the page's longest name (SideNav, 14 Nov) */
 
 .work { min-width: 0; }
 

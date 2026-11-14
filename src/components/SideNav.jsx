@@ -15,13 +15,9 @@ import { ROLE_LABEL } from '../data/users.js';
  * exactly the tiles somebody opened the nav to navigate away from, and a number
  * half-hidden behind chrome is worse than a number off the edge of the screen.
  *
- * It closes itself the moment the work is touched — a press anywhere outside it,
- * or Escape — so the names are something you reach for rather than a column that
- * has to be put away by hand. Picking a section is not that signal: it is
- * somebody using the nav, and closing on it made moving between two sections
- * mean reopening the thing every time. Nothing is remembered between visits, for
- * the related reason that a nav which shuts itself has no resting open state
- * worth restoring.
+ * Since 14 Nov it is a switch (the user): only the arrow at its foot opens or
+ * closes it — no hover, no press on the rail, no closing when the page is
+ * pressed. A press on its empty space works the same switch. It starts expanded at every sign-in; the arrow's choice holds for that visit.
  *
  * The width lives on the root as `--nav-w` because the shell's grid is sized
  * from it, and the attribute set here is what the stylesheet transitions.
@@ -65,16 +61,18 @@ export default function SideNav({
    */
   showAccountControls = true,
 }) {
-  const [open, setOpen] = useState(false);
-  const navRef = useRef(null);
   /*
-   * A mouse resting on the rail opens it, and leaving closes it again — but
-   * only a panel the hover opened (the user, 11 Nov). One opened by a press
-   * stays until the page is pressed, as before. Touch has no hover, so phones
-   * and tablets are unchanged.
+   * A switch (the user, 14 Nov: "on click the collapse arrow only it should go, like a switch"): only the arrow
+   * opens or closes it, nothing else, and the choice is kept for the next visit.
    */
-  const byHover = useRef(false);
-  const hoverTimer = useRef(null);
+  // Expanded at every sign-in and fresh visit (the user, 14 Nov); the arrow's choice holds for the rest of the visit.
+  const [open, setOpenRaw] = useState(() => { try { return sessionStorage.getItem('bemmp_nav_open') !== '0'; } catch { return true; } });
+  const setOpen = (v) => setOpenRaw((o) => {
+    const n = typeof v === 'function' ? v(o) : v;
+    try { sessionStorage.setItem('bemmp_nav_open', n ? '1' : '0'); } catch { /* memory only */ }
+    return n;
+  });
+  const navRef = useRef(null);
 
   /*
    * How tall the rail can be without hanging off the screen.
@@ -129,6 +127,30 @@ export default function SideNav({
   }, [open]);
 
   /*
+   * Open, it is only as wide as this page's longest section name needs (the user, 14 Nov: "does this much width
+   * needed?"): the Quotation tracker's "Stock register" wants about 165px, BEMMP's "FTFR and Closure TAT" the old 208.
+   * The labels are always laid out (only faded), so they can be measured shut or open.
+   */
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return undefined;
+    const fit = () => {
+      const items = el.querySelectorAll('.sidenav-list .sidenav-item');
+      let need = 0;
+      for (const it of items) {
+        const label = [...it.querySelectorAll('.sidenav-label')].find((x) => getComputedStyle(x).display !== 'none');
+        if (!label) continue;
+        const pad = parseFloat(getComputedStyle(it).paddingRight) || 0;
+        need = Math.max(need, label.getBoundingClientRect().right - it.getBoundingClientRect().left + pad + 1);
+      }
+      if (need) document.documentElement.style.setProperty('--nav-full', `${Math.ceil(Math.min(240, Math.max(150, need + 4)))}px`);
+    };
+    fit();
+    document.fonts?.ready?.then(fit);
+    return () => document.documentElement.style.removeProperty('--nav-full');
+  }, [tabs]);
+
+  /*
    * Working in the page closes the panel.
    *
    * `pointerdown` rather than `click`, so it is already on its way out as the
@@ -140,22 +162,6 @@ export default function SideNav({
    * open would otherwise keep a listener that had already decided it did not
    * apply.
    */
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const onDown = (e) => {
-      if (!window.matchMedia(HAS_RAIL).matches) return;
-      if (!e.target.closest('.sidenav')) setOpen(false);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
 
   /*
    * Picking a section deliberately does *not* close it.
@@ -165,8 +171,7 @@ export default function SideNav({
    * it shut — so comparing two sections meant reopening it every single time.
    * A press on a nav item is somebody *using* the nav, not finishing with it.
    *
-   * Working in the page is the signal that it is finished with, and that is
-   * handled above.
+   * Only the arrow closes it (14 Nov).
    */
   const select = (id) => onSelect(id);
 
@@ -175,37 +180,11 @@ export default function SideNav({
       ref={navRef}
       className={`sidenav${open ? ' is-open' : ''}`}
       aria-label="Sections"
-      /*
-        The rail opens on a press anywhere in it.
-        A 60px column is mostly empty space and that space is by far the
-        easiest thing to hit — asking for a 28px arrow at the foot of it
-        is asking for the hardest target in the column to be the only way
-        in. Spare has worked this way all along.
-
-        Anything that is already a control is left alone: those mean
-        something, and expanding after somebody has just chosen a section
-        is the opposite of what they asked for.
-
-        One way round only. A press inside the open panel must not shut
-        it, or picking a section would close the thing being used to pick
-        the next one — which is the mistake the comment above `select`
-        exists to record.
-      */
-      onPointerEnter={(e) => {
-        if (e.pointerType === 'touch' || open || !window.matchMedia(HAS_RAIL).matches) return
-        clearTimeout(hoverTimer.current)
-        hoverTimer.current = setTimeout(() => { byHover.current = true; setOpen(true) }, 120)
-      }}
-      onPointerLeave={(e) => {
-        if (e.pointerType === 'touch') return
-        clearTimeout(hoverTimer.current)
-        if (byHover.current) { byHover.current = false; setOpen(false) }
-      }}
+      // The empty space works the switch too, like the arrow (the user, 14 Nov); controls keep their own job.
       onClick={(e) => {
-        if (open) return
         if (!window.matchMedia(HAS_RAIL).matches) return
-        if (e.target.closest('a, button')) return
-        setOpen(true)
+        if (e.target.closest('a, button, input, select, label, [role="button"]')) return
+        setOpen((v) => !v)
       }}
     >
       <ul className="sidenav-list">

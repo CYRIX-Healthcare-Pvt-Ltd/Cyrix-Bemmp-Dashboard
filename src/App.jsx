@@ -144,6 +144,7 @@ function DevSignIn() {
  * would only render a spinner on the way to the same place.
  */
 async function signOutToPortal() {
+  try { sessionStorage.removeItem('bemmp_nav_open'); } catch { /* none kept */ } // the next sign-in starts expanded
   await signOut();
   window.location.assign('/');
 }
