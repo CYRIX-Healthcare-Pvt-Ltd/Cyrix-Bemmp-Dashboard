@@ -1380,17 +1380,17 @@ function CoordInitial({ r, onDone }) {
         </div>
       )}
       {/* Close: PR no and date if there is one, never required; the reason is (the user, 14 Nov; 0053). */}
-      {a === 'close' && both && (
-        <Field label="Contract">
-          <select value={v.contract} onChange={(e) => set('contract', e.target.value)}>
-            <option value="">Choose</option>
-            <option value="AMC">AMC</option>
-            <option value="CAMC">CAMC</option>
-          </select>
-        </Field>
-      )}
       {a === 'close' && (
-        <div className="qt-date-pair">
+        <div className={both ? 'qt-date-pair qt-close-row' : 'qt-date-pair'}>
+          {both && (
+            <Field label="Contract">
+              <select value={v.contract} onChange={(e) => set('contract', e.target.value)}>
+                <option value="">Choose</option>
+                <option value="AMC">AMC</option>
+                <option value="CAMC">CAMC</option>
+              </select>
+            </Field>
+          )}
           <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
           <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
         </div>
