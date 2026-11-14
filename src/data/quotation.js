@@ -278,6 +278,11 @@ export async function exportAll(list, events, targets, label) {
     { header: 'Faulty', key: 'faulty_qty', numeric: true }, { header: 'Coordinator', key: 'coord' }, { header: 'Purchase', key: 'pur' },
     { header: 'PV', key: 'pv' }, { header: 'Closed on', key: 'closed' }, { header: 'Reason', key: 'close_note' },
   ];
+  // Engineers and Team Leads get no rates from the server (0056), so their Excel has no rate columns (the user, 14 Nov).
+  if (list.length && list.every((r) => !('orig_rate' in r))) {
+    const gone = new Set(['orig_rate', 'orig_tax', 'comp_rate', 'comp_tax']);
+    columns.splice(0, columns.length, ...columns.filter((c) => !gone.has(c.key)));
+  }
   for (const k of TAT_STEPS) {
     columns.push({ header: `${STEPS[k].label} · accept (h)`, key: `${k}_a`, numeric: true });
     columns.push({ header: `${STEPS[k].label} · process (h)`, key: `${k}_p`, numeric: true });
