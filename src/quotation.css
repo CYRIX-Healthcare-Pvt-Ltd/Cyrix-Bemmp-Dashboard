@@ -485,7 +485,9 @@
   .qt-card-spare { font-size: 15px; }
   .qt-card-line { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .qt-card-foot { display: none; }
-  .qt-card-photo { grid-row: 1 / span 2; align-self: center; width: 46px; height: 46px; border-radius: 10px; margin-left: 4px; }
+  /* The top row (number, badge, clock) runs the full width; the photo sits beside the lines under it (the user, 14 Nov: "my time behind img?"). */
+  .qt-card-body > .qt-card-top { grid-column: 1 / -1; }
+  .qt-card-photo { grid-row: 2 / span 2; align-self: center; width: 46px; height: 46px; border-radius: 10px; margin-left: 4px; }
   .qt-pick { position: static; order: -1; flex: none; margin-left: 12px; }
   .qt-card-acts { flex: none; padding: 0 12px 0 2px; }
   .qt-card-acts > * { min-height: 38px; padding: 8px 14px; font-size: 14px; border-radius: 12px; box-shadow: none; }
@@ -821,3 +823,62 @@ button.qt-tile:active { transform: scale(.98); }
 @media (min-width: 900px) { .qt-sheet-acts { flex-direction: row-reverse; align-items: center; } }
 /* A dropdown opened inside a popup shows above it (the user, 12 Nov: the Transfer list was hidden). */
 .mt-pick-pop, .mt-pick-scrim { z-index: 1200; }
+
+/* ------------------------------------------- quotations, many (0055, 14 Nov) -- */
+/* Side by side, one row, See more for the rest; the QTN number on one line inside the card. */
+.qt-qhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.qt-qhead-m { font-size: 13px; font-weight: 700; color: var(--status-good); font-variant-numeric: tabular-nums; }
+.qt-qhead-m[data-down] { color: var(--status-critical); }
+.qt-qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 10px; }
+.qt-qcard {
+  position: relative; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); transition: border-color 0.15s;
+}
+.qt-qcard:hover { border-color: var(--text-muted); }
+.qt-qcard-open { position: absolute; inset: 0; border: 0; background: none; border-radius: inherit; cursor: pointer; padding: 0; }
+.qt-qcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
+.qt-qcard-top button { pointer-events: auto; position: relative; }
+.qt-qfile-ico {
+  flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--status-critical); font: inherit; font-size: 10px; font-weight: 750;
+}
+.qt-qstate {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: var(--radius-pill); border: 0;
+  font: inherit; font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+.qt-qstate[data-tone='ok'] { background: color-mix(in srgb, var(--status-good) 16%, var(--surface)); color: var(--status-good); }
+.qt-qstate[data-tone='bad'] { background: color-mix(in srgb, var(--status-critical) 14%, var(--surface)); color: var(--status-critical); }
+.qt-qstate[data-tone='warn'] { background: color-mix(in srgb, var(--status-warning) 18%, var(--surface)); color: var(--status-warning); }
+.qt-qstate[data-tone='wait'] { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+button.qt-qstate { cursor: pointer; }
+.qt-qno { margin: 2px 0 0; font-size: 13px; font-weight: 750; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.qt-qto { margin: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qfoot { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.qt-qfoot b { font-size: 15px; font-weight: 780; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-qfoot span { font-size: 11.5px; color: var(--text-muted); }
+.qt-qnote { margin: 0; font-size: 12px; font-weight: 650; color: var(--status-critical); }
+.qt-qmargin {
+  display: flex; justify-content: space-between; gap: 6px; margin-top: 2px; padding: 4px 8px; border-radius: 8px; font-size: 12px;
+  background: color-mix(in srgb, var(--status-good) 14%, var(--surface)); color: var(--status-good); font-variant-numeric: tabular-nums;
+}
+.qt-qmargin b { font-weight: 750; }
+.qt-qmargin[data-down] { background: color-mix(in srgb, var(--status-critical) 12%, var(--surface)); color: var(--status-critical); }
+.qt-qmore { width: 100%; margin-top: 10px; }
+
+/* Attaching: one row a file with what was read, Add more under them. */
+.qt-qadd { display: grid; gap: 6px; }
+.qt-qadd-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); min-width: 0; }
+.qt-qadd-text { flex: 1 1 auto; min-width: 0; display: grid; text-align: left; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.qt-qadd-text b { font-size: 13px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qadd-text span { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qadd-text span:empty { display: none; }
+.qt-qadd-x { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; border: 0; padding: 0; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.qt-qadd-x:hover { background: var(--status-critical); color: #fff; }
+.qt-qadd-btn { width: 100%; height: 46px; flex-direction: row; display: inline-flex; justify-content: center; gap: 6px; border-radius: 12px; font-size: 13.5px; }
+
+/* The PDF pop-up: pages down the middle on the dark cover, the same buttons as the photo viewer. */
+.qt-pdfbox { touch-action: pan-x pan-y; user-select: text; }
+.qt-pdf-pages { position: absolute; inset: 0; overflow: auto; padding: 68px 12px 24px; display: flex; flex-direction: column; align-items: safe center; gap: 12px; overscroll-behavior: contain; }
+.qt-pdf-page { flex: none; background: #fff; border-radius: 4px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); max-width: none; }
+.qt-pdf-pages .qt-thumb-wait { margin-top: 30vh; }
+.qt-pdf-msg { margin-top: 30vh; color: #fff; font-size: 15px; }

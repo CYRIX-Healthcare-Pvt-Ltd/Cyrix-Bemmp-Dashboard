@@ -11,6 +11,7 @@ import {
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person,
 } from '../data/quotation.js';
+import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import '../medtronic.css';
 import '../pm.css';
 import '../quotation.css';
@@ -329,7 +330,7 @@ function Thumb({ path, onOpen }) {
   const pdf = /\.pdf$/i.test(path);
   const retried = useRef(false);
   return (
-    <button type="button" className="qt-thumb" onClick={() => url && (pdf ? window.open(url, '_blank', 'noopener') : onOpen())} aria-label="See the photo">
+    <button type="button" className="qt-thumb" onClick={() => url && onOpen()} aria-label="See the photo">
       {pdf ? <span className="qt-thumb-pdf">PDF</span> : url ? <img src={url} alt="" onError={() => { if (!retried.current) { retried.current = true; photoUrl(path, true).then(setUrl).catch(() => {}); } }} /> : <span className="qt-thumb-wait" />}
     </button>
   );
@@ -338,12 +339,14 @@ function Thumb({ path, onOpen }) {
 /** One group's photos (spare, equipment, slips); a press opens the viewer on that group only (the user, 14 Nov). */
 function Photos({ paths, name }) {
   const [at, setAt] = useState(null);
+  const [pdf, setPdf] = useState(null);
   if (!paths?.length) return null;
   const pics = paths.filter((p) => !/\.pdf$/i.test(p));
   return (
     <>
-      <div className="qt-thumbs">{paths.map((p) => <Thumb key={p} path={p} onOpen={() => setAt(pics.indexOf(p))} />)}</div>
+      <div className="qt-thumbs">{paths.map((p) => <Thumb key={p} path={p} onOpen={() => (/\.pdf$/i.test(p) ? setPdf(p) : setAt(pics.indexOf(p)))} />)}</div>
       {at != null && at >= 0 && <Viewer paths={pics} start={at} name={name} onClose={() => setAt(null)} />}
+      {pdf && <PdfViewer path={pdf} name={name ?? 'file'} onClose={() => setPdf(null)} />}
     </>
   );
 }
@@ -461,6 +464,268 @@ function Viewer({ paths, start, name, onClose }) {
         <button type="button" className="qt-lb-arrow qt-lb-next" onClick={() => go(1)} aria-label="Next photo"><Icon d={I.back} size={26} /></button>
       </>}
     </div>, document.body);
+}
+
+/* ===================================================== quotations (0055) == */
+
+const isPdf = (p) => /\.pdf$/i.test(p ?? '');
+const fileName = (s) => String(s || 'file').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+
+/** Save what a link points at under our own name (a cross-origin link would only open). */
+async function saveAs(url, name) {
+  try {
+    const blob = await (await fetch(url)).blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 4000);
+  } catch { window.open(url, '_blank', 'noopener'); }
+}
+
+/**
+  A PDF in the app's own pop-up, never a new tab on the storage link (the user, 14 Nov: "why no pop up?"): every page
+  down the screen, − / + or Ctrl + wheel or a pinch to zoom, download, close or Esc.
+*/
+function PdfViewer({ path, name, onClose }) {
+  const [doc, setDoc] = useState(null);
+  const [url, setUrl] = useState(null);
+  const [fail, setFail] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const box = useRef(null);
+  const pinch = useRef(null);
+  const zoomRef = useRef(1); zoomRef.current = zoom;
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const u = await photoUrl(path); if (!on) return; setUrl(u);
+        const buf = new Uint8Array(await (await fetch(u)).arrayBuffer());
+        const d = await loadPdf(buf); if (on) setDoc(d);
+      } catch { if (on) setFail(true); }
+    })();
+    return () => { on = false; };
+  }, [path]);
+  useEffect(() => {
+    const key = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', key);
+    const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key); document.body.style.overflow = was; };
+  }, [onClose]);
+  useEffect(() => {
+    const el = box.current; if (!el) return undefined;
+    const clamp = (z) => Math.min(4, Math.max(0.5, z));
+    const wheel = (e) => { if (!e.ctrlKey) return; e.preventDefault(); setZoom((z) => clamp(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); };
+    const ts = (e) => { if (e.touches.length === 2) { const [a, b] = e.touches; pinch.current = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: zoomRef.current }; } };
+    const tm = (e) => {
+      if (!pinch.current || e.touches.length !== 2) return;
+      e.preventDefault();
+      const [a, b] = e.touches;
+      setZoom(clamp(pinch.current.z * (Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.current.d)));
+    };
+    const te = () => { pinch.current = null; };
+    el.addEventListener('wheel', wheel, { passive: false });
+    el.addEventListener('touchstart', ts, { passive: true });
+    el.addEventListener('touchmove', tm, { passive: false });
+    el.addEventListener('touchend', te);
+    return () => { el.removeEventListener('wheel', wheel); el.removeEventListener('touchstart', ts); el.removeEventListener('touchmove', tm); el.removeEventListener('touchend', te); };
+  }, []);
+  const pages = doc ? Array.from({ length: doc.numPages }, (_, i) => i + 1) : [];
+  return createPortal(
+    <div className="qt-lightbox qt-pdfbox" role="dialog" aria-label="Quotation">
+      <div className="qt-lb-bar">
+        {doc && <span className="qt-lb-count">{doc.numPages} {doc.numPages === 1 ? 'page' : 'pages'}</span>}
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={() => setZoom((z) => Math.max(0.5, z / 1.25))} aria-label="Smaller" title="Smaller"><Icon d={<path d="M6 12h12" />} size={19} /></button>
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={() => setZoom((z) => Math.min(4, z * 1.25))} aria-label="Bigger" title="Bigger"><Icon d={I.plus} size={19} /></button>
+        <button type="button" className="mt-sheet-x qt-lb-btn" disabled={!url || busy} onClick={async () => { setBusy(true); await saveAs(url, `${fileName(name)}.pdf`); setBusy(false); }} aria-label="Download" title="Download"><Icon d={I.down} size={19} /></button>
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={onClose} aria-label="Close" title="Close"><Icon d={I.x} size={20} /></button>
+      </div>
+      <div ref={box} className="qt-pdf-pages">
+        {fail ? <p className="qt-pdf-msg">This PDF could not be opened.</p>
+          : !doc ? <span className="qt-thumb-wait" />
+            : pages.map((n) => <PdfPage key={n} doc={doc} n={n} zoom={zoom} />)}
+      </div>
+    </div>, document.body);
+}
+
+function PdfPage({ doc, n, zoom }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(() => Math.min(900, window.innerWidth - 24));
+  useEffect(() => { const f = () => setW(Math.min(900, window.innerWidth - 24)); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  useEffect(() => {
+    let task; let on = true;
+    (async () => {
+      const page = await doc.getPage(n); if (!on) return;
+      const css = w * zoom; const dpr = Math.min(3, window.devicePixelRatio || 1);
+      const v1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (css * dpr) / v1.width });
+      const c = ref.current; if (!c) return;
+      c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      c.style.width = `${css}px`; c.style.height = `${(css * vp.height) / vp.width}px`;
+      task = page.render({ canvasContext: c.getContext('2d'), viewport: vp });
+      try { await task.promise; } catch { /* a newer zoom replaced it */ }
+    })();
+    return () => { on = false; task?.cancel?.(); };
+  }, [doc, n, zoom, w]);
+  return <canvas ref={ref} className="qt-pdf-page" />;
+}
+
+/** Whatever a file is: a PDF in the PDF pop-up, a photo in the photo viewer. */
+function FileView({ path, name, onClose }) {
+  return isPdf(path) ? <PdfViewer path={path} name={name} onClose={onClose} /> : <Viewer paths={[path]} start={0} name={name} onClose={onClose} />;
+}
+
+/**
+  Quotations or signed copies to attach, as many as there are (the user, 14 Nov: "dont keep quotation upload limit").
+  Each is read as it is added (QTN number, To, total; a signed copy only its number) and uploaded beside it.
+*/
+function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach' }) {
+  const input = useRef(null);
+  const [busy, setBusy] = useState(0);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null);
+  const latest = useRef(files); latest.current = files;
+  const add = async (list) => {
+    setErr(null);
+    const picked = [...list];
+    if (input.current) input.current.value = '';
+    setBusy((b) => b + picked.length);
+    await Promise.all(picked.map(async (f) => {
+      try {
+        const [read, path] = await Promise.all([readQuoteFile(f, { signed }), uploadPhoto(folder, f)]);
+        latest.current = [...latest.current, { path, ...read }];
+        onChange(latest.current);
+      } catch (e) { setErr(e.message); } finally { setBusy((b) => b - 1); }
+    }));
+  };
+  return (
+    <div className="qt-qadd">
+      {files.map((f) => (
+        <div key={f.path} className="qt-qadd-row">
+          <button type="button" className="qt-qfile-ico" onClick={() => setOpen(f.path)} aria-label="See it">{isPdf(f.path) ? 'PDF' : <Icon d={I.camera} size={16} />}</button>
+          <button type="button" className="qt-qadd-text" onClick={() => setOpen(f.path)}>
+            <b>{f.qtn_no ?? (signed ? 'Signed copy' : 'Quotation')}</b>
+            <span>{[!signed && f.qtn_to, !signed && f.total != null && money(f.total), !f.qtn_no && 'QTN number not read'].filter(Boolean).join(' · ')}</span>
+          </button>
+          <button type="button" className="qt-qadd-x" onClick={() => onChange(files.filter((x) => x.path !== f.path))} aria-label="Remove"><Icon d={I.x} size={14} /></button>
+        </div>
+      ))}
+      <button type="button" className="qt-camera qt-qadd-btn" onClick={() => input.current?.click()} disabled={busy > 0}>
+        <Icon d={I.plus} size={18} /><span>{busy > 0 ? `Reading ${busy}…` : files.length ? 'Add more' : label}</span>
+      </button>
+      <input ref={input} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => e.target.files?.length && add(e.target.files)} />
+      {err && <p className="mt-err qt-err" role="alert">{err}</p>}
+      {open && <FileView path={open} name={files.find((x) => x.path === open)?.qtn_no ?? 'quotation'} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+/** Each quotation with its signed copy: same file, the same QTN number, another number, or none yet. */
+function matchQuotes(r) {
+  const files = r.files?.length ? r.files
+    : [r.quote_file && { kind: 'quote', path: r.quote_file }, r.quote_signed && { kind: 'signed', path: r.quote_signed }].filter(Boolean);
+  const quotes = files.filter((f) => f.kind === 'quote');
+  const signed = files.filter((f) => f.kind === 'signed');
+  const used = new Set();
+  const cards = quotes.map((q) => {
+    const same = q.sha256 && signed.find((s) => s.sha256 === q.sha256);
+    if (same) { used.add(same.path); return { q, s: same, state: 'same' }; }
+    const k = qtnKey(q.qtn_no);
+    const hit = k && signed.find((s) => !used.has(s.path) && qtnKey(s.qtn_no) === k);
+    if (hit) { used.add(hit.path); return { q, s: hit, state: 'signed' }; }
+    return { q, s: null, state: null };
+  });
+  const left = signed.filter((s) => !used.has(s.path));
+  const open = cards.filter((c) => !c.state);
+  for (const c of open) {
+    // One quotation left and copies left: they belong together even when the numbers do not agree.
+    const s = open.length === 1 ? left.shift() : null;
+    if (s) { c.s = s; c.state = !s.qtn_no || !c.q.qtn_no ? 'unread' : 'differs'; } else c.state = signed.length || r.done ? 'none' : 'waiting';
+  }
+  return { cards, extra: left };
+}
+const STATE = {
+  signed: ['ok', 'Signed'], same: ['bad', 'Same file, not signed'], differs: ['bad', 'QTN differs'],
+  unread: ['warn', 'Check signed copy'], none: ['bad', 'Not signed'], waiting: ['wait', 'Not signed yet'],
+};
+
+/**
+  The quotations side by side, one row of them and See more for the rest (the user, 14 Nov). Each shows its QTN
+  number, To, total, date and whether the signed copy matches; the Coordinator and PV also see the margin: the total
+  against our picked rate with tax × qty, on our cost.
+*/
+function QuoteBlock({ r, me }) {
+  const { cards, extra } = useMemo(() => matchQuotes(r), [r]);
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState(null);
+  const grid = useRef(null);
+  const [per, setPer] = useState(3);
+  const any = cards.length + extra.length > 0;
+  useEffect(() => {
+    const el = grid.current; if (!el) return undefined;
+    const ro = new ResizeObserver(() => setPer(Math.max(1, Math.floor((el.clientWidth + 10) / 220))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [any]);
+  if (!any) return null;
+  const pick = r.picked ?? (r.orig_rate != null ? 'original' : r.comp_rate != null ? 'compatible' : null);
+  const unit = pick === 'original' ? withTax(r.orig_rate, r.orig_tax) : pick === 'compatible' ? withTax(r.comp_rate, r.comp_tax) : null;
+  const cost = unit != null ? unit * Number(r.approved_qty ?? r.qty ?? 1) : null;
+  const seesMargin = (me.role === 'coordinator' || me.role === 'pv') && cost > 0;
+  const priced = cards.filter((c) => c.q.total != null);
+  const sum = priced.reduce((t, c) => t + Number(c.q.total), 0);
+  const pct = (g, base) => `${g < 0 ? '−' : ''}${money(Math.round(Math.abs(g)))} · ${((g / base) * 100).toFixed(1)}%`;
+  const tiles = [...cards.map((c) => ({ key: c.q.path, c })), ...extra.map((s) => ({ key: s.path, s }))];
+  const shown = all ? tiles : tiles.slice(0, per);
+  const date = r.quote_date ? r.quote_date.split('-').reverse().join('-') : '';
+  const headG = sum - (cost ?? 0) * priced.length;
+  return (
+    <section className="mt-card-block">
+      <div className="qt-qhead">
+        <span className="mt-block-label">
+          {cards.length > 1 ? `Quotations · ${cards.length}` : 'Quotation'}
+          {cards.length > 1 && priced.length > 0 ? ` · ${money(Math.round(sum))}` : ''}
+          {r.quote_ok === true ? ' · approved' : r.quote_ok === false ? ' · not approved' : ''}
+        </span>
+        {seesMargin && priced.length > 1 && <span className="qt-qhead-m" data-down={headG < 0 || undefined}>Margin {pct(headG, cost * priced.length)}</span>}
+      </div>
+      <div ref={grid} className="qt-qgrid">
+        {shown.map(({ key, c, s }) => (c ? (
+          <div key={key} className="qt-qcard">
+            <button type="button" className="qt-qcard-open" onClick={() => setOpen({ path: c.q.path, name: c.q.qtn_no ?? `${r.no} quotation` })} aria-label="See the quotation" />
+            <div className="qt-qcard-top">
+              <span className="qt-qfile-ico">{isPdf(c.q.path) ? 'PDF' : <Icon d={I.camera} size={15} />}</span>
+              {c.s ? (
+                <button type="button" className="qt-qstate" data-tone={STATE[c.state][0]} onClick={() => setOpen({ path: c.s.path, name: `${c.q.qtn_no ?? r.no} signed` })} title="See the signed copy">
+                  {c.state === 'signed' && <Icon d={I.check} size={13} />}{STATE[c.state][1]}
+                </button>
+              ) : <span className="qt-qstate" data-tone={STATE[c.state][0]}>{STATE[c.state][1]}</span>}
+            </div>
+            <p className="qt-qno">{c.q.qtn_no ?? 'Quotation'}</p>
+            {c.q.qtn_to && <p className="qt-qto">{c.q.qtn_to}</p>}
+            <div className="qt-qfoot"><b>{c.q.total != null ? money(c.q.total) : ''}</b><span>{date}</span></div>
+            {c.state === 'differs' && <p className="qt-qnote">Signed copy says {c.s.qtn_no}</p>}
+            {seesMargin && c.q.total != null && (
+              <span className="qt-qmargin" data-down={Number(c.q.total) < cost || undefined}><span>Margin</span><b>{pct(Number(c.q.total) - cost, cost)}</b></span>
+            )}
+          </div>
+        ) : (
+          <div key={key} className="qt-qcard">
+            <button type="button" className="qt-qcard-open" onClick={() => setOpen({ path: s.path, name: `${s.qtn_no ?? r.no} signed` })} aria-label="See the signed copy" />
+            <div className="qt-qcard-top">
+              <span className="qt-qfile-ico">{isPdf(s.path) ? 'PDF' : <Icon d={I.camera} size={15} />}</span>
+              <span className="qt-qstate" data-tone="warn">No quotation</span>
+            </div>
+            <p className="qt-qno">{s.qtn_no ?? 'Signed copy'}</p>
+            <p className="qt-qto">Signed copy</p>
+          </div>
+        )))}
+      </div>
+      {tiles.length > per && (
+        <button type="button" className="mt-btn qt-qmore" onClick={() => setAll((x) => !x)}>{all ? 'See less' : `See more · ${tiles.length - per}`}</button>
+      )}
+      {open && <FileView path={open.path} name={open.name} onClose={() => setOpen(null)} />}
+    </section>
+  );
 }
 
 /** Camera or gallery, several at once; uploaded into the folder given. */
@@ -905,12 +1170,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
               <div className="qt-sheet-col">
               {r.mine && <Facts r={r} now={now} />}
               <Quotes r={r} onlyPicked={me.role === 'engineer'} />
-              {(r.quote_file || r.quote_signed) && (
-                <section className="mt-card-block">
-                  <span className="mt-block-label">Quotation{r.quote_date ? ` · ${r.quote_date.split('-').reverse().join('-')}` : ''}{r.quote_ok === true ? ' · approved' : r.quote_ok === false ? ' · not approved' : ''}</span>
-                  <Photos paths={[r.quote_file, r.quote_signed].filter(Boolean)} />
-                </section>
-              )}
+              <QuoteBlock r={r} me={me} />
               {(r.track_photo || r.return_track_photo) && (
                 <section className="mt-card-block">
                   <span className="mt-block-label">Slips</span>
@@ -1547,13 +1807,14 @@ function Pv({ r, onDone }) {
 /** Quotation before PR (the user, 11 Nov): the Coordinator attaches it; the engineer gets the customer's answer. */
 function CoordQuote({ r, onDone }) {
   const [a, setA] = useState('quote');
-  const [v, setV] = useState({ quote_file: '', quote_date: '', note: '' });
+  const [v, setV] = useState({ files: [], quote_date: '', note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const canPick = !r.picked && r.orig_rate != null && r.comp_rate != null;
   const [pick, setPick] = useState(r.picked ?? (r.comp_rate != null ? 'compatible' : 'original'));
   const said = r.quote_ok === false ? [...(r.events ?? [])].reverse().find((e) => e.action === 'quote_no') : null;
-  const p = { ...v, action: a, ...(canPick ? { picked: pick } : {}) };
+  const p = { ...v, files: v.files.map(({ date, ...f }) => f), action: a, ...(canPick ? { picked: pick } : {}) };
+  const setFiles = (files) => setV((o) => ({ ...o, files, quote_date: o.quote_date || files.find((f) => f.date && f.date <= todayIst())?.date || '' }));
   return (
     <>
       {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
@@ -1561,14 +1822,14 @@ function CoordQuote({ r, onDone }) {
       <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
       {a === 'quote' ? (
         <div className="qt-quote-row">
-          <div className="pm-in"><span>Quotation</span>
-            <PhotoAdd folder={r.id} paths={v.quote_file ? [v.quote_file] : []} onChange={(x) => set('quote_file', x[x.length - 1] ?? '')} label="Attach" max={1} />
+          <div className="pm-in qt-wide"><span>Quotation</span>
+            <QuoteAdd folder={r.id} files={v.files} onChange={setFiles} />
           </div>
           <Field label="Quotation date"><input type="date" value={v.quote_date} max={todayIst()} onChange={(e) => set('quote_date', e.target.value)} /></Field>
           <Field label="Remarks"><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
         </div>
       ) : <Field label="Reason" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>}
-      {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.quote_file, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.']]) && s.go(`Submit the quotation of ${r.no}?`, [`To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>Submit quotation</button>}
+      {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.files.length > 0, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.']]) && s.go(`Submit the quotation of ${r.no}?`, [...v.files.map((f) => [f.qtn_no ?? 'Quotation', f.total != null && money(f.total)].filter(Boolean).join(' · ')), `To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>Submit quotation</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
       <Err text={s.err} at={s.at} />
@@ -1579,27 +1840,26 @@ function CoordQuote({ r, onDone }) {
 
 /** The engineer confirms the customer's answer; the signed copy now or at the last receipt. */
 function EngQuote({ r, onDone }) {
-  const [v, setV] = useState({ approved: '', signed: '', note: '' });
+  const [v, setV] = useState({ approved: '', signed: [], note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   return (
     <>
-      <div className="pm-in"><span>Quotation</span><Photos paths={[r.quote_file].filter(Boolean)} /></div>
       <div className="pm-in"><span>Approved by the customer</span>
         <div className="qt-send-chips" role="radiogroup" aria-label="Approved by the customer">
           {[['yes', 'Yes'], ['no', 'No']].map(([id, label]) => <button key={id} type="button" role="radio" aria-checked={v.approved === id} onClick={() => set('approved', id)}>{label}</button>)}
         </div>
       </div>
       {v.approved === 'yes' && (
-        <div className="pm-in"><span>Signed quotation</span>
-          <PhotoAdd folder={r.id} paths={v.signed ? [v.signed] : []} onChange={(x) => set('signed', x[x.length - 1] ?? '')} label="Attach" max={1} />
+        <div className="pm-in qt-wide"><span>Signed quotation</span>
+          <QuoteAdd folder={r.id} files={v.signed} onChange={(x) => set('signed', x)} signed />
         </div>
       )}
       <Field label={v.approved === 'no' ? 'Reason' : 'Remarks'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
       <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.approved, 'Choose whether the customer approved it.'], ...(v.approved === 'no' ? [[v.note, 'Write the reason.']] : [])]) && s.go(
         v.approved === 'yes' ? `Customer approved the quotation of ${r.no}?` : `Customer did not approve ${r.no}?`,
-        v.approved === 'yes' ? [v.signed ? 'Signed copy attached.' : 'The signed copy is needed when you confirm the receipt.', 'The Coordinator raises the PR.'] : [v.note, 'It goes back to the Coordinator.'],
-        'Confirm', v, v.approved === 'yes' ? 'Sent to the Coordinator for PR.' : 'Sent back to the Coordinator.')}>Confirm quotation</button>
+        v.approved === 'yes' ? [v.signed.length ? `${v.signed.length === 1 ? 'Signed copy' : `${v.signed.length} signed copies`} attached.` : 'The signed copy is needed when you confirm the receipt.', 'The Coordinator raises the PR.'] : [v.note, 'It goes back to the Coordinator.'],
+        'Confirm', { approved: v.approved, note: v.note, signed_files: v.approved === 'yes' ? v.signed.map(({ date, ...f }) => f) : [] }, v.approved === 'yes' ? 'Sent to the Coordinator for PR.' : 'Sent back to the Coordinator.')}>Confirm quotation</button>
       <Err text={s.err} at={s.at} />
       {s.box}
     </>
@@ -1780,12 +2040,12 @@ function Receipt({ r, onDone }) {
   const obs = r.step === 'observation';
   const expect = repl ? r.faulty_qty : (r.approved_qty ?? r.qty);
   const left = obs ? r.received_qty - r.used_qty - r.faulty_qty : 0;
-  const [v, setV] = useState({ received: obs ? 0 : expect, used: obs ? left : 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false, signed: '' });
+  const [v, setV] = useState({ received: obs ? 0 : expect, used: obs ? left : 0, faulty: 0, faulty_kind: 'Faulty', date: todayIst(), note: '', observe: false, signed: [] });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const room = Number(v.received || 0) + (obs ? r.received_qty - r.used_qty - r.faulty_qty : 0);
   const over = Number(v.used || 0) + Number(v.faulty || 0) > room;
-  const p = { ...v, received: Number(v.received || 0), used: Number(v.used || 0), faulty: Number(v.faulty || 0) };
+  const p = { ...v, signed: undefined, signed_files: v.signed.map(({ date, ...f }) => f), received: Number(v.received || 0), used: Number(v.used || 0), faulty: Number(v.faulty || 0) };
   // Completing it needs the signed quotation if it was not attached before (the user, 11 Nov; 0033).
   const needSigned = r.kind === 'request' && r.quote_file && !r.quote_signed && !Number(v.faulty) && !v.observe;
   return (
@@ -1807,12 +2067,12 @@ function Receipt({ r, onDone }) {
         <label className="qt-check"><input type="checkbox" checked={v.observe} onChange={(e) => setV((o) => ({ ...o, observe: e.target.checked, used: e.target.checked ? 0 : o.used }))} /> Keep under observation</label>
       )}
       {needSigned && (
-        <div className="pm-in"><span>Signed quotation</span>
-          <PhotoAdd folder={r.id} paths={v.signed ? [v.signed] : []} onChange={(x) => set('signed', x[x.length - 1] ?? '')} label="Attach" max={1} />
+        <div className="pm-in qt-wide"><span>Signed quotation</span>
+          <QuoteAdd folder={r.id} files={v.signed} onChange={(x) => set('signed', x)} signed />
         </div>
       )}
       {over && <p className="mt-err qt-err">Used and faulty together cannot be more than {room}.</p>}
-      <button type="button" data-role={Number(v.faulty) ? 'purchase' : 'engineer'} className="mt-go" disabled={over} onClick={() => s.need(needSigned ? [[v.signed, 'Attach the signed quotation.']] : []) && s.go(`Confirm receipt of ${r.no}?`,
+      <button type="button" data-role={Number(v.faulty) ? 'purchase' : 'engineer'} className="mt-go" disabled={over} onClick={() => s.need(needSigned ? [[v.signed.length > 0, 'Attach the signed quotation.']] : []) && s.go(`Confirm receipt of ${r.no}?`,
         [`${p.received} received · ${p.used} used · ${p.faulty} ${p.faulty ? v.faulty_kind.toLowerCase() : 'faulty'}`, p.faulty ? 'Purchase is told about the faulty one.' : v.observe ? 'It stays under observation.' : 'The request is completed.'],
         'Confirm', p, p.faulty ? `${v.faulty_kind} reported to Purchase.` : `Receipt of ${r.no} confirmed.`)}>Confirm receipt</button>
       <Err text={s.err} at={s.at} />
