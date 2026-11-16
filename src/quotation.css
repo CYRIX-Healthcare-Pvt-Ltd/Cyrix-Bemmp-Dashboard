@@ -1104,3 +1104,5 @@ button.qt-qstate { cursor: pointer; }
 .qt-terms-list .qt-qadd-x { margin-top: 7px; }
 .qt-terms-add { min-height: 42px; border-radius: 12px; justify-content: flex-start; padding: 0 14px; gap: 8px; }
 .qt-terms-add:hover { background: var(--hover-wash); color: var(--status-good); }
+/* The item's remove button stays round, as everywhere else. */
+.qt-maker-item .qt-mi-x { width: 30px; height: 30px; min-width: 30px; padding: 0; display: grid; place-items: center; border-radius: 50%; justify-self: end; }
