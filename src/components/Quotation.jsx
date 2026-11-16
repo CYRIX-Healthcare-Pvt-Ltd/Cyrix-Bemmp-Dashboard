@@ -1305,6 +1305,10 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   );
 }
 
+// Recent changes: the requests this person acted on first, their latest first, then the rest newest first; nothing is
+// hidden (0059; the user, 16 Nov). A choice in the tabs between With you and Closed, where a request just passed on goes;
+// they open on it (the user, 16 Nov: "default should be recent changes").
+const RECENT = { value: 'recent', label: 'Recent changes' };
 const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
@@ -1312,7 +1316,9 @@ const SORTS = [
 function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
   const [q, setQ] = useState('');
   const [step, setStep] = useState('');
-  const [sort, setSort] = useState('new');
+  const between = show === 'team' || show === 'others';
+  const [sort, setSort] = useState(between ? 'recent' : 'new');
+  const sorts = between ? [RECENT, ...SORTS] : SORTS;
   const [role, setRole] = useState('');
   // Pending with a role (the user, 11 Nov): open requests by the role they now wait with.
   const roleOf = roleOfReq;
@@ -1322,7 +1328,7 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
   const base = useMemo(() => list.filter(inView),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [list, show, myRole]);
-  useEffect(() => { setRole(''); setStep(''); }, [show]);
+  useEffect(() => { setRole(''); setStep(''); setSort(show === 'team' || show === 'others' ? 'recent' : 'new'); }, [show]);
   const roles = useMemo(() => {
     const m = new Map(); for (const r of base) if (!r.done && roleOf(r)) m.set(roleOf(r), (m.get(roleOf(r)) ?? 0) + 1);
     return [{ value: '', label: 'Pending with anyone' }, ...ROLE_ORDER.filter((k) => m.has(k)).map((k) => ({ value: k, label: `${ROLE_NAME[k]} · ${m.get(k)}` }))];
@@ -1333,8 +1339,10 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
     return [{ value: '', label: 'Every step' }, ...[...m.entries()].map(([k, n]) => ({ value: k, label: `${stepOf(k).label} · ${n}` }))];
   }, [base]);
   const shown = useMemo(() => {
-    const out = base.filter((r) => (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q)));
-    if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const out = base.filter((r) => (!step || r.step === step) && (!role || (!r.done && roleOf(r) === role)) && (!q || matches(r, q))
+    );
+    if (sort === 'recent') out.sort((a, b) => (b.my_last_at ?? '').localeCompare(a.my_last_at ?? '') || b.created_at.localeCompare(a.created_at));
+    else if (sort === 'old') out.sort((a, b) => a.created_at.localeCompare(b.created_at));
     else if (sort === 'wait') out.sort((a, b) => (clockOf(b, targets, now)?.secs ?? -1) - (clockOf(a, targets, now)?.secs ?? -1));
     else out.sort((a, b) => b.created_at.localeCompare(a.created_at));
     return out;
@@ -1342,12 +1350,12 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
   }, [base, step, role, q, sort, targets, now]);
   return (
     <div className="mt-tickets qt-requests">
-      {viewPick && <div className="qt-view-sort">{viewPick}<Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></div>}
+      {viewPick && <div className="qt-view-sort">{viewPick}<Picker value={sort} options={sorts} onChange={setSort} title="Sort" /></div>}
       <div className="mt-filters qt-filters">
         <Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" />
         {roles.length > 2 && <Picker value={role} options={roles} onChange={setRole} title="Pending with" />}
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
-        <span className="qt-sort-wide"><Picker value={sort} options={SORTS} onChange={setSort} title="Sort" /></span>
+        <span className="qt-sort-wide"><Picker value={sort} options={sorts} onChange={setSort} title="Sort" /></span>
       </div>
       {!shown.length ? <p className="empty-inline pm-empty">No request here.</p> : (
         <ul className="qt-cards">{shown.map((r) => <Card key={r.id} r={r} targets={targets} now={now} onOpen={onOpen} />)}</ul>
