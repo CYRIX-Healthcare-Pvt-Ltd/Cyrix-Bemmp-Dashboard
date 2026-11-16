@@ -699,6 +699,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
     return m ? String(m) : '';
   };
   const setMargin = (i, m) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, margin: m, price: Number(it.cost) > 0 ? priceOf(it.cost, m) : it.price } : it)) }));
+  const setCost = (i, c) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, cost: c, price: Number(c) > 0 ? priceOf(c, it.margin) : it.price } : it)) }));
   const setPrice = (i, p) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: p, margin: marginOf(it.cost, p) } : it)) }));
   const [marginAll, setMarginAll] = useState('');
   const applyAll = () => setQ((o) => ({ ...o, items: o.items.map((it) => (Number(it.cost) > 0 ? { ...it, margin: marginAll, price: priceOf(it.cost, marginAll) } : it)) }));
@@ -784,8 +785,13 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
                   <label className="pm-in qt-mi-desc"><span>Description</span>
                     <textarea ref={fit} rows={1} value={it.desc} onChange={(e) => { setItem(i, 'desc', e.target.value); fit(e.target); }} placeholder="Spare, accessory, labour…" />
                   </label>
-                  <p className="qt-mi-cost"><span>Cost</span><b>{Number(it.cost) > 0 ? money(Number(it.cost)) : '—'}</b></p>
-                  {Number(it.cost) > 0 ? (
+                  {/* Without a request the maker types the cost (the user, 16 Nov: "where is margin?"). */}
+                  {r.free ? (
+                    <label className="pm-in qt-mi-cost qt-mi-cost-in"><span>Cost</span>
+                      <input inputMode="decimal" value={it.cost ?? ''} onChange={(e) => setCost(i, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
+                    </label>
+                  ) : <p className="qt-mi-cost"><span>Cost</span><b>{Number(it.cost) > 0 ? money(Number(it.cost)) : '—'}</b></p>}
+                  {Number(it.cost) > 0 || r.free ? (
                     <label className="pm-in qt-mi-margin"><span>Margin %</span>
                       <input inputMode="decimal" value={it.margin ?? ''} onChange={(e) => setMargin(i, e.target.value.replace(/[^0-9.-]/g, ''))} placeholder="0" />
                     </label>

@@ -1151,9 +1151,8 @@ button.qt-qstate { cursor: pointer; }
   .qt-maker-free .qt-maker-to { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
   .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: auto; }
 }
-/* No request, so no approved cost: Cost and Margin are left out. */
-.qt-maker-free .qt-mi-cost, .qt-maker-free .qt-mi-margin { display: none; }
-@media (min-width: 900px) { .qt-maker-free .qt-maker-item { grid-template-areas: 'n desc desc desc desc desc desc x' '. price price qty tax tax tot .'; } }
+/* Without a request the cost is typed: a box like the others (the user, 16 Nov). */
+@media (min-width: 900px) { .qt-maker-item .qt-mi-cost-in > span { display: block; } .qt-maker-item .qt-mi-cost-in { display: grid; gap: 6px; } }
 /* A Team Lead's reportees in Settings (0061). */
 .qt-team-rows { display: grid; gap: 8px; }
 .qt-team-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
