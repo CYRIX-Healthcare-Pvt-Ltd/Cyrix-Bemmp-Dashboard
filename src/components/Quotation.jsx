@@ -665,16 +665,16 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
   const [q, setQ] = useState(() => {
     const d = start?.draft ?? null;
     const approved = cost != null ? String(Number(cost)) : '';
-    if (d) return { ...d, items: d.items.map((it, n) => ({ ...it, cost: it.cost ?? (n === 0 ? approved : ''), margin: it.margin ?? (n === 0 && approved ? '0' : ''), price: n === 0 && !it.price ? approved : it.price })) };
+    if (d) return { ...d, items: d.items.map((it, n) => ({ ...it, cost: it.cost ?? (n === 0 ? approved : ''), margin: it.margin && it.margin !== '0' ? it.margin : '', price: n === 0 && !it.price ? approved : it.price })) };
     const s = start?.doc;
     return s ? {
       qtn_no: s.qtn_no ?? null, date: s.date ?? todayIst(), to: s.to ?? '', place: s.place ?? '', subject: s.subject ?? DEFAULT_SUBJECT,
       terms: (s.terms ?? DEFAULT_TERMS).join('\n'), path: start.path ?? null,
-      items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', cost: it.cost != null ? String(it.cost) : '', margin: it.margin != null ? String(it.margin) : '',
+      items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', cost: it.cost != null ? String(it.cost) : '', margin: it.margin ? String(it.margin) : '',
         price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? '') })),
     } : {
       qtn_no: null, path: null, date: todayIst(), to: r.hospital ?? '', place: r.district ?? '', subject: DEFAULT_SUBJECT,
-      items: [{ key: Math.random(), desc: spareLine(r), cost: approved, margin: approved ? '0' : '', price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
+      items: [{ key: Math.random(), desc: spareLine(r), cost: approved, margin: '', price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
       terms: DEFAULT_TERMS.join('\n'),
     };
   });
@@ -689,11 +689,15 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
   // Margin and unit price follow each other: a margin gives the price from the cost, a price shows its margin.
   const r2 = (n) => String(Math.round(n * 100) / 100);
   const priceOf = (c, m) => r2(Number(c) * (1 + (Number(m) || 0) / 100));
-  const marginOf = (c, p) => (Number(c) > 0 && p !== '' ? String(Math.round((Number(p) / Number(c) - 1) * 1000) / 10) : '');
+  const marginOf = (c, p) => {
+    if (!(Number(c) > 0) || p === '') return '';
+    const m = Math.round((Number(p) / Number(c) - 1) * 1000) / 10;
+    return m ? String(m) : '';
+  };
   const setMargin = (i, m) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, margin: m, price: Number(it.cost) > 0 ? priceOf(it.cost, m) : it.price } : it)) }));
   const setPrice = (i, p) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: p, margin: marginOf(it.cost, p) } : it)) }));
   const [marginAll, setMarginAll] = useState('');
-  const applyAll = () => setQ((o) => ({ ...o, items: o.items.map((it) => (Number(it.cost) > 0 ? { ...it, margin: marginAll || '0', price: priceOf(it.cost, marginAll) } : it)) }));
+  const applyAll = () => setQ((o) => ({ ...o, items: o.items.map((it) => (Number(it.cost) > 0 ? { ...it, margin: marginAll, price: priceOf(it.cost, marginAll) } : it)) }));
   const costed = q.items.filter((it) => Number(it.cost) > 0);
   const costSum = costed.reduce((t, it) => t + Number(it.cost) * (Number(it.qty) || 0), 0);
   const marginSum = costed.reduce((t, it) => t + (Number(it.price || 0) - Number(it.cost)) * (Number(it.qty) || 0), 0);
