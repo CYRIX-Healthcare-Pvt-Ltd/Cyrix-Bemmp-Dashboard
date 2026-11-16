@@ -665,15 +665,16 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
   const [q, setQ] = useState(() => {
     const d = start?.draft ?? null;
     const approved = cost != null ? String(Number(cost)) : '';
-    if (d) return { ...d, items: d.items.map((it, n) => (n === 0 && !it.price ? { ...it, price: approved } : it)) };
+    if (d) return { ...d, items: d.items.map((it, n) => ({ ...it, cost: it.cost ?? (n === 0 ? approved : ''), margin: it.margin ?? (n === 0 && approved ? '0' : ''), price: n === 0 && !it.price ? approved : it.price })) };
     const s = start?.doc;
     return s ? {
       qtn_no: s.qtn_no ?? null, date: s.date ?? todayIst(), to: s.to ?? '', place: s.place ?? '', subject: s.subject ?? DEFAULT_SUBJECT,
       terms: (s.terms ?? DEFAULT_TERMS).join('\n'), path: start.path ?? null,
-      items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? '') })),
+      items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', cost: it.cost != null ? String(it.cost) : '', margin: it.margin != null ? String(it.margin) : '',
+        price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? '') })),
     } : {
       qtn_no: null, path: null, date: todayIst(), to: r.hospital ?? '', place: r.district ?? '', subject: DEFAULT_SUBJECT,
-      items: [{ key: Math.random(), desc: spareLine(r), price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
+      items: [{ key: Math.random(), desc: spareLine(r), cost: approved, margin: approved ? '0' : '', price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
       terms: DEFAULT_TERMS.join('\n'),
     };
   });
@@ -685,9 +686,22 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
   const totals = quoteTotals(q.items);
+  // Margin and unit price follow each other: a margin gives the price from the cost, a price shows its margin.
+  const r2 = (n) => String(Math.round(n * 100) / 100);
+  const priceOf = (c, m) => r2(Number(c) * (1 + (Number(m) || 0) / 100));
+  const marginOf = (c, p) => (Number(c) > 0 && p !== '' ? String(Math.round((Number(p) / Number(c) - 1) * 1000) / 10) : '');
+  const setMargin = (i, m) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, margin: m, price: Number(it.cost) > 0 ? priceOf(it.cost, m) : it.price } : it)) }));
+  const setPrice = (i, p) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: p, margin: marginOf(it.cost, p) } : it)) }));
+  const [marginAll, setMarginAll] = useState('');
+  const applyAll = () => setQ((o) => ({ ...o, items: o.items.map((it) => (Number(it.cost) > 0 ? { ...it, margin: marginAll || '0', price: priceOf(it.cost, marginAll) } : it)) }));
+  const costed = q.items.filter((it) => Number(it.cost) > 0);
+  const costSum = costed.reduce((t, it) => t + Number(it.cost) * (Number(it.qty) || 0), 0);
+  const marginSum = costed.reduce((t, it) => t + (Number(it.price || 0) - Number(it.cost)) * (Number(it.qty) || 0), 0);
   const doc = (qtn) => ({
     qtn_no: qtn, date: q.date, to: q.to.trim(), place: q.place.trim(), subject: q.subject.trim() || DEFAULT_SUBJECT,
-    items: q.items.map(({ desc, price, qty, gst }) => ({ desc: desc.trim(), price: Number(price), qty: Number(qty), gst: Number(gst) })),
+    // Cost and margin are kept with the quotation for the record; the PDF shows only the price.
+    items: q.items.map(({ desc, cost, margin, price, qty, gst }) => ({ desc: desc.trim(), price: Number(price), qty: Number(qty), gst: Number(gst),
+      ...(Number(cost) > 0 ? { cost: Number(cost), margin: Number(margin) || 0 } : {}) })),
     terms: q.terms.split('\n').map((t) => t.trim()).filter(Boolean),
   });
   const check = () => {
@@ -748,7 +762,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
             </div>
             <div className="qt-maker-items">
               <div className="qt-maker-head" aria-hidden="true">
-                <span>Sl No</span><span>Description</span><span>Unit price</span><span>Qty</span><span>GST %</span><span>With GST</span><span />
+                <span>Sl No</span><span>Description</span><span>Cost</span><span>Margin %</span><span>Unit price</span><span>Qty</span><span>GST %</span><span>With GST</span><span />
               </div>
               {q.items.map((it, i) => (
                 <section key={it.key} className="qt-maker-item">
@@ -757,8 +771,14 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
                   <label className="pm-in qt-mi-desc"><span>Description</span>
                     <textarea ref={fit} rows={1} value={it.desc} onChange={(e) => { setItem(i, 'desc', e.target.value); fit(e.target); }} placeholder="Spare, accessory, labour…" />
                   </label>
+                  <p className="qt-mi-cost"><span>Cost</span><b>{Number(it.cost) > 0 ? money(Number(it.cost)) : '—'}</b></p>
+                  {Number(it.cost) > 0 ? (
+                    <label className="pm-in qt-mi-margin"><span>Margin %</span>
+                      <input inputMode="decimal" value={it.margin ?? ''} onChange={(e) => setMargin(i, e.target.value.replace(/[^0-9.-]/g, ''))} placeholder="0" />
+                    </label>
+                  ) : <p className="qt-mi-margin qt-mi-none"><span>Margin %</span><b>—</b></p>}
                   <label className="pm-in qt-mi-price"><span>Unit price</span>
-                    <input inputMode="decimal" value={it.price} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
+                    <input inputMode="decimal" value={it.price} onChange={(e) => setPrice(i, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
                   </label>
                   <label className="pm-in qt-mi-qty"><span>Qty</span>
                     <input inputMode="numeric" value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value.replace(/[^0-9]/g, ''))} placeholder="1" />
@@ -767,7 +787,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
                   <p className="qt-mi-tot"><span>Total with GST</span><b>{money(totals.lines[i].with) || '₹0'}</b></p>
                 </section>
               ))}
-              <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), desc: '', price: '', qty: '1', gst: q.items[q.items.length - 1]?.gst ?? '' }])}>
+              <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), desc: '', cost: '', margin: '', price: '', qty: '1', gst: q.items[q.items.length - 1]?.gst ?? '' }])}>
                 <Icon d={I.plus} size={18} /><span>Add item</span>
               </button>
             </div>
@@ -779,11 +799,23 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
           <aside className="qt-maker-side">
             <div className="qt-maker-sum">
               <p><span>Items</span><b>{q.items.length}</b></p>
+              {costed.length > 0 && <>
+                <p><span>Cost</span><b>{money(costSum) || '₹0'}</b></p>
+                <p><span>Margin</span><b>{money(marginSum) || '₹0'} · {costSum ? Math.round((marginSum / costSum) * 1000) / 10 : 0}%</b></p>
+              </>}
               <p><span>Total</span><b>{money(totals.total) || '₹0'}</b></p>
               <p><span>GST</span><b>{money(totals.tax) || '₹0'}</b></p>
               <p className="qt-maker-grand"><span>Grand total</span><b>{money(totals.with) || '₹0'}</b></p>
               <small>{inWords(totals.with)}</small>
             </div>
+            {costed.length > 1 && (
+              <div className="qt-maker-all">
+                <label className="pm-in"><span>Margin on all, %</span>
+                  <input inputMode="decimal" value={marginAll} onChange={(e) => setMarginAll(e.target.value.replace(/[^0-9.-]/g, ''))} placeholder="0" />
+                </label>
+                <button type="button" className="mt-btn" onClick={applyAll}>Apply</button>
+              </div>
+            )}
             <Err text={err} at={at} />
             <div className="qt-maker-go" data-role="engineer">
               <button type="button" className="mt-btn mt-btn-lg" onClick={() => run(false)} disabled={!!busy}>{busy === 'look' ? 'Making…' : 'Preview'}</button>

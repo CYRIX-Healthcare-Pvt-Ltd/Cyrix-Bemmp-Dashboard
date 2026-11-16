@@ -110,41 +110,41 @@ export async function makeQuotePdf(q) {
   const xs = cols.reduce((a, w) => [...a, a[a.length - 1] + w], [L]);
   const heads = ['Sl No', 'Description', 'Unit Price', 'Qty', 'Total Price', 'GST %', 'Tax Amount', 'Total with Taxes'];
   const PAD = 1.6;
+  const grid = (top, h, from = 0) => { xs.slice(from).forEach((x) => pdf.line(x, top, x, top + h)); pdf.line(xs[from], top + h, xs[8], top + h); };
   const header = () => {
-    font('bold', 8.5, [255, 255, 255]);
+    font('bold', 9);
     const hl = heads.map((h, i) => pdf.splitTextToSize(h, cols[i] - PAD * 2));
-    const hh = Math.max(...hl.map((l) => l.length)) * 3.6 + 3;
-    pdf.setFillColor(17, 17, 17); pdf.rect(L, y, xs[8] - L, hh, 'F');
-    hl.forEach((l, i) => l.forEach((ln, k) => text(ln, i === 1 ? xs[i] + PAD : xs[i] + cols[i] / 2, y + 4.6 + k * 3.6, { align: i === 1 ? 'left' : 'center' })));
+    const n = Math.max(...hl.map((l) => l.length)), hh = n * 3.8 + 4;
+    hl.forEach((l, i) => {
+      const top = y + (hh - l.length * 3.8) / 2 + 2.9;
+      l.forEach((ln, k) => text(ln, xs[i] + cols[i] / 2, top + k * 3.8, { align: 'center' }));
+    });
+    pdf.line(L, y, xs[8], y); grid(y, hh);
     y += hh;
   };
   const cell = (t, i, yy, bold) => {
-    font(bold ? 'bold' : 'normal', 9);
+    font(bold ? 'bold' : 'normal', 9.5);
     if (i === 1) return; // description is drawn wrapped by the row
-    const right = i === 2 || i === 4 || i === 6 || i === 7;
-    text(String(t), right ? xs[i + 1] - PAD : xs[i] + cols[i] / 2, yy, { align: right ? 'right' : 'center' });
+    text(String(t), xs[i] + cols[i] / 2, yy, { align: 'center' });
   };
-  pdf.setDrawColor(190, 190, 190); pdf.setLineWidth(0.2);
+  pdf.setDrawColor(0, 0, 0); pdf.setLineWidth(0.25);
   header();
   (q.items ?? []).forEach((it, n) => {
-    font('normal', 9);
+    font('normal', 10);
     const desc = pdf.splitTextToSize(String(it.desc ?? ''), cols[1] - PAD * 2);
-    const h = desc.length * 4 + 3.4;
-    if (y + h > BOTTOM) { y = newPage(); header(); }
-    if (n % 2) { pdf.setFillColor(244, 244, 245); pdf.rect(L, y, xs[8] - L, h, 'F'); }
-    const ty = y + 5;
-    desc.forEach((ln, k) => text(ln, xs[1] + PAD, ty + k * 4));
-    [n + 1, '', fmt(it.price), fmt(it.qty), fmt(lines[n].total), `${num(it.gst)}%`, fmt(lines[n].tax), fmt(lines[n].with)].forEach((v, i) => cell(v, i, ty));
-    xs.forEach((x) => pdf.line(x, y, x, y + h));
-    pdf.line(L, y + h, xs[8], y + h);
+    const h = Math.max(desc.length * 4.4 + 5, 11);
+    if (y + h > BOTTOM) { y = newPage(); pdf.line(L, y, xs[8], y); header(); }
+    const ty = y + (h - desc.length * 4.4) / 2 + 3.2;
+    desc.forEach((ln, k) => text(ln, xs[1] + PAD, ty + k * 4.4));
+    [n + 1, '', fmt(it.price), fmt(it.qty), fmt(lines[n].total), `${num(it.gst)}%`, fmt(lines[n].tax), fmt(lines[n].with)].forEach((v, i) => cell(v, i, y + h / 2 + 1.3, i === 7));
+    grid(y, h);
     y += h;
   });
-  if (y + 8 > BOTTOM) { y = newPage(); }
-  pdf.setFillColor(228, 228, 231); pdf.rect(L, y, xs[8] - L, 8, 'F');
-  font('bold', 9.5); text('GRAND TOTAL', xs[0] + PAD, y + 5.4);
-  cell(fmt(total), 4, y + 5.4, true); cell('', 5, y + 5.4, true); cell(fmt(tax), 6, y + 5.4, true); cell(fmt(grand), 7, y + 5.4, true);
-  pdf.setDrawColor(17, 17, 17); pdf.rect(L, y, xs[8] - L, 8);
-  pdf.setDrawColor(190, 190, 190);
+  if (y + 8 > BOTTOM) { y = newPage(); pdf.line(L, y, xs[8], y); }
+  // GRAND TOTAL across Sl No to Qty, as in Word.
+  font('bold', 9.5); text('GRAND TOTAL', (xs[0] + xs[4]) / 2, y + 5.4, { align: 'center' });
+  cell(fmt(total), 4, y + 5.4, true); cell(fmt(tax), 6, y + 5.4, true); cell(fmt(grand), 7, y + 5.4, true);
+  [xs[0], xs[4], xs[5], xs[6], xs[7], xs[8]].forEach((x) => pdf.line(x, y, x, y + 8)); pdf.line(L, y + 8, xs[8], y + 8);
   y += 13;
   font('bold', 9.5); y = para(`Amount in words: ${inWords(grand)}`, y, 9.5, 5, 'bold');
 
@@ -169,14 +169,16 @@ export async function makeQuotePdf(q) {
   y = para(closing, y, 10, 4);
   need(34);
   y = para('Please make Payment through RTGS / NEFT to the following Account.', y, 10, 2);
-  const bw = 120;
-  pdf.setFillColor(17, 17, 17); pdf.rect(L, y, bw, 7, 'F');
-  font('bold', 9.5, [255, 255, 255]); text('Cyrix Healthcare Pvt Ltd - Account Details', L + bw / 2, y + 4.8, { align: 'center' });
-  y += 7;
+  // The bank details as in Word: plain cells, black lines.
+  const bw = CW - 6, kw = bw * 0.35;
+  pdf.setDrawColor(0, 0, 0); pdf.setLineWidth(0.25);
+  pdf.rect(L, y, bw, 7.5);
+  font('normal', 10); text('Cyrix Healthcare Pvt Ltd - Account Details', L + 3.5, y + 5.1);
+  y += 7.5;
   BANK.forEach(([k, v]) => {
-    pdf.rect(L, y, 30, 6.5); pdf.rect(L + 30, y, bw - 30, 6.5);
-    font('bold', 9.5); text(k, L + PAD, y + 4.5); font('normal', 9.5); text(v, L + 30 + PAD, y + 4.5);
-    y += 6.5;
+    pdf.rect(L, y, kw, 7.5); pdf.rect(L + kw, y, bw - kw, 7.5);
+    font('normal', 10); text(k, L + 3.5, y + 5.1); text(v, L + kw + 3.5, y + 5.1);
+    y += 7.5;
   });
   y += 7;
   need(36);

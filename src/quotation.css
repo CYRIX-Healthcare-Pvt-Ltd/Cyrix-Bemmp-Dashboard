@@ -908,7 +908,7 @@ button.qt-qstate { cursor: pointer; }
 .qt-maker-head { display: none; }
 .qt-maker-item {
   display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-areas: 'n x' 'desc desc' 'price qty' 'tax tax' 'tot tot';
+  grid-template-areas: 'n x' 'desc desc' 'cost margin' 'price qty' 'tax tax' 'tot tot';
   padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
 }
 .qt-mi-n { grid-area: n; align-self: center; font-size: 13px; font-weight: 750; }
@@ -947,8 +947,8 @@ button.qt-qstate { cursor: pointer; }
   .qt-maker-items { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
   .qt-maker-head, .qt-maker-item {
     display: grid; gap: 10px; align-items: center;
-    grid-template-columns: 44px minmax(0, 1fr) 108px 56px 168px 100px 28px;
-    grid-template-areas: 'n desc price qty tax tot x';
+    grid-template-columns: 36px minmax(160px, 1fr) 84px 64px 96px 48px 132px 92px 28px; column-gap: 8px;
+    grid-template-areas: 'n desc cost margin price qty tax tot x';
   }
   .qt-maker-head { padding: 10px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
   .qt-maker-head > :nth-child(6) { text-align: right; }
@@ -992,3 +992,106 @@ button.qt-qstate { cursor: pointer; }
 .qt-qadd-row:hover { border-color: var(--text-muted); }
 .qt-qadd-row .qt-qadd-text:hover b { text-decoration: underline; text-underline-offset: 2px; }
 @media (min-width: 900px) { .qt-maker-item:hover { background: var(--hover-wash); } }
+
+/* Cost (the approved price) and Margin % before the unit price (the user, 16 Nov). */
+.qt-mi-cost { grid-area: cost; display: grid; gap: 6px; margin: 0; align-content: start; }
+.qt-mi-margin { grid-area: margin; }
+.qt-mi-cost span, .qt-mi-none span { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+.qt-mi-cost b, .qt-mi-none b { font-size: 14px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 22px; display: flex; align-items: center; }
+.qt-mi-none { display: grid; gap: 6px; margin: 0; align-content: start; }
+.qt-maker-all { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+@media (min-width: 900px) {
+  .qt-maker.mt-sheet { width: min(1440px, 100%); }
+  .qt-maker-item .qt-mi-cost span, .qt-maker-item .qt-mi-none span { display: none; }
+  .qt-mi-cost b, .qt-mi-none b { min-height: 0; }
+  /* Cost, Sl No and the total sit on the line of the boxes (48px), at the top of a row a long description makes tall. */
+  .qt-maker-item .qt-mi-cost, .qt-maker-item .qt-mi-none, .qt-maker-item .qt-mi-n, .qt-maker-item .qt-mi-tot, .qt-maker-item .qt-mi-x { align-self: start; height: 48px; display: flex; align-items: center; }
+  .qt-maker-item .qt-mi-tot { justify-content: flex-end; }
+}
+
+@media (min-width: 900px) {
+  .qt-maker .qt-maker-body { grid-template-columns: minmax(0, 1fr) 260px; }
+  .qt-maker-item .qt-tax { gap: 4px; }
+}
+
+/* An item on a computer: the description across the row, its figures on the line under it (the user, 16 Nov:
+   "make description in single row, under that all values"). */
+@media (min-width: 900px) {
+  .qt-maker-head, .qt-maker-item {
+    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) 72px 150px minmax(0, 1fr) 28px;
+    column-gap: 10px;
+  }
+  .qt-maker-item { grid-template-areas: 'n desc desc desc desc desc desc x' '. cost margin price qty tax tot .'; row-gap: 8px; }
+  .qt-maker-head { grid-template-areas: 'n cost margin price qty tax tot .'; }
+  .qt-maker-head > :nth-child(1) { grid-area: n; }
+  .qt-maker-head > :nth-child(2) { display: none; }
+  .qt-maker-head > :nth-child(3) { grid-area: cost; }
+  .qt-maker-head > :nth-child(4) { grid-area: margin; }
+  .qt-maker-head > :nth-child(5) { grid-area: price; }
+  .qt-maker-head > :nth-child(6) { grid-area: qty; text-align: left; }
+  .qt-maker-head > :nth-child(7) { grid-area: tax; }
+  .qt-maker-head > :nth-child(8) { grid-area: tot; text-align: right; }
+  .qt-maker-head > :nth-child(9) { display: none; }
+  .qt-mi-desc textarea { min-height: 44px; }
+}
+@media (min-width: 900px) {
+  .qt-maker-head, .qt-maker-item { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) 72px 150px minmax(0, 1fr) 28px; }
+  .qt-maker-head > :nth-child(1) { white-space: nowrap; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot, .qt-mi-n, .qt-mi-x) { height: auto; align-self: center; }
+  .qt-mi-desc textarea { field-sizing: content; height: auto !important; min-height: 44px; }
+}
+/* Each field named above its box on a computer too (the user, 16 Nov: "show field headers, coordinator wont understand"). */
+@media (min-width: 900px) {
+  .qt-maker-head { display: none; }
+  .qt-maker-items { padding-top: 4px; }
+  .qt-maker-item { padding-top: 14px; padding-bottom: 14px; }
+  .qt-maker-item .pm-in > span, .qt-maker-item .qt-mi-cost span, .qt-maker-item .qt-mi-none span, .qt-maker-item .qt-mi-tot span { display: block; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot) { display: grid; gap: 6px; align-self: end; align-content: end; height: auto; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot) b { min-height: 48px; display: flex; align-items: center; }
+  .qt-maker-item .qt-mi-tot { justify-items: end; text-align: right; }
+  .qt-maker-item .qt-mi-tot b { justify-content: flex-end; }
+  .qt-maker-item .qt-mi-tot span { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+  .qt-maker-item .qt-mi-tax { align-self: end; }
+  .qt-maker-item .qt-mi-n { align-self: start; padding-top: 30px; }
+  .qt-maker-item .qt-mi-x { align-self: start; margin-top: 30px; }
+}
+@media (min-width: 900px) {
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot, .qt-mi-tax, .qt-mi-margin, .qt-mi-price, .qt-mi-qty) { align-self: start; align-content: start; }
+}
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot { margin: 0; } }
+/* The item's total stands out: a shaded box as tall as the fields, the figure larger (the user, 16 Nov: "may be emphasised"). */
+.qt-maker-item .qt-mi-tot b { font-size: 16px; font-weight: 800; color: var(--text-primary); }
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot { justify-items: stretch; }
+  .qt-maker-item .qt-mi-tot b {
+    min-height: 48px; padding: 0 14px; border-radius: 12px; justify-content: flex-end;
+    background: var(--hover-wash); border: 1px solid var(--border); font-size: 17px; letter-spacing: -0.01em;
+  }
+}
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot b { width: 100%; box-sizing: border-box; } }
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot { justify-content: stretch; } }
+/* Light green (the user, 16 Nov). */
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot b {
+    background: color-mix(in srgb, var(--status-good) 12%, transparent);
+    border-color: color-mix(in srgb, var(--status-good) 35%, transparent);
+    color: color-mix(in srgb, var(--status-good) 70%, var(--text-primary));
+  }
+}
+/* The green box only as wide as the figure, on the right (the user, 16 Nov: "dont extend"). */
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot { justify-content: end; justify-items: end; }
+  .qt-maker-item .qt-mi-tot b { width: auto; }
+}
+/* Add item answers the pointer (the user, 16 Nov). */
+.qt-maker-add { transition: background 0.15s, color 0.15s; }
+.qt-maker-add:hover { background: var(--hover-wash) !important; color: var(--status-good); }
+.qt-maker-add:hover svg { color: var(--status-good); }
+/* Preview and Save the same shape and height, each on one line (the user, 16 Nov: "preview button not standard"). */
+.qt-maker-go { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); }
+.qt-maker-go .mt-btn, .qt-maker-go .mt-go {
+  height: 52px; min-height: 52px; padding: 0 12px; border-radius: 16px; white-space: nowrap;
+  font-size: 15px; display: inline-flex; align-items: center; justify-content: center;
+}
+.qt-maker-go .mt-btn { font-weight: 700; border: 1px solid var(--border); }
+.qt-maker-go .mt-go { font-weight: 750; }
