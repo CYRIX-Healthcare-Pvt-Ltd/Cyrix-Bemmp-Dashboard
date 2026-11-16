@@ -1095,3 +1095,12 @@ button.qt-qstate { cursor: pointer; }
 }
 .qt-maker-go .mt-btn { font-weight: 700; border: 1px solid var(--border); }
 .qt-maker-go .mt-go { font-weight: 750; }
+/* Terms numbered, one box each (the user, 16 Nov). */
+.qt-terms-pop { width: min(680px, 100%); max-height: min(86vh, 760px); overflow-y: auto; }
+.qt-terms-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-terms-list li { display: grid; grid-template-columns: 26px minmax(0, 1fr) 30px; gap: 8px; align-items: start; }
+.qt-terms-no { padding-top: 11px; font-size: 14px; font-weight: 700; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.qt-terms-list textarea { resize: none; overflow: hidden; min-height: 42px; }
+.qt-terms-list .qt-qadd-x { margin-top: 7px; }
+.qt-terms-add { min-height: 42px; border-radius: 12px; justify-content: flex-start; padding: 0 14px; gap: 8px; }
+.qt-terms-add:hover { background: var(--hover-wash); color: var(--status-good); }

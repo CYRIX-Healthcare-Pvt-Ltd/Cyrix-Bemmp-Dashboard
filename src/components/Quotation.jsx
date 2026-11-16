@@ -740,6 +740,8 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
   const termList = q.terms.split('\n').map((t) => t.trim()).filter(Boolean);
+  const terms = q.terms === '' ? [] : q.terms.split('\n');
+  const setTerms = (list) => set('terms', list.join('\n'));
   // The description box as tall as its text.
   const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
   return createPortal(
@@ -830,7 +832,21 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
             <div className="qt-terms-head"><b>Terms and conditions</b>
               <button type="button" className="qt-qadd-x" onClick={() => setTermsOpen(false)} aria-label="Close"><Icon d={I.x} size={14} /></button>
             </div>
-            <textarea rows={10} value={q.terms} onChange={(e) => set('terms', e.target.value)} autoFocus />
+            {/* Numbered, one box a term, as in the letter (the user, 16 Nov: "can we make it as in series also?"). Enter starts the next term. */}
+            <ol className="qt-terms-list">
+              {terms.map((t, i) => (
+                <li key={i}>
+                  <span className="qt-terms-no">{i + 1}.</span>
+                  <textarea ref={fit} rows={1} value={t} autoFocus={i === 0}
+                    onChange={(e) => { setTerms(terms.map((x, n) => (n === i ? e.target.value.replace(/\s*\n\s*/g, ' ') : x))); fit(e.target); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); setTerms([...terms.slice(0, i + 1), '', ...terms.slice(i + 1)]); setTimeout(() => e.target.closest('ol')?.querySelectorAll('textarea')[i + 1]?.focus(), 0); }
+                    }} placeholder="Term" />
+                  <button type="button" className="qt-qadd-x" onClick={() => setTerms(terms.filter((_, n) => n !== i))} aria-label={`Remove term ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>
+                </li>
+              ))}
+            </ol>
+            <button type="button" className="qt-camera qt-qadd-btn qt-terms-add" onClick={() => setTerms([...terms, ''])}><Icon d={I.plus} size={16} /><span>Add term</span></button>
             <div className="qt-terms-go">
               <button type="button" className="mt-btn" onClick={() => set('terms', DEFAULT_TERMS.join('\n'))}>Reset</button>
               <button type="button" className="mt-btn mt-btn-primary" onClick={() => setTermsOpen(false)}>Done</button>
