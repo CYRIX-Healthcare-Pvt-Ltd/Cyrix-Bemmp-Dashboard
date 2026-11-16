@@ -674,8 +674,9 @@ export default function App() {
     ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
     ...(hasMt ? [MEDTRONIC] : []),
     ...(hasPm ? [PM_PROJECT] : []),
-    // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role.
-    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin') ? [QT_PROJECT] : []),
+    // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role. A Quotation maker (0060) is
+    // given in SW Admin → BEMMP → Quotation makers, which is the tick itself (the user, 16 Nov: "not showing in e1427").
+    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin' || qtMe.role === 'maker') ? [QT_PROJECT] : []),
   ], [available, hasMt, hasPm, qtMe, profile]);
   const decided = !isConfigured() || (ready && session !== undefined
     && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));
