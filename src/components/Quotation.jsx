@@ -9,7 +9,7 @@ import {
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
-  periodRange, money, withTax, person, nextQtn, releaseQtn,
+  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote,
 } from '../data/quotation.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -35,20 +35,22 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is only lost on reload */ } },
 };
-const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', viewer: 'Viewer' };
+const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', maker: 'Quotation maker', viewer: 'Viewer' };
 
 function tabsFor(me) {
-  const r = me.role; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
+  const r = me.role;
+  if (r === 'maker') return [{ id: 'quotations', label: 'Quotations', short: 'Quotations' }]; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
   if (r === 'engineer' || r === 'team_lead') t.push({ id: 'new', label: 'New request', short: 'New' });
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
+  if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' });
   if (me.lead) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
 }
 
 export default function QuotationApp({ me, profile, narrow, switcher, onSignOut }) {
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState(me.role === 'maker' ? 'quotations' : 'dashboard');
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
   const [list, setList] = useState(null);
   const [targets, setTargets] = useState({});
@@ -138,6 +140,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
               {tab === 'stock' && <StockRegister me={me} list={list} onOpen={open} onDone={done} />}
               {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} onGo={(v) => { setTodoSub(v); setTab('requests'); }} />}
               {tab === 'hospitals' && <Hospitals />}
+              {tab === 'quotations' && <Quotations me={me} onToast={setToast} />}
               {tab === 'settings' && <Settings targets={targets} onDone={done} />}
             </div>
           )}
@@ -709,6 +712,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
     terms: q.terms.split('\n').map((t) => t.trim()).filter(Boolean),
   });
   const check = () => {
+    if (r.free && !(q.qtn_no ?? '').trim()) return 'Write the QTN number.';
     if (!q.to.trim()) return 'Write the hospital the quotation is to.';
     if (!q.date) return 'Choose the quotation date.';
     if (!q.items.length) return 'Add an item.';
@@ -733,12 +737,13 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
     setBusy(save ? 'save' : 'look');
     try {
       let qtn = q.qtn_no;
-      if (save && !qtn) { qtn = await nextQtn(); set('qtn_no', qtn); }
+      if (r.free) qtn = (qtn ?? '').trim() || null;
+      else if (save && !qtn) { qtn = await nextQtn(); set('qtn_no', qtn); }
       const d = doc(save ? qtn : (q.qtn_no ?? 'QTN number on saving'));
       const blob = await makeQuotePdf(d);
       if (!save) { setPreview(blob); return; }
       const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
-      const path = await uploadPhoto(r.id, file);
+      const path = await uploadPhoto(r.folder ?? r.id, file);
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
       onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
@@ -749,18 +754,19 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
   // The description box as tall as its text.
   const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
   return createPortal(
-    <div className="mt-scrim qt-maker-scrim qt-app">
+    <div className={`mt-scrim qt-maker-scrim qt-app${r.free ? ' qt-maker-free' : ''}`}>
       <div className="mt-sheet qt-maker" role="dialog" aria-modal="true" aria-label="Create quotation">
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
-            <h2>{q.qtn_no ? 'Edit quotation' : 'Create quotation'}</h2>
-            <p>{q.qtn_no ?? `${r.no} · ${r.spare}`}</p>
+            <h2>{(r.free ? r.editing : q.qtn_no) ? 'Edit quotation' : 'Create quotation'}</h2>
+            <p>{r.free ? (q.qtn_no || 'New quotation') : q.qtn_no ?? `${r.no} · ${r.spare}`}</p>
           </div>
           <button type="button" className="mt-sheet-x" onClick={onClose} disabled={!!busy} aria-label="Close"><Icon d={I.x} size={20} /></button>
         </header>
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
             <div className="qt-maker-to">
+              {r.free && <Field label="QTN number"><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder="QTN405/CHC/PVMP/2026-27" /></Field>}
               <Field label="To"><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
               <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
               <Field label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
@@ -825,7 +831,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
             <Err text={err} at={at} />
             <div className="qt-maker-go" data-role="engineer">
               <button type="button" className="mt-btn mt-btn-lg" onClick={() => run(false)} disabled={!!busy}>{busy === 'look' ? 'Making…' : 'Preview'}</button>
-              <button type="button" className="mt-go" onClick={() => run(true)} disabled={!!busy}>{busy === 'save' ? 'Saving…' : q.qtn_no ? 'Save quotation' : 'Save and attach'}</button>
+              <button type="button" className="mt-go" onClick={() => run(true)} disabled={!!busy}>{busy === 'save' ? 'Saving…' : r.free ? 'Save quotation' : q.qtn_no ? 'Save quotation' : 'Save and attach'}</button>
             </div>
           </aside>
         </div>
@@ -860,6 +866,114 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
       )}
       {preview && <PdfViewer blob={preview} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />}
     </div>, document.body);
+}
+
+/**
+  Quotations made without a request (0060; the user, 16 Nov: "other coordinators, they just create quotations",
+  Sandhya K Nair E2146). A Quotation maker sees only this: their quotations, made, edited, revised (R1, R2…) and
+  downloaded; the QTN number is typed by them for now. Leads see everybody's, with who made it.
+*/
+const FREE_NEW = 'free-new';
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => ((Math.random() * 16) | 0).toString(16)));
+const QUOTE_COLS = [['qtn_no', 'QTN number'], ['date', 'Date'], ['to', 'To'], ['total', 'Grand total'], ['by_name', 'Made by']];
+
+function Quotations({ me, onToast }) {
+  const [list, setList] = useState(null);
+  const [failed, setFailed] = useState(null);
+  const [q, setQ] = useState('');
+  const [who, setWho] = useState('');
+  const [sort, setSort] = useState({ key: 'date', dir: -1 });
+  const [making, setMaking] = useState(null);
+  const [view, setView] = useState(null);
+  const [draft, setDraft] = useState(() => quoteDraft.get(FREE_NEW));
+  const [ask, askBox] = useAsk();
+  const load = useCallback(() => loadQuotes().then(setList).catch((e) => setFailed(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  const everyone = me.lead || (list ?? []).some((x) => !x.mine);
+  const people = useMemo(() => {
+    const m = new Map(); for (const x of list ?? []) m.set(x.made_by, `${x.by_name} (${x.by_code})`);
+    return [{ value: '', label: 'Everyone' }, ...[...m.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }))];
+  }, [list]);
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const out = (list ?? []).filter((x) => (!who || x.made_by === who)
+      && (!t || [x.qtn_no, x.to, x.by_name, x.by_code, ...(x.doc?.items ?? []).map((i) => i.desc)].some((v) => String(v ?? '').toLowerCase().includes(t))));
+    const val = (x) => (sort.key === 'date' ? `${x.date ?? ''}${x.created_at}` : sort.key === 'total' ? Number(x.total ?? 0) : String(x[sort.key] ?? '').toLowerCase());
+    return out.sort((a, b) => { const A = val(a), B = val(b); return (A < B ? -1 : A > B ? 1 : 0) * sort.dir; });
+  }, [list, q, who, sort]);
+  const by = (key) => setSort((o) => ({ key, dir: o.key === key ? -o.dir : key === 'date' || key === 'total' ? -1 : 1 }));
+  // New: the draft again, or a fresh one. Edit keeps the number; Revise gives the next R.
+  const create = () => setMaking({ r: { free: true, id: FREE_NEW, folder: newId() }, start: draft ? { draft } : null });
+  const edit = (x) => setMaking({ r: { free: true, id: `free-${x.id}`, folder: x.id, editing: true }, start: { doc: x.doc, path: x.path } });
+  const revise = (x) => {
+    const m = /^(.*?)(?: R(\d+))?$/.exec(x.qtn_no ?? '');
+    const base = m?.[1] ?? x.qtn_no;
+    const next = Math.max(0, ...(list ?? []).map((y) => { const k = /^(.*?) R(\d+)$/.exec(y.qtn_no ?? ''); return k && k[1] === base ? Number(k[2]) : 0; })) + 1;
+    setMaking({ r: { free: true, id: `free-rev-${x.id}`, folder: newId() }, start: { doc: { ...x.doc, qtn_no: `${base} R${next}`, date: todayIst() } } });
+  };
+  const close = () => { setMaking(null); setDraft(quoteDraft.get(FREE_NEW)); };
+  const made = async (f) => {
+    const r = making.r;
+    await saveQuote({ id: r.folder, qtn_no: f.qtn_no, to: f.qtn_to, total: f.total, date: f.date, doc: f.doc, path: f.path, sha256: f.sha256 });
+    quoteDraft.drop(r.id); setMaking(null); setDraft(quoteDraft.get(FREE_NEW));
+    onToast?.(`${f.qtn_no} saved.`); load();
+  };
+  const remove = (x) => ask({ title: `Delete quotation ${x.qtn_no}?`, lines: [x.to, money(x.total)].filter(Boolean), ok: 'Delete', tone: 'bad',
+    run: async () => { await deleteQuote(x.id); load(); } });
+  const dropDraft = () => ask({ title: 'Delete the draft quotation?', lines: [draft?.qtn_no, draft?.to, money(quoteTotals(draft?.items ?? []).with)].filter(Boolean), ok: 'Delete', tone: 'bad',
+    run: async () => { quoteDraft.drop(FREE_NEW); setDraft(null); } });
+  const cols = QUOTE_COLS.filter(([k]) => k !== 'by_name' || everyone);
+  return (
+    <div className="qt-qbook">
+      <div className="qt-qbook-bar">
+        <Search value={q} onChange={setQ} placeholder="QTN number, hospital, item" />
+        {everyone && people.length > 2 && <Picker value={who} options={people} onChange={setWho} title="Made by" />}
+        <button type="button" className="mt-go qt-qbook-new" data-role="engineer" onClick={create}><Icon d={I.doc} size={18} /><span>Create quotation</span></button>
+      </div>
+      {draft && (
+        <div className="qt-qadd-row qt-qadd-draft qt-qbook-draft">
+          <button type="button" className="qt-qfile-ico" onClick={create} aria-label="Continue the draft"><Icon d={I.pen} size={16} /></button>
+          <button type="button" className="qt-qadd-text" onClick={create}>
+            <b>Draft{draft.qtn_no ? ` · ${draft.qtn_no}` : ''}</b>
+            <span>{[draft.to, `${draft.items?.length ?? 0} ${draft.items?.length === 1 ? 'item' : 'items'}`, money(quoteTotals(draft.items ?? []).with)].filter(Boolean).join(' · ')}</span>
+          </button>
+          <button type="button" className="qt-qadd-x" onClick={dropDraft} aria-label="Delete the draft" title="Delete the draft"><Icon d={I.x} size={14} /></button>
+        </div>
+      )}
+      {failed ? <p className="mt-err" role="alert">The quotations could not be loaded.</p>
+        : list === null ? <div className="loader" aria-hidden="true" />
+        : !shown.length ? <p className="empty-inline pm-empty">{list.length ? 'No quotation matches.' : 'No quotation yet.'}</p> : (
+        <div className="qt-qbook-table" data-everyone={everyone ? 'true' : undefined}>
+          <div className="qt-qbook-head" role="row">
+            {cols.map(([k, label]) => (
+              <button key={k} type="button" className="qt-qbook-th" data-col={k} aria-sort={sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : undefined} onClick={() => by(k)}>
+                {label}{sort.key === k && <span aria-hidden="true">{sort.dir > 0 ? ' ↑' : ' ↓'}</span>}
+              </button>
+            ))}
+            <span />
+          </div>
+          {shown.map((x) => (
+            <div key={x.id} className="qt-qbook-row" role="row">
+              <button type="button" className="qt-qbook-no" data-col="qtn_no" onClick={() => setView(x)}><b>{x.qtn_no}</b></button>
+              <span data-col="date">{dayText(x.date)}</span>
+              <span data-col="to">{x.to}</span>
+              <b data-col="total">{money(x.total)}</b>
+              {everyone && <span data-col="by_name">{x.by_name} ({x.by_code})</span>}
+              <span className="qt-qbook-acts">
+                <button type="button" className="mt-btn" onClick={() => setView(x)}>View</button>
+                {(x.mine || me.lead) && <button type="button" className="mt-btn" onClick={() => edit(x)}>Edit</button>}
+                <button type="button" className="mt-btn" onClick={() => revise(x)}>Revise</button>
+                {(x.mine || me.lead) && <button type="button" className="qt-qadd-x" onClick={() => remove(x)} aria-label={`Delete ${x.qtn_no}`} title="Delete"><Icon d={I.x} size={14} /></button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {making && <QuoteMaker r={making.r} pick={null} start={making.start} onClose={close} onMade={(f) => made(f)} />}
+      {view && <PdfViewer path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn_no, to: view.to })} onClose={() => setView(null)} />}
+      {askBox}
+    </div>
+  );
 }
 
 /** Each quotation with its signed copy: same file, the same QTN number, another number, or none yet. */
@@ -3101,7 +3215,7 @@ function PersonEdit({ p, tls, onClose, onDone }) {
         <div className="modal-head"><h2>{p.employee_id ? p.name : 'Add person'}</h2></div>
         <div className="modal-body qt-modal-body">
           {!p.employee_id && <Field label="E-code"><input value={v.ecode} onChange={(e) => set('ecode', e.target.value.toUpperCase())} placeholder="E1234" /></Field>}
-          <Choice value={v.role} onChange={(x) => set('role', x)} options={['engineer', 'team_lead', 'coordinator', 'purchase', 'pv', 'observer'].map((r) => [r, ROLE_NAME[r]])} />
+          <Choice value={v.role} onChange={(x) => set('role', x)} options={['engineer', 'team_lead', 'coordinator', 'purchase', 'pv', 'observer', 'maker'].map((r) => [r, ROLE_NAME[r]])} />
           {v.role === 'engineer' && (
             <div className="pm-in"><span>Team Lead</span>
               <Picker value={v.team_lead_ecode} onChange={(x) => set('team_lead_ecode', x)} title="Team Lead"

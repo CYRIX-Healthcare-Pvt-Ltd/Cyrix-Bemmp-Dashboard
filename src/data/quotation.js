@@ -326,3 +326,8 @@ export async function releaseQtn(qtn) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+/** Quotations made without a request (0060): the maker's own, or everybody's for a lead. */
+export const loadQuotes = () => rpc('qt_quotes_list');
+export const saveQuote = (p) => rpc('qt_quote_save', { p });
+export const deleteQuote = (id) => rpc('qt_quote_delete', { p_id: id });

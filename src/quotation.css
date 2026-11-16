@@ -1106,3 +1106,51 @@ button.qt-qstate { cursor: pointer; }
 .qt-terms-add:hover { background: var(--hover-wash); color: var(--status-good); }
 /* The item's remove button stays round, as everywhere else. */
 .qt-maker-item .qt-mi-x { width: 30px; height: 30px; min-width: 30px; padding: 0; display: grid; place-items: center; border-radius: 50%; justify-self: end; }
+
+/* Quotations made without a request (0060). */
+.qt-qbook { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.qt-qbook-bar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.qt-qbook-new { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; border-radius: 14px; }
+.qt-qbook-new svg { color: currentColor; }
+.qt-qbook-table { display: grid; gap: 10px; }
+.qt-qbook-head { display: none; }
+.qt-qbook-row {
+  display: grid; gap: 6px 10px; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  grid-template-areas: 'no total' 'to to' 'date by' 'acts acts';
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+}
+.qt-qbook-row [data-col='qtn_no'] { grid-area: no; }
+.qt-qbook-row [data-col='total'] { grid-area: total; font-variant-numeric: tabular-nums; }
+.qt-qbook-row [data-col='to'] { grid-area: to; font-size: 14px; }
+.qt-qbook-row [data-col='date'] { grid-area: date; font-size: 12.5px; color: var(--text-secondary); }
+.qt-qbook-row [data-col='by_name'] { grid-area: by; font-size: 12.5px; color: var(--text-secondary); text-align: right; }
+.qt-qbook-acts { grid-area: acts; display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.qt-qbook-acts .mt-btn { min-height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13.5px; }
+.qt-qbook-acts .mt-btn:hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-qbook-no { all: unset; cursor: pointer; text-align: left; min-width: 0; overflow-wrap: anywhere; }
+.qt-qbook-no:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  .qt-qbook-bar { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+  .qt-qbook-table { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+  .qt-qbook-head, .qt-qbook-row {
+    display: grid; grid-template-areas: none; align-items: center; gap: 12px;
+    grid-template-columns: minmax(180px, 1.3fr) 110px minmax(0, 1.6fr) 120px 260px;
+  }
+  .qt-qbook-table[data-everyone] :is(.qt-qbook-head, .qt-qbook-row) { grid-template-columns: minmax(180px, 1.3fr) 110px minmax(0, 1.5fr) 120px minmax(0, 1fr) 260px; }
+  .qt-qbook-row [data-col] { grid-area: auto; }
+  .qt-qbook-head { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .qt-qbook-th { all: unset; cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+  .qt-qbook-th:hover, .qt-qbook-th[aria-sort] { color: var(--text-primary); }
+  .qt-qbook-th[data-col='total'] { text-align: right; }
+  .qt-qbook-row { padding: 10px 16px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .qt-qbook-row:last-child { border-bottom: 0; }
+  .qt-qbook-row:hover { background: var(--hover-wash); }
+  .qt-qbook-row [data-col='total'] { text-align: right; }
+  .qt-qbook-row [data-col='date'], .qt-qbook-row [data-col='by_name'] { font-size: 13.5px; text-align: left; }
+  .qt-maker-free .qt-maker-to { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: auto; }
+}
+/* No request, so no approved cost: Cost and Margin are left out. */
+.qt-maker-free .qt-mi-cost, .qt-maker-free .qt-mi-margin { display: none; }
+@media (min-width: 900px) { .qt-maker-free .qt-maker-item { grid-template-areas: 'n desc desc desc desc desc desc x' '. price price qty tax tax tot .'; } }
