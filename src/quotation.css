@@ -627,9 +627,9 @@
 .qt-views button[data-hot] b { color: var(--accent, #e11d48); }
 
 /* Quotation, its date and remarks on one row (the user, 11 Nov); remarks drop below on a phone */
-.qt-quote-row { display: grid; grid-template-columns: auto minmax(150px, 180px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.qt-quote-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
 .qt-quote-row textarea { min-height: 64px; }
-@media (max-width: 560px) { .qt-quote-row { grid-template-columns: auto minmax(0, 1fr); } .qt-quote-row > :last-child { grid-column: 1 / -1; } }
+/* Remarks: one line beside the date, as tall as it (the user, 16 Nov: "remark stretch the box, and make same height as date field"). */
 
 /* Tracking no and the slip on one row; By hand finds the person (the user, 11 Nov) */
 .qt-track-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
@@ -882,3 +882,113 @@ button.qt-qstate { cursor: pointer; }
 .qt-pdf-page { flex: none; background: #fff; border-radius: 4px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); max-width: none; }
 .qt-pdf-pages .qt-thumb-wait { margin-top: 30vh; }
 .qt-pdf-msg { margin-top: 30vh; color: #fff; font-size: 15px; }
+
+/* Create or Attach the quotation (the user, 16 Nov), and the quotation maker. */
+.qt-qadd-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.qt-qadd-one { display: grid; }
+.qt-qadd-make { border-style: solid; color: var(--text-primary); }
+/* Both icons green (the user, 16 Nov: "need icon color green and attach + also"). */
+.qt-qadd-two svg { color: var(--status-good); }
+.qt-qadd-draft { border-style: dashed; }
+.qt-qadd-draft .qt-qadd-text b { color: var(--status-warning, #b45309); }
+
+.qt-maker-scrim { z-index: 1100; }
+.qt-maker.mt-sheet { width: min(760px, 100%); max-height: min(94vh, 1000px); }
+/* Its own body: the request sheet's desktop body has no padding and does not scroll (its columns do). */
+.qt-maker .qt-maker-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 14px; padding: 16px;
+}
+.qt-maker .qt-maker-body > * { flex: none; }
+.qt-maker-main, .qt-maker-side { display: grid; gap: 14px; min-width: 0; align-content: start; }
+.qt-maker-to { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.qt-maker-to > :first-child, .qt-maker-to > :last-child { grid-column: 1 / -1; }
+
+.qt-maker-items { display: grid; gap: 10px; }
+.qt-maker-head { display: none; }
+.qt-maker-item {
+  display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: 'n x' 'desc desc' 'price qty' 'tax tax' 'tot tot';
+  padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
+}
+.qt-mi-n { grid-area: n; align-self: center; font-size: 13px; font-weight: 750; }
+.qt-mi-word { display: none; }
+.qt-mi-n::before { content: 'Item '; }
+.qt-mi-x { grid-area: x; justify-self: end; }
+.qt-mi-desc { grid-area: desc; }
+.qt-mi-desc textarea { min-height: 64px; }
+.qt-mi-price { grid-area: price; }
+.qt-mi-qty { grid-area: qty; }
+.qt-mi-tax { grid-area: tax; min-width: 0; }
+.qt-mi-tot { grid-area: tot; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; font-size: 13px; color: var(--text-secondary); }
+.qt-mi-tot b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.qt-maker-sum { display: grid; gap: 6px; padding: 14px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.qt-maker-sum p { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; font-size: 13px; color: var(--text-secondary); }
+.qt-maker-sum b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-maker-grand { padding-top: 6px; border-top: 1px solid var(--border); font-size: 15px !important; }
+.qt-maker-grand b { font-size: 18px; font-weight: 800; }
+.qt-maker-sum small { font-size: 12px; color: var(--text-secondary); }
+.qt-maker-go { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: stretch; }
+
+@media (max-width: 640px) {
+  .qt-maker-scrim { padding: 0; align-items: stretch; }
+  .qt-maker.mt-sheet { max-height: none; height: 100%; border-radius: 0; }
+}
+
+/* A computer: the items are rows of a table, the totals and the buttons stay beside them (the user, 16 Nov:
+   "in desktop we can use space to make it easier for user"). */
+@media (min-width: 900px) {
+  .qt-maker.mt-sheet { width: min(1240px, 100%); max-height: min(94vh, 1100px); }
+  .qt-maker .qt-maker-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; padding: 20px 22px; }
+  .qt-maker-side { position: sticky; top: 0; }
+  .qt-maker-to { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-maker-to > :first-child { grid-column: auto; }
+  .qt-maker-items { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+  .qt-maker-head, .qt-maker-item {
+    display: grid; gap: 10px; align-items: center;
+    grid-template-columns: 44px minmax(0, 1fr) 108px 56px 168px 100px 28px;
+    grid-template-areas: 'n desc price qty tax tot x';
+  }
+  .qt-maker-head { padding: 10px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .qt-maker-head > :nth-child(6) { text-align: right; }
+  .qt-maker-item { padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .qt-mi-n::before { content: none; }
+  .qt-mi-n { color: var(--text-secondary); }
+  .qt-maker-item .pm-in > span { display: none; }
+  .qt-mi-desc textarea { min-height: 44px; max-height: 180px; resize: none; overflow-y: auto; }
+  .qt-maker-item { align-items: start; }
+  .qt-mi-n, .qt-mi-x, .qt-mi-tot { margin-top: 12px; }
+  .qt-mi-tax .qt-tax button { padding-left: 0; padding-right: 0; }
+  .qt-mi-tot span { display: none; }
+  .qt-mi-tot { justify-content: flex-end; font-size: 14px; }
+  .qt-maker-add { border: 0; border-radius: 0; height: 44px; justify-content: flex-start; padding-left: 12px; }
+}
+
+.qt-maker-terms {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 14px; text-align: left;
+}
+.qt-maker-terms span { flex: 1; font-weight: 650; }
+.qt-maker-terms b { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.qt-maker-terms:hover { border-color: var(--status-good); }
+.qt-maker-terms svg { color: var(--status-good); }
+.qt-terms-scrim { z-index: 1150; }
+.qt-terms-pop { width: min(560px, 100%); display: grid; gap: 12px; padding: 16px; border-radius: 20px; background: var(--page); border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
+.qt-terms-head { display: flex; align-items: center; justify-content: space-between; }
+.qt-terms-head b { font-size: 16px; font-weight: 750; }
+.qt-terms-pop textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; line-height: 1.45; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); }
+.qt-terms-go { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 640px) { .qt-terms-scrim { align-items: flex-end; } .qt-terms-pop { border-radius: 20px 20px 0 0; } }
+
+/* Hover in the quotation maker, as on the request cards (the user, 16 Nov: "need basic hover"). */
+.qt-maker-go .mt-btn, .qt-maker-go .mt-go, .qt-qadd-row, .qt-qadd-btn, .qt-maker-terms, .qt-maker-item .qt-qadd-x {
+  transition: background 0.15s, border-color 0.15s, color 0.15s, filter 0.15s, transform 0.12s;
+}
+.qt-maker-go .mt-btn:not(:disabled):hover { background: var(--hover-wash); border-color: var(--text-muted); color: var(--text-primary); }
+.qt-maker-go .mt-go:not(:disabled):hover { filter: brightness(1.08); }
+.qt-maker-go :is(.mt-btn, .mt-go):not(:disabled):active { transform: scale(0.97); }
+.qt-qadd-btn:not(:disabled):hover, .qt-maker-terms:not(:disabled):hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-qadd-row:hover { border-color: var(--text-muted); }
+.qt-qadd-row .qt-qadd-text:hover b { text-decoration: underline; text-underline-offset: 2px; }
+@media (min-width: 900px) { .qt-maker-item:hover { background: var(--hover-wash); } }

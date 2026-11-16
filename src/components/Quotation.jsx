@@ -9,9 +9,10 @@ import {
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
-  periodRange, money, withTax, person,
+  periodRange, money, withTax, person, nextQtn, releaseQtn,
 } from '../data/quotation.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
+import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
 import '../medtronic.css';
 import '../pm.css';
 import '../quotation.css';
@@ -164,6 +165,8 @@ const I = {
   bell: <><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></>,
   down: <><path d="M12 4v11M8 11l4 4 4-4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></>,
   x: <path d="M6 6l12 12M18 6L6 18" />,
+  pen: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></>,
+  doc: <><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M10 12h5M10 16h5" /></>,
   back: <path d="M15 5l-7 7 7 7" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
 };
@@ -485,7 +488,7 @@ async function saveAs(url, name) {
   A PDF in the app's own pop-up, never a new tab on the storage link (the user, 14 Nov: "why no pop up?"): every page
   down the screen, − / + or Ctrl + wheel or a pinch to zoom, download, close or Esc.
 */
-function PdfViewer({ path, name, onClose }) {
+function PdfViewer({ path, blob, name, onClose }) {
   const [doc, setDoc] = useState(null);
   const [url, setUrl] = useState(null);
   const [fail, setFail] = useState(false);
@@ -498,13 +501,13 @@ function PdfViewer({ path, name, onClose }) {
     let on = true;
     (async () => {
       try {
-        const u = await photoUrl(path); if (!on) return; setUrl(u);
+        const u = blob ? URL.createObjectURL(blob) : await photoUrl(path); if (!on) return; setUrl(u);
         const buf = new Uint8Array(await (await fetch(u)).arrayBuffer());
         const d = await loadPdf(buf); if (on) setDoc(d);
       } catch { if (on) setFail(true); }
     })();
     return () => { on = false; };
-  }, [path]);
+  }, [path, blob]);
   useEffect(() => {
     const key = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', key);
@@ -578,7 +581,7 @@ function FileView({ path, name, onClose }) {
   Quotations or signed copies to attach, as many as there are (the user, 14 Nov: "dont keep quotation upload limit").
   Each is read as it is added (QTN number, To, total; a signed copy only its number) and uploaded beside it.
 */
-function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach' }) {
+function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', onCreate, onEdit, onRemove, draft, onDraft, onDropDraft }) {
   const input = useRef(null);
   const [busy, setBusy] = useState(0);
   const [err, setErr] = useState(null);
@@ -606,17 +609,205 @@ function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach' })
             <b>{f.qtn_no ?? (signed ? 'Signed copy' : 'Quotation')}</b>
             <span>{[!signed && f.qtn_to, !signed && f.total != null && money(f.total), !f.qtn_no && 'QTN number not read'].filter(Boolean).join(' · ')}</span>
           </button>
-          <button type="button" className="qt-qadd-x" onClick={() => onChange(files.filter((x) => x.path !== f.path))} aria-label="Remove"><Icon d={I.x} size={14} /></button>
+          {f.doc && onEdit && <button type="button" className="qt-qadd-x" onClick={() => onEdit(f)} aria-label="Edit" title="Edit"><Icon d={I.pen} size={14} /></button>}
+          <button type="button" className="qt-qadd-x" onClick={() => (onRemove ? onRemove(f) : onChange(files.filter((x) => x.path !== f.path)))} aria-label="Remove"><Icon d={I.x} size={14} /></button>
         </div>
       ))}
-      <button type="button" className="qt-camera qt-qadd-btn" onClick={() => input.current?.click()} disabled={busy > 0}>
-        <Icon d={I.plus} size={18} /><span>{busy > 0 ? `Reading ${busy}…` : files.length ? 'Add more' : label}</span>
-      </button>
+      {draft && (
+        <div className="qt-qadd-row qt-qadd-draft">
+          <button type="button" className="qt-qfile-ico" onClick={onDraft} aria-label="Continue the draft"><Icon d={I.pen} size={16} /></button>
+          <button type="button" className="qt-qadd-text" onClick={onDraft}>
+            <b>Draft{draft.qtn_no ? ` · ${draft.qtn_no}` : ''}</b>
+            <span>{[draft.to, `${draft.items?.length ?? 0} ${draft.items?.length === 1 ? 'item' : 'items'}`, money(quoteTotals(draft.items ?? []).with)].filter(Boolean).join(' · ')}</span>
+          </button>
+          <button type="button" className="qt-qadd-x" onClick={onDropDraft} aria-label="Delete the draft" title="Delete the draft"><Icon d={I.x} size={14} /></button>
+        </div>
+      )}
+      {/* Create in the app, or attach one made elsewhere (the user, 16 Nov: "attach or prepare/create, something logical"). */}
+      <div className={onCreate ? 'qt-qadd-two' : 'qt-qadd-one'}>
+        {onCreate && (
+          <button type="button" className="qt-camera qt-qadd-btn qt-qadd-make" onClick={onCreate} disabled={busy > 0}>
+            <Icon d={I.doc} size={18} /><span>Create</span>
+          </button>
+        )}
+        <button type="button" className="qt-camera qt-qadd-btn" onClick={() => input.current?.click()} disabled={busy > 0}>
+          <Icon d={I.plus} size={18} /><span>{busy > 0 ? `Reading ${busy}…` : files.length && !onCreate ? 'Add more' : label}</span>
+        </button>
+      </div>
       <input ref={input} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => e.target.files?.length && add(e.target.files)} />
       {err && <p className="mt-err qt-err" role="alert">{err}</p>}
       {open && <FileView path={open} name={files.find((x) => x.path === open)?.qtn_no ?? 'quotation'} onClose={() => setOpen(null)} />}
     </div>
   );
+}
+
+/** The spare as the quotation names it: "US probe for BPL CTG machine". */
+const spareLine = (r) => `${r.spare ?? ''}${r.part_no ? ` (${r.part_no})` : ''}${[r.make, r.model, r.equipment].some(Boolean) ? ` for ${[r.make, r.model, r.equipment].filter(Boolean).join(' ')}` : ''}`.trim();
+
+/** A quotation being made, kept on this device until it is saved or deleted (the user, 16 Nov: "if by mistake back, need draft"). */
+const draftKey = (id) => `qt-quote-draft:${id}`;
+const quoteDraft = {
+  get: (id) => store.get(draftKey(id)),
+  set: (id, d) => store.set(draftKey(id), d),
+  drop: (id) => store.set(draftKey(id), null),
+};
+
+/**
+  The quotation made in the app (the user, 16 Nov): the company letter with the items as their Excel had them, edited and
+  added to before the PDF is made. Saving gives the next QTN number (kept when the same quotation is edited again before it
+  is submitted; an earlier, submitted one comes back as a revision, R1, R2…) and attaches the PDF like an uploaded one.
+  Every change is kept as a draft, so closing it by mistake loses nothing. On a computer the items are rows of a table and
+  the totals stay beside them.
+*/
+function QuoteMaker({ r, pick, start, onClose, onMade }) {
+  const cost = pick === 'original' ? r.orig_rate : r.comp_rate ?? r.orig_rate;
+  const tax = pick === 'original' ? r.orig_tax : r.comp_tax ?? r.orig_tax;
+  const [q, setQ] = useState(() => {
+    const d = start?.draft ?? null;
+    const approved = cost != null ? String(Number(cost)) : '';
+    if (d) return { ...d, items: d.items.map((it, n) => (n === 0 && !it.price ? { ...it, price: approved } : it)) };
+    const s = start?.doc;
+    return s ? {
+      qtn_no: s.qtn_no ?? null, date: s.date ?? todayIst(), to: s.to ?? '', place: s.place ?? '', subject: s.subject ?? DEFAULT_SUBJECT,
+      terms: (s.terms ?? DEFAULT_TERMS).join('\n'), path: start.path ?? null,
+      items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? '') })),
+    } : {
+      qtn_no: null, path: null, date: todayIst(), to: r.hospital ?? '', place: r.district ?? '', subject: DEFAULT_SUBJECT,
+      items: [{ key: Math.random(), desc: spareLine(r), price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
+      terms: DEFAULT_TERMS.join('\n'),
+    };
+  });
+  const [busy, setBusy] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [err, show, clear, at] = useErr();
+  useEffect(() => { quoteDraft.set(r.id, q); }, [r.id, q]);
+  const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
+  const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
+  const totals = quoteTotals(q.items);
+  const doc = (qtn) => ({
+    qtn_no: qtn, date: q.date, to: q.to.trim(), place: q.place.trim(), subject: q.subject.trim() || DEFAULT_SUBJECT,
+    items: q.items.map(({ desc, price, qty, gst }) => ({ desc: desc.trim(), price: Number(price), qty: Number(qty), gst: Number(gst) })),
+    terms: q.terms.split('\n').map((t) => t.trim()).filter(Boolean),
+  });
+  const check = () => {
+    if (!q.to.trim()) return 'Write the hospital the quotation is to.';
+    if (!q.date) return 'Choose the quotation date.';
+    if (!q.items.length) return 'Add an item.';
+    for (const [n, it] of q.items.entries()) {
+      const name = q.items.length > 1 ? ` of item ${n + 1}` : '';
+      if (!it.desc.trim()) return `Write the description${name}.`;
+      if (!(Number(it.price) > 0)) return `Write the unit price${name}.`;
+      if (!(Number(it.qty) >= 1)) return `Write the quantity${name}.`;
+      if (it.gst === '' || it.gst == null) return `Choose the GST %${name}.`;
+    }
+    return null;
+  };
+  // Escape closes the preview first, then this (the draft stays); never the request behind it.
+  useEffect(() => {
+    const esc = (e) => { if (e.key !== 'Escape') return; e.stopImmediatePropagation(); if (preview) setPreview(null); else if (termsOpen) setTermsOpen(false); else if (!busy) onClose(); };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [preview, termsOpen, busy, onClose]);
+  const run = async (save) => {
+    clear();
+    const bad = check(); if (bad) { show(bad); return; }
+    setBusy(save ? 'save' : 'look');
+    try {
+      let qtn = q.qtn_no;
+      if (save && !qtn) { qtn = await nextQtn(); set('qtn_no', qtn); }
+      const d = doc(save ? qtn : (q.qtn_no ?? 'QTN number on saving'));
+      const blob = await makeQuotePdf(d);
+      if (!save) { setPreview(blob); return; }
+      const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
+      const path = await uploadPhoto(r.id, file);
+      const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
+    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+  };
+  const termList = q.terms.split('\n').map((t) => t.trim()).filter(Boolean);
+  // The description box as tall as its text.
+  const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
+  return createPortal(
+    <div className="mt-scrim qt-maker-scrim qt-app">
+      <div className="mt-sheet qt-maker" role="dialog" aria-modal="true" aria-label="Create quotation">
+        <header className="mt-sheet-head">
+          <div className="mt-sheet-title">
+            <h2>{q.qtn_no ? 'Edit quotation' : 'Create quotation'}</h2>
+            <p>{q.qtn_no ?? `${r.no} · ${r.spare}`}</p>
+          </div>
+          <button type="button" className="mt-sheet-x" onClick={onClose} disabled={!!busy} aria-label="Close"><Icon d={I.x} size={20} /></button>
+        </header>
+        <div className="mt-sheet-body qt-maker-body">
+          <div className="qt-maker-main">
+            <div className="qt-maker-to">
+              <Field label="To"><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
+              <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
+              <Field label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
+              <Field label="Subject"><input value={q.subject} onChange={(e) => set('subject', e.target.value)} placeholder={DEFAULT_SUBJECT} /></Field>
+            </div>
+            <div className="qt-maker-items">
+              <div className="qt-maker-head" aria-hidden="true">
+                <span>Sl No</span><span>Description</span><span>Unit price</span><span>Qty</span><span>GST %</span><span>With GST</span><span />
+              </div>
+              {q.items.map((it, i) => (
+                <section key={it.key} className="qt-maker-item">
+                  <b className="qt-mi-n">{i + 1}<span className="qt-mi-word"> · Item</span></b>
+                  <button type="button" className="qt-qadd-x qt-mi-x" onClick={() => set('items', q.items.filter((_, n) => n !== i))} aria-label={`Remove item ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>
+                  <label className="pm-in qt-mi-desc"><span>Description</span>
+                    <textarea ref={fit} rows={1} value={it.desc} onChange={(e) => { setItem(i, 'desc', e.target.value); fit(e.target); }} placeholder="Spare, accessory, labour…" />
+                  </label>
+                  <label className="pm-in qt-mi-price"><span>Unit price</span>
+                    <input inputMode="decimal" value={it.price} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
+                  </label>
+                  <label className="pm-in qt-mi-qty"><span>Qty</span>
+                    <input inputMode="numeric" value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value.replace(/[^0-9]/g, ''))} placeholder="1" />
+                  </label>
+                  <div className="qt-mi-tax"><TaxChips value={it.gst} onChange={(v) => setItem(i, 'gst', v)} /></div>
+                  <p className="qt-mi-tot"><span>Total with GST</span><b>{money(totals.lines[i].with) || '₹0'}</b></p>
+                </section>
+              ))}
+              <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), desc: '', price: '', qty: '1', gst: q.items[q.items.length - 1]?.gst ?? '' }])}>
+                <Icon d={I.plus} size={18} /><span>Add item</span>
+              </button>
+            </div>
+            {/* Terms on one line; pressed, a small pop-up to edit them (the user, 16 Nov: "dont show term fully, on click a small sub popup"). */}
+            <button type="button" className="qt-maker-terms" onClick={() => setTermsOpen(true)}>
+              <span>Terms and conditions</span><b>{termList.length} {termList.length === 1 ? 'term' : 'terms'}</b><Icon d={I.pen} size={15} />
+            </button>
+          </div>
+          <aside className="qt-maker-side">
+            <div className="qt-maker-sum">
+              <p><span>Items</span><b>{q.items.length}</b></p>
+              <p><span>Total</span><b>{money(totals.total) || '₹0'}</b></p>
+              <p><span>GST</span><b>{money(totals.tax) || '₹0'}</b></p>
+              <p className="qt-maker-grand"><span>Grand total</span><b>{money(totals.with) || '₹0'}</b></p>
+              <small>{inWords(totals.with)}</small>
+            </div>
+            <Err text={err} at={at} />
+            <div className="qt-maker-go" data-role="engineer">
+              <button type="button" className="mt-btn mt-btn-lg" onClick={() => run(false)} disabled={!!busy}>{busy === 'look' ? 'Making…' : 'Preview'}</button>
+              <button type="button" className="mt-go" onClick={() => run(true)} disabled={!!busy}>{busy === 'save' ? 'Saving…' : q.qtn_no ? 'Save quotation' : 'Save and attach'}</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+      {termsOpen && (
+        <div className="mt-scrim qt-terms-scrim" onClick={() => setTermsOpen(false)}>
+          <div className="qt-terms-pop" role="dialog" aria-label="Terms and conditions" onClick={(e) => e.stopPropagation()}>
+            <div className="qt-terms-head"><b>Terms and conditions</b>
+              <button type="button" className="qt-qadd-x" onClick={() => setTermsOpen(false)} aria-label="Close"><Icon d={I.x} size={14} /></button>
+            </div>
+            <textarea rows={10} value={q.terms} onChange={(e) => set('terms', e.target.value)} autoFocus />
+            <div className="qt-terms-go">
+              <button type="button" className="mt-btn" onClick={() => set('terms', DEFAULT_TERMS.join('\n'))}>Reset</button>
+              <button type="button" className="mt-btn mt-btn-primary" onClick={() => setTermsOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {preview && <PdfViewer blob={preview} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />}
+    </div>, document.body);
 }
 
 /** Each quotation with its signed copy: same file, the same QTN number, another number, or none yet. */
@@ -1815,18 +2006,51 @@ function CoordQuote({ r, onDone }) {
   const said = r.quote_ok === false ? [...(r.events ?? [])].reverse().find((e) => e.action === 'quote_no') : null;
   const p = { ...v, files: v.files.map(({ date, ...f }) => f), action: a, ...(canPick ? { picked: pick } : {}) };
   const setFiles = (files) => setV((o) => ({ ...o, files, quote_date: o.quote_date || files.find((f) => f.date && f.date <= todayIst())?.date || '' }));
+  // Create: the draft again, a fresh quotation, or the last one made for this request as its next revision (R1, R2…).
+  const [making, setMaking] = useState(null);
+  const [draft, setDraft] = useState(() => quoteDraft.get(r.id));
+  const [ask, askBox] = useAsk();
+  const lastMade = () => {
+    const prev = [...(r.files ?? [])].reverse().find((f) => f.kind === 'quote' && f.doc);
+    if (!prev) return null;
+    const m = /^(.*?)(?: R(\d+))?$/.exec(prev.doc.qtn_no ?? '');
+    return { doc: { ...prev.doc, qtn_no: m && m[1] ? `${m[1]} R${Number(m[2] ?? 0) + 1}` : null, date: todayIst() } };
+  };
+  // Editing a made one starts a new draft: an unsaved draft is not replaced without asking.
+  const askDraft = (go) => (draft
+    ? ask({ title: 'Replace the draft?', lines: ['The draft quotation not saved yet is deleted.'], ok: 'Replace', tone: 'bad', run: async () => { go(); } })
+    : go());
+  const closeMaker = useCallback(() => { setMaking(null); setDraft(quoteDraft.get(r.id)); }, [r.id]);
+  const made = (f, path) => {
+    setFiles(path ? v.files.map((x) => (x.path === path ? f : x)) : [...v.files, f]);
+    if (path || !v.quote_date) set('quote_date', f.date);
+    quoteDraft.drop(r.id); setDraft(null);
+    setMaking(null);
+  };
   return (
     <>
+      {making && <QuoteMaker r={r} pick={pick} start={making.start} onClose={closeMaker} onMade={made} />}
+      {askBox}
       {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
       <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
       <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
       {a === 'quote' ? (
         <div className="qt-quote-row">
           <div className="pm-in qt-wide"><span>Quotation</span>
-            <QuoteAdd folder={r.id} files={v.files} onChange={setFiles} />
+            <QuoteAdd folder={r.id} files={v.files} onChange={setFiles}
+              onCreate={() => setMaking({ start: draft ? { draft } : lastMade() })}
+              onEdit={(f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } }))}
+              draft={draft} onDraft={() => setMaking({ start: { draft } })}
+              onDropDraft={() => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, draft?.to, money(quoteTotals(draft?.items ?? []).with)].filter(Boolean), ok: 'Delete', tone: 'bad',
+                run: async () => { quoteDraft.drop(r.id); setDraft(null); } })}
+              onRemove={(f) => (f.doc
+                // A made one: asked first, and its number goes back to the series (the user, 16 Nov: "we need that number back").
+                ? ask({ title: `Delete quotation ${f.qtn_no ?? ''}?`.replace(' ?', '?'), lines: [f.qtn_to, f.total != null && money(f.total)].filter(Boolean), ok: 'Delete', tone: 'bad',
+                    run: async () => { await releaseQtn(f.qtn_no); setV((o) => ({ ...o, files: o.files.filter((x) => x.path !== f.path) })); } })
+                : setFiles(v.files.filter((x) => x.path !== f.path)))} />
           </div>
           <Field label="Quotation date"><input type="date" value={v.quote_date} max={todayIst()} onChange={(e) => set('quote_date', e.target.value)} /></Field>
-          <Field label="Remarks"><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+          <Field label="Remarks"><input value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
         </div>
       ) : <Field label="Reason" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>}
       {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.files.length > 0, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.']]) && s.go(`Submit the quotation of ${r.no}?`, [...v.files.map((f) => [f.qtn_no ?? 'Quotation', f.total != null && money(f.total)].filter(Boolean).join(' · ')), `To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>Submit quotation</button>}

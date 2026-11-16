@@ -311,3 +311,18 @@ export async function exportAll(list, events, targets, label) {
   ];
   saveBlob(await writeBook([{ name: 'Requests', columns, rows }, { name: 'TAT by person', columns: pCols, rows: pRows }]), `Quotation-tracker-${label}.xlsx`);
 }
+
+/** The next QTN number of the series (0057), given when a made quotation is first saved. */
+export async function nextQtn() {
+  const { data, error } = await supabase.rpc('qt_next_qtn');
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** A made quotation deleted before the request is submitted gives its QTN number back to the series (0058). */
+export async function releaseQtn(qtn) {
+  if (!qtn) return false;
+  const { data, error } = await supabase.rpc('qt_release_qtn', { p_qtn: qtn });
+  if (error) throw new Error(error.message);
+  return data;
+}
