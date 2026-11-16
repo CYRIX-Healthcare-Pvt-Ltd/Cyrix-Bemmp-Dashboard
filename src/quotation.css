@@ -1154,3 +1154,9 @@ button.qt-qstate { cursor: pointer; }
 /* No request, so no approved cost: Cost and Margin are left out. */
 .qt-maker-free .qt-mi-cost, .qt-maker-free .qt-mi-margin { display: none; }
 @media (min-width: 900px) { .qt-maker-free .qt-maker-item { grid-template-areas: 'n desc desc desc desc desc desc x' '. price price qty tax tax tot .'; } }
+/* A Team Lead's reportees in Settings (0061). */
+.qt-team-rows { display: grid; gap: 8px; }
+.qt-team-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.qt-team-row > span:first-child { display: grid; gap: 2px; min-width: 0; }
+.qt-team-row > span:first-child > span { font-size: 12.5px; color: var(--text-secondary); }
+.qt-team-row .mt-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; }

@@ -9,7 +9,7 @@ import {
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
-  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote,
+  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees,
 } from '../data/quotation.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -45,7 +45,8 @@ function tabsFor(me) {
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' });
-  if (me.lead) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
+  // Settings: the targets for a lead; a Team Lead adds their own new reportees as Engineers (0061). People are SW Admin's.
+  if (me.lead || r === 'team_lead') t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
 }
 
@@ -141,7 +142,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
               {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} onGo={(v) => { setTodoSub(v); setTab('requests'); }} />}
               {tab === 'hospitals' && <Hospitals />}
               {tab === 'quotations' && <Quotations me={me} onToast={setToast} />}
-              {tab === 'settings' && <Settings targets={targets} onDone={done} />}
+              {tab === 'settings' && <Settings me={me} targets={targets} onDone={done} />}
             </div>
           )}
         </div>
@@ -3153,93 +3154,66 @@ function HospitalEdit({ f, onClose, onDone }) {
 
 /* ============================================================ settings == */
 
-function Settings({ targets, onDone }) {
+function Settings({ me, targets, onDone }) {
   const [t, setT] = useState(() => Object.fromEntries(TAT_STEPS.map((k) => [k, { accept_h: targets[k]?.accept_h ?? 4, process_h: targets[k]?.process_h ?? 24 }])));
   const [ask, box] = useAsk();
-  const [people, setPeople] = useState(null);
-  const [q, setQ] = useState('');
-  const [add, setAdd] = useState(null);
-  const loadP = () => loadPeople().then(setPeople).catch(() => setPeople([]));
-  useEffect(() => { loadP(); }, []);
-  const tls = (people ?? []).filter((p) => p.role === 'team_lead');
-  const shown = (people ?? []).filter((p) => !q || `${p.name} ${p.ecode} ${ROLE_NAME[p.role]}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="qt-settings">
-      <section className="panel mt-panel">
-        <h3 className="qt-panel-h">Targets (hours)</h3>
-        <div className="qt-targets">
-          <span /><span className="qt-target-h">Accept</span><span className="qt-target-h">Process</span>
-          {TAT_STEPS.map((k) => (
-            <div key={k} className="qt-target-row">
-              <span>{STEPS[k].label}</span>
-              <input type="number" inputMode="decimal" min="0.5" step="0.5" value={t[k].accept_h} onChange={(e) => setT((o) => ({ ...o, [k]: { ...o[k], accept_h: e.target.value } }))} aria-label={`${STEPS[k].label} accept hours`} />
-              <input type="number" inputMode="decimal" min="0.5" step="0.5" value={t[k].process_h} onChange={(e) => setT((o) => ({ ...o, [k]: { ...o[k], process_h: e.target.value } }))} aria-label={`${STEPS[k].label} process hours`} />
-            </div>
-          ))}
-        </div>
-        <button type="button" className="mt-go" onClick={() => ask({ title: 'Save the targets?', lines: ['The clocks and the TAT use them from now.'], ok: 'Save', run: () => saveTargets(t), after: () => onDone('Targets saved.') })}>Save targets</button>
-      </section>
-      <section className="panel mt-panel">
-        <h3 className="qt-panel-h">People</h3>
-        <div className="mt-filters qt-filters">
-          <Search value={q} onChange={setQ} placeholder="Name, E-code, role" />
-          <button type="button" className="mt-btn mt-btn-primary" onClick={() => setAdd({ ecode: '', role: 'engineer', lead: false, team_lead_ecode: '' })}><Icon d={I.plus} size={16} /> Person</button>
-        </div>
-        {!people ? <div className="loader" aria-hidden="true" /> : (
-          <ul className="qt-rows">
-            {shown.map((p) => (
-              <li key={p.employee_id}><button type="button" onClick={() => setAdd({ ecode: p.ecode, role: p.role, lead: p.lead, team_lead_ecode: tls.find((x) => x.employee_id === p.team_lead_id)?.ecode ?? '', employee_id: p.employee_id, name: p.name })}>
-                <strong>{person(p.name, p.ecode)}</strong><span>{ROLE_NAME[p.role]}{p.lead ? ' · lead' : ''}{p.team_lead_name ? ` · Team Lead ${p.team_lead_name}` : ''}</span>
-                {!p.active && <span className="qt-badge" data-tone="grey">Left</span>}
-              </button></li>
+      {me.lead && (
+        <section className="panel mt-panel">
+          <h3 className="qt-panel-h">Targets (hours)</h3>
+          <div className="qt-targets">
+            <span /><span className="qt-target-h">Accept</span><span className="qt-target-h">Process</span>
+            {TAT_STEPS.map((k) => (
+              <div key={k} className="qt-target-row">
+                <span>{STEPS[k].label}</span>
+                <input type="number" inputMode="decimal" min="0.5" step="0.5" value={t[k].accept_h} onChange={(e) => setT((o) => ({ ...o, [k]: { ...o[k], accept_h: e.target.value } }))} aria-label={`${STEPS[k].label} accept hours`} />
+                <input type="number" inputMode="decimal" min="0.5" step="0.5" value={t[k].process_h} onChange={(e) => setT((o) => ({ ...o, [k]: { ...o[k], process_h: e.target.value } }))} aria-label={`${STEPS[k].label} process hours`} />
+              </div>
             ))}
-          </ul>
-        )}
-      </section>
-      {add && <PersonEdit p={add} tls={tls} onClose={() => setAdd(null)} onDone={(m) => { setAdd(null); loadP(); onDone(m); }} />}
+          </div>
+          <button type="button" className="mt-go" onClick={() => ask({ title: 'Save the targets?', lines: ['The clocks and the TAT use them from now.'], ok: 'Save', run: () => saveTargets(t), after: () => onDone('Targets saved.') })}>Save targets</button>
+        </section>
+      )}
+      {me.role === 'team_lead' && <MyEngineers ask={ask} onDone={onDone} />}
       {box}
     </div>
   );
 }
 
-function PersonEdit({ p, tls, onClose, onDone }) {
-  const [v, setV] = useState(p);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [sure, setSure] = useState(false);
-  const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
-  const go = async (fn, msg) => { setBusy(true); setErr(null); try { await fn(); onDone(msg); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
-  return createPortal(
-    <div className="modal-scrim qt-scrim-top" role="presentation" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-      <div className="modal mt-modal" role="dialog" aria-label="Person">
-        <div className="modal-head"><h2>{p.employee_id ? p.name : 'Add person'}</h2></div>
-        <div className="modal-body qt-modal-body">
-          {!p.employee_id && <Field label="E-code"><input value={v.ecode} onChange={(e) => set('ecode', e.target.value.toUpperCase())} placeholder="E1234" /></Field>}
-          <Choice value={v.role} onChange={(x) => set('role', x)} options={['engineer', 'team_lead', 'coordinator', 'purchase', 'pv', 'observer', 'maker'].map((r) => [r, ROLE_NAME[r]])} />
-          {v.role === 'engineer' && (
-            <div className="pm-in"><span>Team Lead</span>
-              <Picker value={v.team_lead_ecode} onChange={(x) => set('team_lead_ecode', x)} title="Team Lead"
-                      options={[{ value: '', label: 'Reporting manager' }, ...tls.map((t) => ({ value: t.ecode, label: `${t.name} (${t.ecode})` }))]} />
-            </div>
-          )}
-          {v.role === 'observer' && (
-            <div className="pm-in"><span>Observes</span>
-              <Picker value={v.observes ?? ''} onChange={(x) => set('observes', x || null)} title="Observes"
-                      options={[{ value: '', label: 'Every team' }, ...['engineer', 'team_lead', 'coordinator', 'purchase', 'pv'].map((r) => ({ value: r, label: ROLE_NAME[r] }))]} />
-            </div>
-          )}
-          {(v.role === 'coordinator' || v.role === 'purchase') && (
-            <label className="qt-check"><input type="checkbox" checked={v.lead} onChange={(e) => set('lead', e.target.checked)} /> Lead (sees settings and people)</label>
-          )}
-          {err && <p className="mt-err" role="alert">{err}</p>}
-        </div>
-        <div className="modal-foot">
-          {p.employee_id && (sure
-            ? <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => go(() => removePerson(p.employee_id), `${p.name} removed.`)} disabled={busy}>Remove {p.name}?</button>
-            : <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => setSure(true)} disabled={busy}>Remove</button>)}
-          <button type="button" className="mt-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="mt-btn mt-btn-primary" onClick={() => go(() => savePerson(v), 'Saved.')} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-        </div>
-      </div>
-    </div>, document.body);
+/**
+  A Team Lead's own reportees (0061; the user, 16 Nov: "only lead can add new engineer under him, ie only his reportees
+  newly joined"): the ones not in the tracker yet are added as Engineers under them with one press; the rest is SW Admin's.
+*/
+function MyEngineers({ ask, onDone }) {
+  const [list, setList] = useState(null);
+  const load = useCallback(() => loadMyReportees().then(setList).catch(() => setList([])), []);
+  useEffect(() => { load(); }, [load]);
+  const fresh = (list ?? []).filter((x) => !x.in);
+  const added = (list ?? []).filter((x) => x.in);
+  return (
+    <section className="panel mt-panel">
+      <h3 className="qt-panel-h">My engineers</h3>
+      {list === null ? <div className="loader" aria-hidden="true" /> : !list.length ? <p className="empty-inline pm-empty">No reportee.</p> : (
+        <ul className="qt-rows qt-team-rows">
+          {fresh.map((x) => (
+            <li key={x.ecode} className="qt-team-row">
+              <span><strong>{person(x.name, x.ecode)}</strong><span>{x.designation || 'Not in the tracker'}</span></span>
+              <button type="button" className="mt-btn mt-btn-primary" onClick={() => ask({
+                title: `Add ${x.name} as Engineer?`, lines: [`${x.name} (${x.ecode})`, 'Under you as Team Lead'], ok: 'Add',
+                run: () => savePerson({ ecode: x.ecode, role: 'engineer' }), after: () => { load(); onDone(`${x.name} added as Engineer.`); },
+              })}><Icon d={I.plus} size={16} /> Add</button>
+            </li>
+          ))}
+          {added.map((x) => (
+            <li key={x.ecode} className="qt-team-row">
+              <span><strong>{person(x.name, x.ecode)}</strong><span>{ROLE_NAME[x.role] ?? x.role}{x.role === 'engineer' && !x.mine ? ' · under another Team Lead' : ''}</span></span>
+              <span className="qt-badge" data-tone="grey">Added</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
+

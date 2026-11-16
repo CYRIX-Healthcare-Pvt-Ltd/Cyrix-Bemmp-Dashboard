@@ -331,3 +331,6 @@ export async function releaseQtn(qtn) {
 export const loadQuotes = () => rpc('qt_quotes_list');
 export const saveQuote = (p) => rpc('qt_quote_save', { p });
 export const deleteQuote = (id) => rpc('qt_quote_delete', { p_id: id });
+
+/** A Team Lead's own reportees, in the tracker or not yet (0061). */
+export const loadMyReportees = () => rpc('qt_my_reportees');
