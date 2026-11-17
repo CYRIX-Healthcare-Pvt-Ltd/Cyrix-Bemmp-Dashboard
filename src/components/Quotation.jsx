@@ -2181,12 +2181,15 @@ function PurchaseRates({ r, onDone }) {
 function Pv({ r, onDone }) {
   const [note, setNote] = useState('');
   const s = useSend(r, onDone);
-  const pick = (k) => s.go(`Pick the ${k}?`, [k === 'original' ? `${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}` : `${r.comp_vendor} · ${money(withTax(r.comp_rate, r.comp_tax))}`], 'Pick', { action: k, note }, `${k === 'original' ? 'Original' : 'Compatible'} picked. ${r.no} is at PR.`);
+  // One quote: already chosen. Two: none until one is pressed; then Approve (the user, 17 Nov: QR-175).
+  const has = [r.orig_rate != null && 'original', r.comp_rate != null && 'compatible'].filter(Boolean);
+  const [sel, setSel] = useState(has.length === 1 ? has[0] : null);
+  const pick = (k) => s.go(`Approve the ${k}?`, [k === 'original' ? `${r.orig_vendor} · ${money(withTax(r.orig_rate, r.orig_tax))}` : `${r.comp_vendor} · ${money(withTax(r.comp_rate, r.comp_tax))}`, 'It goes to the Coordinator.', note].filter(Boolean), 'Approve', { action: k, note }, `${k === 'original' ? 'Original' : 'Compatible'} approved. ${r.no} is with the Coordinator.`);
   return (
     <>
-      <p className="qt-action-sub">Press the one to buy.</p>
-      <Quotes r={r} onPick={pick} />
+      <Quotes r={{ ...r, picked: sel }} onPick={has.length > 1 ? setSel : undefined} />
       <Field label="Remarks" wide><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      {sel && <button type="button" data-role="coordinator" className="mt-go" onClick={() => pick(sel)}>Approve</button>}
       <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => s.go('Send the rates back to Purchase?', [note], 'Send back', { action: 'return', note }, `${r.no} sent back to Purchase.`, 'bad')}>Send back to Purchase</button>
       <Err text={s.err} at={s.at} />
       {s.box}
