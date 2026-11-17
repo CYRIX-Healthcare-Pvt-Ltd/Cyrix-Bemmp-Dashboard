@@ -1160,7 +1160,7 @@ button.qt-qstate { cursor: pointer; }
 .qt-team-row > span:first-child > span { font-size: 12.5px; color: var(--text-secondary); }
 .qt-team-row .mt-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; }
 
-.qt-qfiles { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 4px; }
-.qt-qfiles button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 4px 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.qt-qfiles { position: relative; display: flex; gap: 6px; margin-top: 4px; }
+.qt-qfiles button { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 4px 6px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
 .qt-qfiles button[data-role] { border-color: color-mix(in srgb, var(--role) 45%, var(--border)); background: color-mix(in srgb, var(--role) 12%, var(--surface)); color: var(--role-text, var(--role)); }
 .qt-qfiles button:hover { border-color: var(--role, var(--text-muted)); }
