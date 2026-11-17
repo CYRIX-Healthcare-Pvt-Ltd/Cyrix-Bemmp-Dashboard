@@ -133,7 +133,7 @@ export const TAT_STEPS = ['tl_review', 'coord_initial', 'tl_clarify', 'purchase_
 
 /** What each event says in the timeline. */
 export const ACTIONS = {
-  raise: 'Raised', raise_stock: 'Raised stock request', accept: 'Accepted', approve: 'Approved',
+  raise: 'Raised', clarify: 'Quotation to clarify', itr: 'Completed from stock (ITR)', raise_stock: 'Raised stock request', accept: 'Accepted', approve: 'Approved',
   edit: 'Changed the request', close: 'Closed', ask: 'Asked to clarify', reply: 'Answered', to_purchase: 'Sent to Purchase for rates',
   sap_confirm: 'SAP rate sent to Purchase to confirm', sap_pr: 'SAP rate, straight to PR', approve_sap: 'Approved the SAP rate',
   rates: 'Rates sent to PV', rates_pr: 'Rates in, straight to PR', pick_original: 'Picked the original',

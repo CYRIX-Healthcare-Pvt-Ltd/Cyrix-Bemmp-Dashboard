@@ -25,7 +25,7 @@ import '../quotation.css';
  * decision asked first.
  */
 
-const PERIODS = [['month', 'This month'], ['all', 'All time'], ['custom', 'Custom']];
+const PERIODS = [['all', 'All time'], ['month', 'This month'], ['custom', 'Custom']];
 const SEND_BY = ['Courier', 'Transport', 'Post', 'By hand'];
 const TAXES = [0, 5, 18]; // 12 and 28 not used (the user, 12 Nov)
 const PV_ABOVE = 40000;
@@ -52,7 +52,7 @@ function tabsFor(me) {
 
 export default function QuotationApp({ me, profile, narrow, switcher, onSignOut }) {
   const [tab, setTab] = useState(me.role === 'maker' ? 'quotations' : 'dashboard');
-  const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
+  const [period, setPeriod] = useState({ id: 'all', from: '', to: '' });
   const [list, setList] = useState(null);
   const [targets, setTargets] = useState({});
   const [failed, setFailed] = useState(null);
@@ -1003,7 +1003,11 @@ function matchQuotes(r) {
   for (const c of open) {
     // One quotation left and copies left: they belong together even when the numbers do not agree.
     const s = open.length === 1 ? left.shift() : null;
-    if (s) { c.s = s; c.state = !s.qtn_no || !c.q.qtn_no ? 'unread' : 'differs'; } else c.state = signed.length || r.done ? 'none' : 'waiting';
+    if (s) {
+      c.s = s; c.state = !s.qtn_no || !c.q.qtn_no ? 'unread' : 'differs';
+      // The other unread copies are more pages of the same signed copy (QR-185: two photos; the user, 17 Nov).
+      if (!s.qtn_no) { c.more = left.filter((x) => !x.qtn_no); left.splice(0, left.length, ...left.filter((x) => x.qtn_no)); }
+    } else c.state = signed.length || r.done ? 'none' : 'waiting';
   }
   return { cards, extra: left };
 }
@@ -1058,11 +1062,7 @@ function QuoteBlock({ r, me }) {
             <button type="button" className="qt-qcard-open" onClick={() => setOpen({ path: c.q.path, name: c.q.qtn_no ?? `${r.no} quotation` })} aria-label="See the quotation" />
             <div className="qt-qcard-top">
               <span className="qt-qfile-ico">{isPdf(c.q.path) ? 'PDF' : <Icon d={I.camera} size={15} />}</span>
-              {c.s ? (
-                <button type="button" className="qt-qstate" data-tone={STATE[c.state][0]} onClick={() => setOpen({ path: c.s.path, name: `${c.q.qtn_no ?? r.no} signed` })} title="See the signed copy">
-                  {c.state === 'signed' && <Icon d={I.check} size={13} />}{STATE[c.state][1]}
-                </button>
-              ) : <span className="qt-qstate" data-tone={STATE[c.state][0]}>{STATE[c.state][1]}</span>}
+              <span className="qt-qstate" data-tone={STATE[c.state][0]}>{c.state === 'signed' && <Icon d={I.check} size={13} />}{STATE[c.state][1]}</span>
             </div>
             <p className="qt-qno">{c.q.qtn_no ?? 'Quotation'}</p>
             {c.q.qtn_to && <p className="qt-qto">{c.q.qtn_to}</p>}
@@ -1070,6 +1070,17 @@ function QuoteBlock({ r, me }) {
             {c.state === 'differs' && <p className="qt-qnote">Signed copy says {c.s.qtn_no}</p>}
             {seesMargin && c.q.total != null && (
               <span className="qt-qmargin" data-down={Number(c.q.total) < cost || undefined}><span>Margin</span><b>{pct(Number(c.q.total) - cost, cost)}</b></span>
+            )}
+            {/* Two files in one card, each its own button (the user, 17 Nov: "tough for user to understand there are 2 quo"). */}
+            {c.s && (
+              <div className="qt-qfiles">
+                <button type="button" data-role="coordinator" onClick={() => setOpen({ path: c.q.path, name: c.q.qtn_no ?? `${r.no} quotation` })}><Icon d={I.doc} size={14} />Quotation</button>
+                {[c.s, ...(c.more ?? [])].map((x, i, a) => (
+                  <button key={x.path} type="button" data-role="engineer" onClick={() => setOpen({ path: x.path, name: `${c.q.qtn_no ?? r.no} signed${a.length > 1 ? ` ${i + 1}` : ''}` })}>
+                    <Icon d={I.pen} size={14} />{a.length > 1 ? `Signed ${i + 1}` : 'Signed copy'}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         ) : (
@@ -1194,7 +1205,7 @@ function Search({ value, onChange, placeholder }) {
 }
 
 const hay = (r) => [r.no, r.hospital, r.district, r.spare, r.part_no, r.equipment, r.make, r.model, r.serial, r.engineer_name, r.engineer_code,
-  r.pr_no, r.po_no, r.track_no, r.item_code, r.ref_no, statusOf(r)].filter(Boolean).join(' ').toLowerCase();
+  r.pr_no, r.itr_no, r.po_no, r.track_no, r.item_code, r.ref_no, statusOf(r)].filter(Boolean).join(' ').toLowerCase();
 const matches = (r, q) => q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay(r).includes(w));
 
 /* ============================================================== bell == */
@@ -1425,7 +1436,7 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
       {v === 'accept' || v === 'mine'
         ? <><div className="qt-views-pick">{pick}</div>
             <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} /></>
-        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} myRole={split ? me.role : null} />}
+        : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} myRole={split ? me.role : null} allTime={period.id === 'all'} />}
     </div>
   );
 }
@@ -1438,8 +1449,9 @@ const SORTS = [
   { value: 'new', label: 'Newest first' }, { value: 'old', label: 'Oldest first' }, { value: 'wait', label: 'Waiting longest' },
 ];
 
-function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
+function Requests({ list, targets, now, onOpen, show, viewPick, myRole, allTime }) {
   const [q, setQ] = useState('');
+  const [wide, setWide] = useState(null);
   const [step, setStep] = useState('');
   const between = show === 'team' || show === 'others';
   const [sort, setSort] = useState(between ? 'recent' : 'new');
@@ -1473,6 +1485,10 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base, step, role, q, sort, targets, now]);
+  // Nothing found in the period: the search looks through all time, every tab (the user, 17 Nov: REQ-133 not found in This month).
+  const look = q.trim() && !shown.length && !allTime;
+  useEffect(() => { if (look && wide === null) { setWide([]); loadList(null, null).then((l) => setWide(l ?? [])).catch(() => setWide([])); } }, [look, wide]);
+  const older = look ? (wide ?? []).filter((r) => matches(r, q)).sort((a, b) => b.created_at.localeCompare(a.created_at)) : [];
   return (
     <div className="mt-tickets qt-requests">
       {viewPick && <div className="qt-view-sort">{viewPick}<Picker value={sort} options={sorts} onChange={setSort} title="Sort" /></div>}
@@ -1482,7 +1498,8 @@ function Requests({ list, targets, now, onOpen, show, viewPick, myRole }) {
         <Picker value={step} options={steps} onChange={setStep} title="Step" />
         <span className="qt-sort-wide"><Picker value={sort} options={sorts} onChange={setSort} title="Sort" /></span>
       </div>
-      {!shown.length ? <p className="empty-inline pm-empty">No request here.</p> : (
+      {!shown.length && older.length ? <ul className="qt-cards">{older.map((r) => <Card key={r.id} r={r} targets={targets} now={now} onOpen={onOpen} />)}</ul>
+        : !shown.length ? <p className="empty-inline pm-empty">No request here.</p> : (
         <ul className="qt-cards">{shown.map((r) => <Card key={r.id} r={r} targets={targets} now={now} onOpen={onOpen} />)}</ul>
       )}
     </div>
@@ -1604,6 +1621,7 @@ function Facts({ r, now }) {
       <Fact label="Raised" sub={r.raised_by_name && r.raised_by_name !== r.engineer_name ? `by ${r.raised_by_name}` : null}>{whenText(r.created_at)}</Fact>
       <Fact label="Delivery address">{r.delivery_address}</Fact>
       <Fact label="PR" sub={dayText(r.pr_date)}>{r.pr_no}</Fact>
+      <Fact label="ITR" sub={dayText(r.itr_date)}>{r.itr_no}</Fact>
       <Fact label="PO" sub={[dayText(r.po_date), r.vendor].filter(Boolean).join(' · ')}>{r.po_no}</Fact>
       <Fact label="Sent" sub={r.dispatched_at ? whenText(r.dispatched_at) : null}>{r.track_no ? `${r.track_mode} · ${r.track_no}` : null}</Fact>
       <Fact label="Received" sub={r.received_on ? dayText(r.received_on) : null}>{r.received_qty ? `${r.received_qty} received · ${r.used_qty} used · ${r.faulty_qty} faulty` : null}</Fact>
@@ -2248,8 +2266,10 @@ function EngQuote({ r, onDone }) {
   const [v, setV] = useState({ approved: '', signed: [], note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
+  const back = [...(r.events ?? [])].reverse().find((e) => e.to_step === 'eng_quote' || e.action === 'clarify');
   return (
     <>
+      {back?.action === 'clarify' && back.note && <p className="qt-question"><b>Clarify quote:</b> {back.note}</p>}
       <div className="pm-in"><span>Approved by the customer</span>
         <div className="qt-send-chips" role="radiogroup" aria-label="Approved by the customer">
           {[['yes', 'Yes'], ['no', 'No']].map(([id, label]) => <button key={id} type="button" role="radio" aria-checked={v.approved === id} onClick={() => set('approved', id)}>{label}</button>)}
@@ -2273,7 +2293,7 @@ function EngQuote({ r, onDone }) {
 
 function CoordPr({ r, onDone }) {
   const [a, setA] = useState('pr');
-  const [v, setV] = useState({ pr_no: '', pr_date: '', item_code: r.item_code ?? '', approved_qty: r.qty, note: '' });
+  const [v, setV] = useState({ pr_no: '', pr_date: '', itr_no: '', itr_date: '', item_code: r.item_code ?? '', approved_qty: r.qty, note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   /** Straight to PR with both quotes: no PV pick, so the Coordinator picks; compatible by default (the user, 11 Nov; 0025). */
@@ -2284,7 +2304,17 @@ function CoordPr({ r, onDone }) {
   return (
     <>
       <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
-      <Choice value={a} onChange={setA} options={[['pr', 'Request PO', 'good', 'purchase'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
+      <Choice value={a} onChange={setA} options={[['pr', 'Request PO', 'good', 'purchase'], ['itr', 'From stock - ITR', 'good', 'coordinator'], ['clarify', 'Clarify quote', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
+      {a === 'itr' && (
+        <div className="qt-grid">
+          <div className="qt-date-pair">
+            <Field label="ITR no"><input value={v.itr_no} onChange={(e) => set('itr_no', e.target.value)} autoComplete="off" /></Field>
+            <Field label="ITR date"><input type="date" value={v.itr_date} max={todayIst()} onChange={(e) => set('itr_date', e.target.value)} /></Field>
+          </div>
+          <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
+          <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>
+        </div>
+      )}
       {a === 'pr' && (
         <div className="qt-grid">
           <div className="qt-date-pair">
@@ -2295,7 +2325,9 @@ function CoordPr({ r, onDone }) {
           <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>
         </div>
       )}
-      <Field label={a === 'pr' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+      <Field label={a === 'pr' || a === 'itr' ? 'Remarks' : 'Reason'} wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+      {a === 'itr' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.itr_no, 'Write the ITR no.'], [v.itr_date, 'Choose the ITR date.'], [v.item_code, 'Write the item code.'], [Number(v.approved_qty) > 0, 'Write the approved qty.']]) && s.go(`Complete ${r.no} from stock?`, [`ITR ${v.itr_no} · ${dayText(v.itr_date)}`, `Item ${v.item_code} × ${v.approved_qty}`, v.note], 'Complete', p, `${r.no} completed from stock.`)}>Complete from stock</button>}
+      {a === 'clarify' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Send ${r.no} back to ${r.engineer_name}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Send back', p, `${r.no} sent back to ${r.engineer_name}.`)}>Send back to {r.engineer_name}</button>}
       {a === 'pr' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.pr_no, 'Write the PR no.'], [v.pr_date, 'Choose the PR date.'], [Number(v.approved_qty) > 0, 'Write the approved qty.'], [v.item_code, 'Write the item code.']]) && s.go(`Request PO for ${r.no}${v.pr_no ? ` · PR ${v.pr_no}` : ''}?`, [`${pick === 'original' ? 'Original' : 'Compatible'} · ${(pick === 'original' ? r.orig_vendor : r.comp_vendor) ?? ''}`, `${v.approved_qty} × ${money(price)} = ${money(price * Number(v.approved_qty || 0))}`, 'It goes to Purchase for PO and dispatch.'], 'Request PO', p, `PO requested for ${r.no}.`)}>Request PO</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
