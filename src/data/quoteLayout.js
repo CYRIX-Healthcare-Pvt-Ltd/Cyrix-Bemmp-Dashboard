@@ -205,43 +205,17 @@ export async function readLayout(file) {
     }
   }
 
-  // The machine table: the first table with a model/description column and an amount column.
-  const mi = blocks.findIndex((b) => b.k === 'grid' && b.rows.length > 1
-    && b.rows[0].some((c) => /model|description|item|equipment|make/i.test(c.t)) && b.rows[0].some((c) => /amount|price|rate|value/i.test(c.t)));
-  let items = null;
-  if (mi >= 0) {
-    const g = blocks[mi];
-    const head = g.rows[0].map((c) => c.t.replace(/\s+/g, ' ').trim());
-    const idx = /^(s\s*\/?\s*n|sl\.?\s*no|no)\.?$/i.test(head[0] ?? '');
-    const pi = head.length - 1 - [...head].reverse().findIndex((h) => /amount|price|rate|value/i.test(h));
-    const cols = head.slice(idx ? 1 : 0, pi);
-    const cw = g.cw.length === head.length ? g.cw : head.map(() => 1 / head.length);
-    const data = g.rows.slice(1).filter((r) => r.length >= head.length && !r.some((c) => /total|gst/i.test(c.t)));
-    const tots = g.rows.slice(1).filter((r) => r.some((c) => /total|gst/i.test(c.t)));
-    const totals = tots.map((r) => {
-      const label = r.map((c) => c.t).find((t) => /total|gst/i.test(t)).replace(/\s+/g, ' ').trim();
-      return { label, v: r.map((c) => c.t).reverse().find((t) => /\d/.test(t) && t !== label) ?? '' };
-    });
-    const rate = num(/gst\s*@?\s*(\d+(?:\.\d+)?)\s*%/i.exec(totals.map((x) => x.label).join(' '))?.[1]) || 18;
-    items = {
-      idx, cols, price: head[pi], cw: [...(idx ? [cw[0]] : []), ...cw.slice(idx ? 1 : 0, pi), cw[pi]], wd: g.wd, border: true,
-      totals: totals.map((x, i) => ({ label: x.label.replace(/(gst\s*@?\s*)\d+(?:\.\d+)?\s*%/i, '$1{rate}%'),
-        kind: /gst|tax/i.test(x.label) && !/with|total amount/i.test(x.label) ? 'gst' : i === totals.length - 1 && totals.length > 1 ? 'grand' : 'total' })),
-      gst: rate,
-      sample: data.map((r) => ({ cells: cols.map((c, k) => r[(idx ? 1 : 0) + k]?.t ?? ''), price: num(String(r[pi]?.t).replace(/[^0-9.]/g, '')) })),
-      old: Object.fromEntries(totals.map((x, i) => [
-        /gst|tax/i.test(x.label) && !/with|total amount/i.test(x.label) ? 'gst' : i === totals.length - 1 && totals.length > 1 ? 'grand' : 'total',
-        String(x.v).replace(/[^0-9.]/g, '')]).filter(([, v]) => v)),
-    };
-    blocks[mi] = { k: 'items' };
-  }
+  // The machine table, read out of the blocks (findItems).
+  const found0 = findItems(blocks);
+  blocks.splice(0, blocks.length, ...found0.blocks);
+  const items = found0.items;
 
   // What was filled in the sample becomes a blank. Ref and date from their lines; the address after "To,".
   const texts = () => blocks.flatMap((b) => (b.k === 'p' ? [b] : b.k === 'grid' ? b.rows.flat() : []));
   const all = texts().map((x) => x.t).join('\n');
   const found = {};
-  found.ref = /\b(?:Ref|Ref\.? ?No)\s*[:.]\s*([^\t\n]+?)(?:\s{2,}|\t|\n|$)/i.exec(all)?.[1]?.trim();
-  found.date = /\bDate\s*[:.]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i.exec(all)?.[1];
+  found.ref = REF.exec(all)?.[1]?.trim();
+  found.date = DATE.exec(all)?.[1];
   const per = /(?:period\s+of\s+contract|contract\s+period)[^0-9]*(\d{1,2}[./-]\d{1,2}[./-]\d{4})\s*(?:-|–|to)\s*(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i.exec(all);
   if (per) { found.from = per[1]; found.upto = per[2]; }
   const ti = blocks.findIndex((b) => b.k === 'p' && /^\s*to\s*,?\s*$/i.test(b.t));
@@ -278,6 +252,76 @@ export async function readLayout(file) {
     layout: { v: 1, page, dflt, art, blocks: out, items, period: !!per, subject, sample: { ...found, subject } },
     files,
   };
+}
+
+/**
+  The table of things quoted: the first with an amount column (amount, price, rate, value, cost) and something named
+  in it (model, description, contract type…), else any with an amount column and a row of figures. Its columns: the
+  serial number, the columns typed in, the amount, then columns the app works out (GST %, GST amount, total), as in
+  Sandhya K Nair's Sub AMC (SI NO. · CONTRACT TYPE · RATE · GST % · GST RATE · TOTAL; the user, 18 Nov: "where is
+  amount field?"). Its total rows and full-width rows (a contract period) are kept.
+*/
+const TAXCOL = /gst|tax/i;
+export function findItems(blocks) {
+  const money = (h) => /amount|price|rate|value|cost/i.test(h) && !TAXCOL.test(h);
+  const isHead = (row) => row.length >= 3 && row.some((c) => money(c.t) || /total/i.test(c.t));
+  let mi = blocks.findIndex((b) => b.k === 'grid' && b.rows.length > 1 && isHead(b.rows[0])
+    && b.rows[0].some((c) => /model|description|item|equipment|make|contract|particular|service|type/i.test(c.t)));
+  if (mi < 0) mi = blocks.findIndex((b) => b.k === 'grid' && b.rows.length > 1 && isHead(b.rows[0])
+    && b.rows.slice(1).some((r) => r.length === b.rows[0].length && r.some((c) => /\d/.test(c.t))));
+  if (mi < 0) return { blocks, items: null };
+  const g = blocks[mi];
+  const head = g.rows[0].map((c) => c.t.replace(/\s+/g, ' ').trim());
+  const idx = /^(s[il]\.?\s*no|sr\.?\s*no|s\s*\/?\s*n|no)\.?$/i.test(head[0] ?? '');
+  let pi = head.findIndex((h, i) => i >= (idx ? 1 : 0) && money(h));
+  if (pi < 0) pi = head.length - 1;
+  const cols = head.slice(idx ? 1 : 0, pi);
+  const calc = head.slice(pi + 1).map((h) => ({ label: h,
+    kind: TAXCOL.test(h) && /%/.test(h) ? 'rate' : TAXCOL.test(h) ? 'tax' : /total|amount|value/i.test(h) ? 'with' : 'blank' }));
+  const cw = g.cw.length === head.length ? g.cw : head.map(() => 1 / head.length);
+  const isTot = (r) => (r.length < head.length && r.some((c) => /total|gst/i.test(c.t)))
+    || (r.length >= head.length && r.some((c) => /^\s*(grand\s+)?total\b|gst\s*@/i.test(c.t)));
+  const data = g.rows.slice(1).filter((r) => r.length >= head.length && !isTot(r));
+  const tots = g.rows.slice(1).filter((r) => isTot(r));
+  const extra = g.rows.slice(1).filter((r) => r.length < head.length && !isTot(r) && r.some((c) => c.t.trim())).map((r) => r.map((c) => c.t).join(' ').trim());
+  const totals = tots.map((r) => {
+    const label = r.map((c) => c.t).find((t) => /total|gst/i.test(t)).replace(/\s+/g, ' ').trim();
+    return { label, v: r.map((c) => c.t).reverse().find((t) => /\d/.test(t) && t !== label) ?? '' };
+  });
+  const kindOf = (x, i) => (TAXCOL.test(x.label) && !/with|total amount/i.test(x.label) ? 'gst' : i === totals.length - 1 && totals.length > 1 ? 'grand' : 'total');
+  const rateText = [...totals.map((x) => x.label), ...data.flatMap((r) => calc.map((c, k) => (c.kind === 'rate' ? `gst ${r[pi + 1 + k]?.t}` : '')))].join(' ');
+  const rate = num(/gst\s*@?\s*(\d+(?:\.\d+)?)\s*%/i.exec(rateText)?.[1]) || 18;
+  const items = {
+    idx, cols, price: head[pi], calc, extra, cw, wd: g.wd, border: true,
+    totals: totals.map((x, i) => ({ label: x.label.replace(/(gst\s*@?\s*)\d+(?:\.\d+)?\s*%/i, '$1{rate}%'), kind: kindOf(x, i) })),
+    gst: rate,
+    sample: data.map((r) => ({ cells: cols.map((c, k) => r[(idx ? 1 : 0) + k]?.t ?? ''), price: num(String(r[pi]?.t).replace(/[^0-9.]/g, '')) })),
+    old: Object.fromEntries(totals.map((x, i) => [kindOf(x, i), String(x.v).replace(/[^0-9.]/g, '')]).filter(([, v]) => v)),
+  };
+  return { blocks: blocks.map((b, i) => (i === mi ? { k: 'items' } : b)), items };
+}
+
+/** "Ref: …", "Ref – …", "Ref. No …" and "Date: …", "Date- …" (Sub AMC writes them with a dash). */
+const REF = /\b(?:Our\s+)?Ref(?:\.?\s*No)?\s*[:.\-\u2013]\s*([^\t\n{]+?)(?:\s{2,}|\t|\n|$)/i;
+const DATE = /\bDate\s*[:.\-\u2013]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i;
+
+/**
+  A layout kept before the reader knew a table like Sub AMC's or a "Ref –" line (18 Nov): its table and its ref and date
+  blanks found again, on the template or on a quotation's own wording.
+*/
+export function upgradeLayout(lay) {
+  if (!lay) return lay;
+  let out = lay;
+  if (!out.items) { const { blocks, items } = findItems(out.blocks); if (items) out = { ...out, blocks, items }; }
+  const paras = out.blocks.filter((b) => b.k === 'p').map((b) => b.t).join('\n');
+  const ref = !out.sample?.ref && !/\{ref\}/.test(paras) ? REF.exec(paras)?.[1]?.trim() : null;
+  const date = !out.sample?.date && !/\{date\}/.test(paras) ? DATE.exec(paras)?.[1] : null;
+  if (ref || date) {
+    const swap = (t) => { let x = t; if (ref) x = x.split(ref).join('{ref}'); if (date) x = x.split(date).join('{date}'); return x; };
+    out = { ...out, sample: { ...out.sample, ...(ref ? { ref } : {}), ...(date ? { date } : {}) },
+      blocks: out.blocks.map((b) => (b.k === 'p' ? { ...b, t: swap(b.t) } : b.k === 'grid' ? { ...b, rows: b.rows.map((r) => r.map((c) => ({ ...c, t: swap(c.t) }))) } : b)) };
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ drawing -- */
@@ -373,14 +417,28 @@ export async function makeLayoutPdf(q, layout, img) {
 
   const items = () => {
     const it = layout.items; if (!it) return;
-    const head = [...(it.idx ? [{ t: 'No.' }] : []), ...it.cols.map((c) => ({ t: c })), { t: it.price }].map((c) => ({ ...c, b: 1, al: 'center' }));
+    const calc = it.calc ?? [];
+    const head = [...(it.idx ? [{ t: 'No.' }] : []), ...it.cols.map((c) => ({ t: c })), { t: it.price }, ...calc.map((c) => ({ t: c.label }))].map((c) => ({ ...c, b: 1, al: 'center' }));
     const rows = [head];
-    (q.items ?? []).forEach((x, n) => rows.push([...(it.idx ? [{ t: String(n + 1), al: 'center' }] : []), ...it.cols.map((c, k) => ({ t: String(x.cells?.[k] ?? ''), al: 'center' })), { t: fmt(t.lines[n]), al: 'right' }]));
+    const rate = num(q.gst);
+    const worked = (c, line, tax) => ({ t: c.kind === 'rate' ? `${fmt(rate)}%` : c.kind === 'tax' ? fmt(tax) : c.kind === 'with' ? fmt(line + tax) : '', al: c.kind === 'rate' ? 'center' : 'right' });
+    (q.items ?? []).forEach((x, n) => {
+      const line = t.lines[n]; const tax = Math.round((line * rate) / 100);
+      rows.push([...(it.idx ? [{ t: String(n + 1), al: 'center' }] : []), ...it.cols.map((c, k) => ({ t: String(x.cells?.[k] ?? ''), al: 'center' })), { t: fmt(line), al: 'right' }, ...calc.map((c) => worked(c, line, tax))]);
+    });
     const span = it.cols.length + (it.idx ? 1 : 0);
-    for (const tr of it.totals) {
+    // A table with worked-out columns and no total rows gets one Total row when there is more than one line.
+    const totals = it.totals.length ? it.totals : calc.length && (q.items ?? []).length > 1 ? [{ label: 'Total', kind: 'sum' }] : [];
+    for (const tr of totals) {
+      if (tr.kind === 'sum') {
+        rows.push([{ t: tr.label, span, b: 1, al: 'right' }, { t: fmt(t.total), b: 1, al: 'right' },
+          ...calc.map((c) => ({ t: c.kind === 'tax' ? fmt(t.tax) : c.kind === 'with' ? fmt(t.with) : '', b: 1, al: 'right' }))]);
+        continue;
+      }
       const v = tr.kind === 'gst' ? t.tax : tr.kind === 'grand' ? t.with : (it.totals.some((z) => z.kind === 'grand') ? t.total : t.with);
-      rows.push([{ t: tr.label, span, b: 1, al: 'right' }, { t: `${fmt(v)}${tr.kind === 'grand' ? '/-' : ''}`, b: 1, al: 'right' }]);
+      rows.push([{ t: tr.label, span, b: 1, al: 'right' }, { t: `${fmt(v)}${tr.kind === 'grand' ? '/-' : ''}`, b: 1, al: 'right' }, ...calc.map(() => ({ t: '' }))]);
     }
+    for (const e of it.extra ?? []) rows.push([{ t: e, span: head.length, b: 1 }]);
     grid(rows, it.cw, it.wd, true, { head });
   };
 

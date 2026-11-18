@@ -11,7 +11,7 @@ import {
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
 } from '../data/quotation.js';
-import { readLayout, makeLayoutPdf, layoutTotals, qtyCol } from '../data/quoteLayout.js';
+import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
 import '../medtronic.css';
@@ -665,6 +665,24 @@ const quoteDraft = {
   Every change is kept as a draft, so closing it by mistake loses nothing. On a computer the items are rows of a table and
   the totals stay beside them.
 */
+/**
+  A request's quotation shows its QTN number from the start, the next of the series, and it can be changed (the user,
+  18 Nov: "for suhail show the quot number he can edit"). A number held and not used goes back to the series.
+*/
+function useHeldQtn(r, q, set) {
+  const held = useRef(null);
+  useEffect(() => {
+    if (r.free || q.qtn_no) return undefined;
+    let on = true;
+    nextQtn().then((n) => {
+      if (!on) { releaseQtn(n).catch(() => {}); return; }
+      held.current = n; set('qtn_no', n);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (used) => { if (held.current && held.current !== used) releaseQtn(held.current).catch(() => {}); held.current = null; };
+}
+
 /** A Word template's quotation in its own layout; otherwise Spares Quotation. */
 function QuoteMaker(props) {
   const s = props.start;
@@ -696,6 +714,7 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
   const [err, show, clear, at] = useErr();
   useEffect(() => { quoteDraft.set(r.id, q); }, [r.id, q]);
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
+  const settle = useHeldQtn(r, q, set);
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
   const totals = quoteTotals(q.items);
   // Margin and unit price follow each other: a margin gives the price from the cost, a price shows its margin.
@@ -748,13 +767,14 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
     try {
       let qtn = q.qtn_no;
       if (r.free) qtn = (qtn ?? '').trim() || null;
-      else if (save && !qtn) { qtn = await nextQtn(); set('qtn_no', qtn); }
+      else if (save) { qtn = (qtn ?? '').trim() || await nextQtn(); set('qtn_no', qtn); }
       const d = doc(save ? qtn : (q.qtn_no ?? 'QTN number on saving'));
       const blob = await makeQuotePdf(d);
       if (!save) { setPreview(blob); return; }
       const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
       const path = await uploadPhoto(r.folder ?? r.id, file);
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      settle(qtn);
       onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
@@ -776,7 +796,7 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
             <div className="qt-maker-to">
-              {r.free && <Field label="QTN number"><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder="QTN405/CHC/PVMP/2026-27" /></Field>}
+              {<Field label="QTN number"><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder="QTN405/CHC/PVMP/2026-27" /></Field>}
               <Field label="To"><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
               <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
               <Field label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
@@ -2255,7 +2275,7 @@ function CoordQuote({ r, onDone }) {
               onEdit={(f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } }))}
               draft={draft} onDraft={() => setMaking({ start: { draft } })}
               onDropDraft={() => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, draft?.to, money(docGrand(draft))].filter(Boolean), ok: 'Delete', tone: 'bad',
-                run: async () => { quoteDraft.drop(r.id); setDraft(null); } })}
+                run: async () => { await releaseQtn(draft?.qtn_no).catch(() => false); quoteDraft.drop(r.id); setDraft(null); } })}
               onRemove={(f) => (f.doc
                 // A made one: asked first, and its number goes back to the series (the user, 16 Nov: "we need that number back").
                 ? ask({ title: `Delete quotation ${f.qtn_no ?? ''}?`.replace(' ?', '?'), lines: [f.qtn_to, f.total != null && money(f.total)].filter(Boolean), ok: 'Delete', tone: 'bad',
@@ -3281,7 +3301,7 @@ function MyEngineers({ ask, onDone }) {
 const tplSubject = (t) => t?.doc?.subject || DEFAULT_SUBJECT;
 const tplTerms = (t) => (t?.doc?.terms?.length ? t.doc.terms : DEFAULT_TERMS);
 /** What Create quotation starts from: an in-app template's name, subject and terms; a Word one's layout. */
-const tplStart = (t) => (!t ? null : t.kind === 'word' ? { name: t.name, layout: t.doc?.layout } : { name: t.name, doc: { subject: tplSubject(t), terms: tplTerms(t) } });
+const tplStart = (t) => (!t ? null : t.kind === 'word' ? { name: t.name, layout: upgradeLayout(t.doc?.layout) } : { name: t.name, doc: { subject: tplSubject(t), terms: tplTerms(t) } });
 
 /** A quotation's grand total, whichever kind it is. */
 const docGrand = (d) => (d?.layout ? layoutTotals(d.items, d.layout, d.gst).with : quoteTotals(d?.items ?? []).with);
@@ -3291,7 +3311,7 @@ const isoOf = (s) => { const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(St
 
 /** The layout of a Word template: kept with it, or read from its file (older ones). */
 async function layoutOf(t) {
-  if (t.doc?.layout) return t.doc.layout;
+  if (t.doc?.layout) return upgradeLayout(t.doc.layout);
   return (await readLayout(await templateBlob(t.path))).layout;
 }
 
@@ -3411,8 +3431,8 @@ function ColumnsEdit({ lay, onChange }) {
           </label>
         ))}
         <button type="button" className="mt-btn qt-lm-coladd" onClick={() => {
-          const share = 1 / (it.cw.length + 1);
-          const cw = [...it.cw.slice(0, it.cw.length - 1).map((w) => w * (1 - share)), share, it.cw[it.cw.length - 1] * (1 - share)];
+          const share = 1 / (it.cw.length + 1); const at = idx + it.cols.length;
+          const cw = [...it.cw.slice(0, at).map((w) => w * (1 - share)), share, ...it.cw.slice(at).map((w) => w * (1 - share))];
           cols([...it.cols, ''], cw, it.sample.map((s) => ({ ...s, cells: [...s.cells, ''] })));
         }}><Icon d={I.plus} size={15} />Column</button>
       </div>
@@ -3649,8 +3669,12 @@ function LayoutMaker({ r, start, onClose, onMade }) {
   const [q, setQ] = useState(() => {
     const d = start?.draft ?? start?.doc;
     if (d?.layout) {
-      return { ...d, path: start.path ?? d.path ?? null, gst: String(d.gst ?? d.layout.items?.gst ?? 18), blocks: d.blocks ?? d.layout.blocks,
-        items: d.items.map((it) => ({ key: it.key ?? Math.random(), cells: [...(it.cells ?? [])], price: String(it.price ?? '') })) };
+      // A draft from before its table was found: found now in its own wording.
+      const up = upgradeLayout({ ...d.layout, blocks: d.blocks ?? d.layout.blocks });
+      const layout = { ...up, blocks: [] };
+      const its = (d.items ?? []).length ? d.items : [{ cells: [], price: '' }];
+      return { ...d, layout, path: start.path ?? d.path ?? null, gst: String(d.gst ?? layout.items?.gst ?? 18), blocks: up.blocks,
+        items: its.map((it) => ({ key: it.key ?? Math.random(), cells: [...(it.cells ?? [])], price: String(it.price ?? '') })) };
     }
     const lay = start.tpl.layout; const cols = lay.items?.cols ?? [];
     return {
@@ -3666,6 +3690,7 @@ function LayoutMaker({ r, start, onClose, onMade }) {
   useEffect(() => { quoteDraft.set(r.id, q); }, [r.id, q]);
   const lay = q.layout; const cols = lay.items?.cols ?? [];
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
+  const settle = useHeldQtn(r, q, set);
   const setCell = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, cells: cols.map((_, c) => (c === k ? v : it.cells[c] ?? '')) } : it)) }));
   const setPrice = (i, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: v } : it)) }));
   const totals = layoutTotals(q.items, lay, q.gst);
@@ -3701,13 +3726,14 @@ function LayoutMaker({ r, start, onClose, onMade }) {
     try {
       let qtn = q.qtn_no;
       if (r.free) qtn = (qtn ?? '').trim() || null;
-      else if (save && !qtn) { qtn = await nextQtn(); set('qtn_no', qtn); }
+      else if (save) { qtn = (qtn ?? '').trim() || await nextQtn(); set('qtn_no', qtn); }
       const d = doc(save ? qtn : (q.qtn_no ?? 'Ref on saving'));
       const blob = await makeLayoutPdf(d, lay, templateArt);
       if (!save) { setPreview(blob); return; }
       const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
       const path = await uploadPhoto(r.folder ?? r.id, file);
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      settle(qtn);
       onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
@@ -3728,7 +3754,7 @@ function LayoutMaker({ r, start, onClose, onMade }) {
               <Field label="To" wide><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
               <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
               <Field label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
-              {r.free && <Field label="Ref" wide><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder={lay.sample?.ref || 'AMC 136/2026-27'} /></Field>}
+              {<Field label="Ref" wide><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder={lay.sample?.ref || 'AMC 136/2026-27'} /></Field>}
               <Field label="Subject" wide><input value={q.subject} onChange={(e) => set('subject', e.target.value)} placeholder={lay.subject || 'Subject'} /></Field>
               {lay.period && <>
                 <Field label="Contract from"><input type="date" value={q.from} onChange={(e) => set('from', e.target.value)} /></Field>
