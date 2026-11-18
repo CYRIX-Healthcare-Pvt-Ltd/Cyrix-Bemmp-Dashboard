@@ -51,6 +51,26 @@ export async function readLayout(file) {
   const lineOf = (sp) => (attr(sp, 'w:line') && (attr(sp, 'w:lineRule') ?? 'auto') === 'auto' ? r2(num(attr(sp, 'w:line')) / 240) : null);
   const dflt = { s: num(attr(dd?.getElementsByTagName('w:sz')[0], 'w:val')) / 2 || 11, a: dsp && attr(dsp, 'w:after') ? r2(num(attr(dsp, 'w:after')) / TW) : 0, lm: lineOf(dsp) ?? 1 };
 
+  // Fonts as Word picks them: the run's own, its character style, its paragraph's style, then the document's default;
+  // a theme font ("minorHAnsi") named from the theme.
+  const theme = await xml('word/theme/theme1.xml');
+  const themeFont = { major: null, minor: null };
+  for (const k of ['major', 'minor']) themeFont[k] = attr(theme?.getElementsByTagName(`a:${k}Font`)[0]?.getElementsByTagName('a:latin')[0], 'typeface');
+  const fontIn = (rpr) => {
+    const rf = kid(rpr, 'w:rFonts'); if (!rf) return null;
+    const th = attr(rf, 'w:asciiTheme') ?? attr(rf, 'w:hAnsiTheme');
+    return attr(rf, 'w:ascii') ?? attr(rf, 'w:hAnsi') ?? (th ? themeFont[th.startsWith('major') ? 'major' : 'minor'] : null);
+  };
+  const styleOf = {};
+  for (const st of styles?.getElementsByTagName('w:style') ?? []) styleOf[attr(st, 'w:styleId')] = st;
+  const styleFont = (id, depth = 0) => {
+    const st = styleOf[id]; if (!st || depth > 8) return null;
+    return fontIn(kid(st, 'w:rPr')) ?? styleFont(attr(kid(st, 'w:basedOn'), 'w:val'), depth + 1);
+  };
+  const normal = Object.values(styleOf).find((st) => attr(st, 'w:type') === 'paragraph' && attr(st, 'w:default') === '1');
+  const docFont = (normal && styleFont(attr(normal, 'w:styleId'))) ?? fontIn(dd?.getElementsByTagName('w:rPrDefault')[0]?.getElementsByTagName('w:rPr')[0]) ?? themeFont.minor ?? 'Calibri';
+  const fontUse = {};
+
   // Numbering: a bullet or a counting number for each list.
   const numDoc = await xml('word/numbering.xml');
   const absFmt = {}; const numAbs = {};
@@ -119,7 +139,8 @@ export async function readLayout(file) {
   const sects = [...doc.getElementsByTagName('w:sectPr')];
   let breakNext = false;
   const runText = (p) => {
-    let t = ''; let bold = 0; let all = 0; let size = null; let pageBreak = false;
+    let t = ''; let bold = 0; let all = 0; let size = null; let pageBreak = false; const fonts = {};
+    const pStyle = attr(kid(kid(p, 'w:pPr'), 'w:pStyle'), 'w:val');
     const walk = (n) => {
       for (const c of n.childNodes ?? []) {
         const nm = c.nodeName;
@@ -129,13 +150,16 @@ export async function readLayout(file) {
           const rpr = kid(c.parentNode, 'w:rPr'); const b = kid(rpr, 'w:b');
           if (b && attr(b, 'w:val') !== '0' && attr(b, 'w:val') !== 'false') bold += c.textContent.length;
           const s = attr(kid(rpr, 'w:sz'), 'w:val'); if (s && size == null && c.textContent.trim()) size = num(s) / 2;
+          const fam = fontIn(rpr) ?? styleFont(attr(kid(rpr, 'w:rStyle'), 'w:val')) ?? styleFont(pStyle) ?? docFont;
+          const n = c.textContent.trim().length; fonts[fam] = (fonts[fam] ?? 0) + n; fontUse[fam] = (fontUse[fam] ?? 0) + n;
         } else if (nm === 'w:tab') t += '\t';
         else if (nm === 'w:br') { if (attr(c, 'w:type') === 'page') pageBreak = true; else t += '\n'; }
         else walk(c);
       }
     };
     walk(p);
-    return { t: clean(t), bold: all > 0 && bold / all > 0.6, size, pageBreak };
+    const f = Object.entries(fonts).sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+    return { t: clean(t), bold: all > 0 && bold / all > 0.6, size, pageBreak, f };
   };
   const pBlock = (p) => {
     const ppr = kid(p, 'w:pPr');
@@ -153,7 +177,7 @@ export async function readLayout(file) {
         else { const c = numAbs[id] ?? id; counters[c] = (counters[c] ?? 0) + 1; n = f === 'lowerLetter' ? `${String.fromCharCode(96 + counters[c])})` : `${counters[c]}.`; }
       }
     }
-    const b = { k: 'p', t: r.t, ...(r.bold ? { b: 1 } : {}), ...(r.size && r.size !== dflt.s ? { s: Math.max(7, Math.min(r.size, 18)) } : {}),
+    const b = { k: 'p', t: r.t, ...(r.f ? { f: r.f } : {}), ...(r.bold ? { b: 1 } : {}), ...(r.size && r.size !== dflt.s ? { s: Math.max(7, Math.min(r.size, 18)) } : {}),
       ...(jc === 'center' || jc === 'right' ? { al: jc } : {}), ...(n ? { n } : {}),
       ...(ind && num(attr(ind, 'w:left')) > 200 ? { i: r2(Math.min(num(attr(ind, 'w:left')) / TW, 30)) } : {}),
       ...(sp && attr(sp, 'w:after') != null ? { a: r2(Math.min(num(attr(sp, 'w:after')) / TW, 8)) } : {}),
@@ -170,7 +194,8 @@ export async function readLayout(file) {
     const rows = kids(tbl, 'w:tr').map((tr) => kids(tr, 'w:tc').map((tc) => {
       const span = num(attr(tc.getElementsByTagName('w:gridSpan')[0], 'w:val')) || 1;
       const ps = kids(tc, 'w:p').map((p) => runText(p));
-      return { t: ps.map((x) => x.t.trim()).filter(Boolean).join('\n'), b: ps.some((x) => x.bold && x.t.trim()) ? 1 : 0, span };
+      return { t: ps.map((x) => x.t.trim()).filter(Boolean).join('\n'), b: ps.some((x) => x.bold && x.t.trim()) ? 1 : 0, span,
+        ...(ps.find((x) => x.t.trim() && x.f)?.f ? { f: ps.find((x) => x.t.trim() && x.f).f } : {}) };
     }));
     const bd = tbl.getElementsByTagName('w:tblBorders')[0];
     const line = (e) => e && !['nil', 'none'].includes(attr(e, 'w:val'));
@@ -248,8 +273,13 @@ export async function readLayout(file) {
   const out = []; let gap = 0;
   for (const b of blocks) { if (b.k === 'p' && !b.t.trim() && !b.br) { if (++gap > 2) continue; } else gap = 0; out.push(b); }
 
+  // The letter's own font: the one most of its words are in. A paragraph or cell keeps its font only where it differs.
+  const font = Object.entries(fontUse).sort((x, y) => y[1] - x[1])[0]?.[0] ?? docFont;
+  const drop = (x) => { if (x.f === font) delete x.f; };
+  for (const b of out) { if (b.k === 'p') drop(b); else if (b.k === 'grid') b.rows.flat().forEach(drop); }
+
   return {
-    layout: { v: 1, page, dflt, art, blocks: out, items, period: !!per, subject, sample: { ...found, subject } },
+    layout: { v: 1, page, dflt: { ...dflt, f: font }, art, blocks: out, items, period: !!per, subject, sample: { ...found, subject } },
     files,
   };
 }
@@ -338,6 +368,32 @@ export function layoutTotals(items, layout, gst) {
   return { lines, total, tax, with: r2(total + tax) };
 }
 
+/*
+  The letter's fonts go into the PDF itself, so it looks the same on every phone (the user, 18 Nov: "the font is
+  changing based on phone, so lock the font as per word uploaded"). Word's fonts belong to Microsoft; each is drawn in
+  the free font made to the same letter widths, so lines break where Word breaks them: Calibri → Carlito, Times New
+  Roman → Tinos, Arial → Arimo, Cambria → Caladea.
+*/
+const FONT_BASE = `${String(import.meta.env?.BASE_URL || '/').replace(/\/+$/, '')}/fonts/`;
+export const fontFor = (name) => {
+  const n = String(name ?? '').toLowerCase();
+  if (/cambria/.test(n)) return 'Caladea';
+  if (/times|georgia|garamond|antiqua|palatino|bookman|schoolbook|serif/.test(n) && !/sans/.test(n)) return 'Tinos';
+  if (/arial|helvetica|verdana|tahoma|segoe|trebuchet|gothic|franklin|open sans|roboto|sans/.test(n)) return 'Arimo';
+  return 'Carlito';
+};
+const fontData = {};
+const fontFile = (fam, bold) => {
+  const file = `${fam}-${bold ? 'Bold' : 'Regular'}.ttf`;
+  fontData[file] ??= fetch(FONT_BASE + file).then((r) => { if (!r.ok) throw new Error(file); return r.arrayBuffer(); }).then((buf) => {
+    const u = new Uint8Array(buf); let bin = '';
+    for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return btoa(bin);
+  });
+  fontData[file].catch(() => { delete fontData[file]; });
+  return fontData[file].then((b64) => ({ file, b64 }));
+};
+
 /**
   A quotation in a template's layout. q: { qtn_no, date, to, place, subject, from, upto, gst, items: [{ cells, price }],
   blocks? (this quotation's own wording) }. img(art) gives a picture as a data URL.
@@ -354,8 +410,22 @@ export async function makeLayoutPdf(q, layout, img) {
   const TOP = Math.max(P.mt, ...heads.map((a) => a.y + a.h + 3), 12);
   const BOTTOM = Math.min(P.h - Math.max(P.mb, 8), ...feet.map((a) => a.y - 3));
   const frame = () => { for (const a of layout.art) if (pics[a.key]) pdf.addImage(pics[a.key], a.fmt, a.x, a.y, a.w, a.h, a.key, 'FAST'); };
-  const font = (bold, size = 11) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(size); pdf.setTextColor(17, 17, 17); };
   const D = layout.dflt ?? { s: 11, a: 0, lm: 1 };
+  // Every font the letter uses, regular and bold, embedded; a layout read before fonts were kept is in Word's Calibri.
+  const fams = new Set([fontFor(D.f ?? 'Calibri')]);
+  for (const b of [...(q.blocks ?? layout.blocks), ...layout.blocks]) {
+    if (b.f) fams.add(fontFor(b.f));
+    if (b.k === 'grid') for (const c of b.rows.flat()) if (c.f) fams.add(fontFor(c.f));
+  }
+  const have = new Set();
+  await Promise.all([...fams].flatMap((fam) => [false, true].map(async (bold) => {
+    try { const { file, b64 } = await fontFile(fam, bold); pdf.addFileToVFS(file, b64); pdf.addFont(file, fam, bold ? 'bold' : 'normal'); have.add(`${fam}/${bold}`); } catch { /* helvetica stands in */ }
+  })));
+  const font = (bold, size = 11, f = null) => {
+    const fam = fontFor(f ?? D.f ?? 'Calibri');
+    if (have.has(`${fam}/${!!bold}`)) pdf.setFont(fam, bold ? 'bold' : 'normal'); else pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+    pdf.setFontSize(size); pdf.setTextColor(17, 17, 17);
+  };
   const LH = (s, lm = 1) => s * 0.3528 * 1.17 * lm;
   let y = TOP; let paraTop = TOP;
   const newPage = () => { pdf.addPage(); frame(); y = TOP; };
@@ -368,7 +438,7 @@ export async function makeLayoutPdf(q, layout, img) {
   }[k] ?? m));
 
   const para = (b) => {
-    const s = b.s ?? D.s; const lm = b.lm ?? D.lm; const after = b.a ?? D.a; font(b.b, s);
+    const s = b.s ?? D.s; const lm = b.lm ?? D.lm; const after = b.a ?? D.a; font(b.b, s, b.f);
     y += b.bf ?? 0;
     const x0 = L + (b.i ?? 0) + (b.n ? 6 : 0); const w = CW - (b.i ?? 0) - (b.n ? 6 : 0);
     const raw = fill(b.t);
@@ -400,11 +470,11 @@ export async function makeLayoutPdf(q, layout, img) {
       let ci = 0;
       const placed = cells.map((c) => { const from = ci; ci += c.span ?? 1; return { ...c, x: xs[from], w: xs[Math.min(ci, xs.length - 1)] - xs[from] }; });
       font(false, s);
-      const wrapped = placed.map((c) => { font(bold || c.b, s); return pdf.splitTextToSize(fill(c.t), Math.max(c.w - PAD * 2, 4)); });
+      const wrapped = placed.map((c) => { font(bold || c.b, s, c.f); return pdf.splitTextToSize(fill(c.t), Math.max(c.w - PAD * 2, 4)); });
       const h = Math.max(...wrapped.map((l) => l.length), 1) * LH(s) * 1.15 + 3;
       if (y + h > BOTTOM) { newPage(); if (opts.head) drawRow(opts.head, true); }
       placed.forEach((c, i) => {
-        font(bold || c.b, s);
+        font(bold || c.b, s, c.f);
         const al = c.al ?? opts.align?.(i, c) ?? 'left';
         wrapped[i].forEach((ln, k) => pdf.text(ln, al === 'center' ? c.x + c.w / 2 : al === 'right' ? c.x + c.w - PAD : c.x + PAD, y + 2 + LH(s) * 0.85 + k * LH(s) * 1.15, al === 'left' ? undefined : { align: al }));
         if (border) pdf.rect(c.x, y, c.w, h);
