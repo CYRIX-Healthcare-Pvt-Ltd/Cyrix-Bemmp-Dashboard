@@ -45,6 +45,8 @@ const ICONS = {
   new: <><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></>,
   stock: <><path d="M3.5 8 12 4l8.5 4v8.5L12 20.5 3.5 16.5z" /><path d="M3.5 8 12 12l8.5-4M12 12v8.5" /></>,
   tat: <><circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2M9.5 3h5" /></>,
+  quotations: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6M9 16h4" /></>,
+  templates: <><rect x="3.5" y="3.5" width="17" height="17" rx="2" /><path d="M3.5 9h17M9 9v11.5" /></>,
   hospitals: <><rect x="4" y="5" width="16" height="15.5" rx="1.5" /><path d="M12 9v6M9 12h6" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
 };

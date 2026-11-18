@@ -9,7 +9,7 @@ import {
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
-  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees,
+  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName,
 } from '../data/quotation.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -39,12 +39,12 @@ const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: '
 
 function tabsFor(me) {
   const r = me.role;
-  if (r === 'maker') return [{ id: 'quotations', label: 'Quotations', short: 'Quotations' }]; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
+  if (r === 'maker') return [{ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' }]; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
   if (r === 'engineer' || r === 'team_lead') t.push({ id: 'new', label: 'New request', short: 'New' });
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
-  if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' });
+  if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' });
   // Settings: the targets for a lead; a Team Lead adds their own new reportees as Engineers (0061). People are SW Admin's.
   if (me.lead || r === 'team_lead') t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
@@ -142,6 +142,7 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
               {tab === 'dashboard' && <Dashboard me={me} list={list} targets={targets} period={period} setPeriod={setPeriod} onToast={setToast} onGo={(v) => { setTodoSub(v); setTab('requests'); }} />}
               {tab === 'hospitals' && <Hospitals />}
               {tab === 'quotations' && <Quotations me={me} onToast={setToast} />}
+              {tab === 'templates' && <Templates me={me} onToast={setToast} />}
               {tab === 'settings' && <Settings me={me} targets={targets} onDone={done} />}
             </div>
           )}
@@ -761,7 +762,7 @@ function QuoteMaker({ r, pick, start, onClose, onMade }) {
         <header className="mt-sheet-head">
           <div className="mt-sheet-title">
             <h2>{(r.free ? r.editing : q.qtn_no) ? 'Edit quotation' : 'Create quotation'}</h2>
-            <p>{r.free ? (q.qtn_no || 'New quotation') : q.qtn_no ?? `${r.no} · ${r.spare}`}</p>
+            <p>{[r.free ? (q.qtn_no || 'New quotation') : q.qtn_no ?? `${r.no} · ${r.spare}`, APP_TEMPLATE.name].join(' · ')}</p>
           </div>
           <button type="button" className="mt-sheet-x" onClick={onClose} disabled={!!busy} aria-label="Close"><Icon d={I.x} size={20} /></button>
         </header>
@@ -911,6 +912,7 @@ function Quotations({ me, onToast }) {
   const by = (key) => setSort((o) => ({ key, dir: o.key === key ? -o.dir : key === 'date' || key === 'total' ? -1 : 1 }));
   // New: the draft again, or a fresh one. Edit keeps the number; Revise gives the next R.
   const create = () => setMaking({ r: { free: true, id: FREE_NEW, folder: newId() }, start: draft ? { draft } : null });
+  const [pickTpl, tplBox] = useTemplatePick(create, me.role === 'coordinator' || me.lead);
   const edit = (x) => setMaking({ r: { free: true, id: `free-${x.id}`, folder: x.id, editing: true }, start: { doc: x.doc, path: x.path } });
   const revise = (x) => {
     const m = /^(.*?)(?: R(\d+))?$/.exec(x.qtn_no ?? '');
@@ -935,7 +937,7 @@ function Quotations({ me, onToast }) {
       <div className="qt-qbook-bar">
         <Search value={q} onChange={setQ} placeholder="QTN number, hospital, item" />
         {everyone && people.length > 2 && <Picker value={who} options={people} onChange={setWho} title="Made by" />}
-        <button type="button" className="mt-go qt-qbook-new" data-role="engineer" onClick={create}><Icon d={I.doc} size={18} /><span>Create quotation</span></button>
+        <button type="button" className="mt-go qt-qbook-new" data-role="engineer" onClick={pickTpl}><Icon d={I.doc} size={18} /><span>Create quotation</span></button>
       </div>
       {draft && (
         <div className="qt-qadd-row qt-qadd-draft qt-qbook-draft">
@@ -978,6 +980,7 @@ function Quotations({ me, onToast }) {
       )}
       {making && <QuoteMaker r={making.r} pick={null} start={making.start} onClose={close} onMade={(f) => made(f)} />}
       {view && <PdfViewer path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn_no, to: view.to })} onClose={() => setView(null)} />}
+      {tplBox}
       {askBox}
     </div>
   );
@@ -2223,6 +2226,7 @@ function CoordQuote({ r, onDone }) {
     ? ask({ title: 'Replace the draft?', lines: ['The draft quotation not saved yet is deleted.'], ok: 'Replace', tone: 'bad', run: async () => { go(); } })
     : go());
   const closeMaker = useCallback(() => { setMaking(null); setDraft(quoteDraft.get(r.id)); }, [r.id]);
+  const [pickTpl, tplBox] = useTemplatePick(() => setMaking({ start: draft ? { draft } : lastMade() }), true);
   const made = (f, path) => {
     setFiles(path ? v.files.map((x) => (x.path === path ? f : x)) : [...v.files, f]);
     if (path || !v.quote_date) set('quote_date', f.date);
@@ -2232,7 +2236,7 @@ function CoordQuote({ r, onDone }) {
   return (
     <>
       {making && <QuoteMaker r={r} pick={pick} start={making.start} onClose={closeMaker} onMade={made} />}
-      {askBox}
+      {askBox}{tplBox}
       {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
       <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
       <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
@@ -2240,7 +2244,7 @@ function CoordQuote({ r, onDone }) {
         <div className="qt-quote-row">
           <div className="pm-in qt-wide"><span>Quotation</span>
             <QuoteAdd folder={r.id} files={v.files} onChange={setFiles}
-              onCreate={() => setMaking({ start: draft ? { draft } : lastMade() })}
+              onCreate={pickTpl}
               onEdit={(f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } }))}
               draft={draft} onDraft={() => setMaking({ start: { draft } })}
               onDropDraft={() => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, draft?.to, money(quoteTotals(draft?.items ?? []).with)].filter(Boolean), ok: 'Delete', tone: 'bad',
@@ -3258,3 +3262,174 @@ function MyEngineers({ ask, onDone }) {
   );
 }
 
+/* ======================================================== templates == */
+
+/**
+  Quotation templates (0063; the user, 18 Nov): a maker's own Word files, each with its own terms and tables. Added with
+  a preview and named from the subject's first two words; renamed, replaced or deleted later. The in-app quotation is
+  Coordinators' template (the user, 18 Nov: "it is for namitha and suhail, this is not default"); a maker has only their
+  Word files. With more than one, Create quotation asks which.
+*/
+const APP_TEMPLATE = { id: 'app', name: 'Spares Quotation' };
+
+function DocxPreview({ blob }) {
+  const box = useRef(null);
+  const [fail, setFail] = useState(false);
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const { renderAsync } = await import('docx-preview');
+        if (!on || !box.current) return;
+        box.current.innerHTML = '';
+        await renderAsync(blob, box.current, undefined, { className: 'qt-docx', inWrapper: true, ignoreLastRenderedPageBreak: true });
+      } catch { if (on) setFail(true); }
+    })();
+    return () => { on = false; };
+  }, [blob]);
+  return fail ? <p className="qt-pdf-msg">This Word file could not be shown.</p> : <div ref={box} className="qt-docx-box" />;
+}
+
+/** Add or edit one: the name, the file (replaceable) and its preview. */
+function TemplateEdit({ t, onClose, onSaved }) {
+  const [name, setName] = useState(t?.name ?? '');
+  const [file, setFile] = useState(null);
+  const [blob, setBlob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const input = useRef(null);
+  const id = useRef(t?.id ?? newId());
+  useEffect(() => { if (t) templateBlob(t.path).then(setBlob).catch(() => setErr('The Word file could not be opened.')); }, [t]);
+  const pick = async (f) => {
+    if (!f) return;
+    if (!/\.docx$/i.test(f.name)) { setErr('Choose a Word file (.docx).'); return; }
+    setErr(null); setFile(f); setBlob(f);
+    if (!t) setName(await templateName(f));
+  };
+  const save = async () => {
+    if (!name.trim()) { setErr('Write the template name.'); return; }
+    if (!t && !file) { setErr('Choose the Word file.'); return; }
+    setBusy(true); setErr(null);
+    try { await saveTemplate({ id: id.current, name: name.trim(), file }); onSaved(name.trim()); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return createPortal(
+    <div className="mt-sheet-wrap" role="presentation">
+      <div className="mt-sheet qt-tpl-sheet" role="dialog" aria-modal="true" aria-label={t ? 'Edit template' : 'Add template'}>
+        <div className="mt-sheet-head">
+          <h2>{t ? 'Edit template' : 'Add template'}</h2>
+          <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close"><Icon d={I.x} size={20} /></button>
+        </div>
+        <div className="qt-tpl-bar">
+          <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="AMC Proposal" /></Field>
+          <button type="button" className="mt-btn" onClick={() => input.current?.click()}><Icon d={I.doc} size={16} />{t || file ? 'Replace file' : 'Choose Word file'}</button>
+          <input ref={input} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+        </div>
+        <div className="qt-tpl-view">{blob ? <DocxPreview blob={blob} /> : t && !err ? <span className="qt-thumb-wait" /> : null}</div>
+        <div className="qt-tpl-foot">
+          <Err text={err} />
+          <button type="button" className="mt-go" data-role="coordinator" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>, document.body);
+}
+
+function TemplateView({ t, onClose }) {
+  const [blob, setBlob] = useState(null);
+  const [fail, setFail] = useState(false);
+  useEffect(() => { templateBlob(t.path).then(setBlob).catch(() => setFail(true)); }, [t]);
+  return createPortal(
+    <div className="mt-sheet-wrap" role="presentation">
+      <div className="mt-sheet qt-tpl-sheet" role="dialog" aria-modal="true" aria-label={t.name}>
+        <div className="mt-sheet-head">
+          <h2>{t.name}</h2>
+          <button type="button" className="mt-sheet-x" disabled={!blob} onClick={() => saveAs(URL.createObjectURL(blob), t.file_name || `${fileName(t.name)}.docx`)} aria-label="Download" title="Download"><Icon d={I.down} size={19} /></button>
+          <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close"><Icon d={I.x} size={20} /></button>
+        </div>
+        <div className="qt-tpl-view">{fail ? <p className="qt-pdf-msg">The Word file could not be opened.</p> : blob ? <DocxPreview blob={blob} /> : <span className="qt-thumb-wait" />}</div>
+      </div>
+    </div>, document.body);
+}
+
+function Templates({ me, onToast }) {
+  const app = me.role === 'coordinator' || me.lead;
+  const [list, setList] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [view, setView] = useState(null);
+  const [ask, askBox] = useAsk();
+  const load = useCallback(() => loadTemplates().then(setList).catch(() => setList([])), []);
+  useEffect(() => { load(); }, [load]);
+  const everyone = (list ?? []).some((x) => !x.mine);
+  return (
+    <div className="qt-qbook">
+      <div className="qt-qbook-bar qt-tpl-top">
+        <button type="button" className="mt-go qt-qbook-new" data-role="coordinator" onClick={() => setEdit({})}><Icon d={I.plus} size={18} /><span>Add template</span></button>
+      </div>
+      <ul className="qt-tpl-list">
+        {app && (
+          <li className="qt-tpl-row">
+            <span className="qt-qfile-ico">PDF</span>
+            <span className="qt-tpl-text"><b>{APP_TEMPLATE.name}</b><span>Made in the app</span></span>
+          </li>
+        )}
+        {list !== null && !app && !list.length && <li className="empty-inline pm-empty">No template yet.</li>}
+        {list === null ? <li><div className="loader" aria-hidden="true" /></li> : list.map((x) => (
+          <li key={x.id} className="qt-tpl-row">
+            <span className="qt-qfile-ico qt-tpl-word">W</span>
+            <button type="button" className="qt-tpl-text" onClick={() => setView(x)}>
+              <b>{x.name}</b>
+              <span>{[x.file_name, whenText(x.updated_at), everyone && `${x.by_name} (${x.by_code})`].filter(Boolean).join(' · ')}</span>
+            </button>
+            <span className="qt-quotes-acts">
+              <button type="button" className="mt-btn" onClick={() => setView(x)}>View</button>
+              <button type="button" className="mt-btn" onClick={() => setEdit({ t: x })}>Edit</button>
+              <button type="button" className="qt-qadd-x" aria-label={`Delete ${x.name}`} title="Delete"
+                onClick={() => ask({ title: `Delete template ${x.name}?`, lines: [x.file_name].filter(Boolean), ok: 'Delete', tone: 'bad', run: async () => { await deleteTemplate(x.id); load(); } })}>
+                <Icon d={I.x} size={14} />
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {edit && <TemplateEdit t={edit.t} onClose={() => setEdit(null)} onSaved={(n) => { setEdit(null); load(); onToast?.(`${n} saved.`); }} />}
+      {view && <TemplateView t={view} onClose={() => setView(null)} />}
+      {askBox}
+    </div>
+  );
+}
+
+/**
+  Create quotation with more than one template: which one. The app's opens the quotation maker; a Word one is
+  downloaded to fill in Word.
+*/
+function useTemplatePick(onApp, app) {
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => { loadTemplates().then((l) => setList((l ?? []).filter((x) => x.mine))).catch(() => setList([])); }, [open]);
+  // Coordinators: the app's and theirs, asked when there is more than one. A maker: theirs; none yet, the app's maker.
+  const start = () => (list?.length ? setOpen(true) : onApp());
+  const word = async (x) => {
+    setBusy(x.id);
+    try { const b = await templateBlob(x.path); await saveAs(URL.createObjectURL(b), x.file_name || `${fileName(x.name)}.docx`); setOpen(false); } catch { /* left open to try again */ } finally { setBusy(null); }
+  };
+  const box = open && createPortal(
+    <div className="mt-sheet-wrap" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+      <div className="mt-sheet qt-tpl-pick" role="dialog" aria-modal="true" aria-label="Choose template">
+        <div className="mt-sheet-head">
+          <h2>Choose template</h2>
+          <button type="button" className="mt-sheet-x" onClick={() => setOpen(false)} aria-label="Close"><Icon d={I.x} size={20} /></button>
+        </div>
+        <ul className="qt-tpl-list">
+          {app && <li><button type="button" className="qt-tpl-row qt-tpl-choice" onClick={() => { setOpen(false); onApp(); }}>
+            <span className="qt-qfile-ico">PDF</span><span className="qt-tpl-text"><b>{APP_TEMPLATE.name}</b><span>Made in the app</span></span>
+          </button></li>}
+          {(list ?? []).map((x) => (
+            <li key={x.id}><button type="button" className="qt-tpl-row qt-tpl-choice" disabled={busy === x.id} onClick={() => word(x)}>
+              <span className="qt-qfile-ico qt-tpl-word">W</span><span className="qt-tpl-text"><b>{x.name}</b><span>{busy === x.id ? 'Downloading…' : 'Word file to fill in'}</span></span>
+            </button></li>
+          ))}
+        </ul>
+      </div>
+    </div>, document.body);
+  return [start, box];
+}

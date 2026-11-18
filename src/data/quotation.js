@@ -352,3 +352,45 @@ export const deleteQuote = (id) => rpc('qt_quote_delete', { p_id: id });
 
 /** A Team Lead's own reportees, in the tracker or not yet (0061). */
 export const loadMyReportees = () => rpc('qt_my_reportees');
+
+/* -------------------------------------------------------- templates -- */
+
+/** Quotation templates (0063): Word files in qt-photos under the template's id. */
+export const loadTemplates = () => rpc('qt_templates_list');
+export const deleteTemplate = (id) => rpc('qt_template_delete', { p_id: id });
+export async function templateBlob(path) {
+  const { data, error } = await supabase.storage.from('qt-photos').download(path);
+  if (error) throw new Error(error.message);
+  return data;
+}
+export async function saveTemplate({ id, name, file }) {
+  let path = null;
+  if (file) {
+    path = `${id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.docx`;
+    const { error } = await supabase.storage.from('qt-photos').upload(path, file, {
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', upsert: false,
+    });
+    if (error) throw new Error(error.message);
+  }
+  return rpc('qt_template_save', { p: { id, name, ...(path ? { path, file_name: file.name, size: file.size } : { path: (await loadTemplates()).find((x) => x.id === id)?.path }) } });
+}
+
+/**
+  A name from the Word file: the subject's first two words ("SUBJECT: CAMC PROPOSAL FOR…" → "CAMC Proposal"), else a
+  heading naming a contract, proposal or quotation, else the file's name.
+*/
+export async function templateName(file) {
+  const words = (s) => s.replace(/[^A-Za-z0-9&/ -]+/g, ' ').replace(/[-/]/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((w) => (w.length <= 4 && w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w[0].toUpperCase() + w.slice(1).toLowerCase())).join(' ');
+  try {
+    const { default: JSZip } = await import('jszip');
+    const xml = await (await JSZip.loadAsync(file)).file('word/document.xml').async('string');
+    const paras = (xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) ?? [])
+      .map((p) => (p.match(/<w:t[^>]*>[^<]*<\/w:t>/g) ?? []).map((t) => t.replace(/<[^>]+>/g, '')).join('').replace(/MERGEFIELD\s+\S+/g, '').trim())
+      .filter(Boolean);
+    const subj = paras.map((p) => /SUBJECT\s*:\s*(.+)/i.exec(p)?.[1]).find(Boolean)
+      ?? paras.find((p) => p.length < 90 && /(contract|proposal|quotation|offer)/i.test(p) && !/^(ref|no|date)\b/i.test(p));
+    if (subj && words(subj)) return words(subj);
+  } catch { /* the file's name then */ }
+  return words(file.name.replace(/\.docx$/i, '').replace(/^\W+/, '')) || 'Template';
+}

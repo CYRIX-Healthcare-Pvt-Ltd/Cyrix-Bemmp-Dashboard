@@ -3028,6 +3028,8 @@ html.no-swipe-back body {
   --nav-stock:       var(--series-5);
   --nav-tat:         var(--status-warning);
   --nav-hospitals:   var(--series-1);
+  --nav-quotations:  var(--status-warning);
+  --nav-templates:   var(--series-5);
   --nav-settings:    var(--text-muted);
 }
 

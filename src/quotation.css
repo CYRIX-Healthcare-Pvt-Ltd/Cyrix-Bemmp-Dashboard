@@ -1164,3 +1164,23 @@ button.qt-qstate { cursor: pointer; }
 .qt-qfiles button { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 4px 6px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
 .qt-qfiles button[data-role] { border-color: color-mix(in srgb, var(--role) 45%, var(--border)); background: color-mix(in srgb, var(--role) 12%, var(--surface)); color: var(--role-text, var(--role)); }
 .qt-qfiles button:hover { border-color: var(--role, var(--text-muted)); }
+
+/* Quotation templates (0063) */
+.qt-tpl-top { justify-content: flex-end; }
+.qt-tpl-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.qt-tpl-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); text-align: left; font: inherit; color: inherit; }
+.qt-tpl-choice { cursor: pointer; }
+.qt-tpl-choice:hover { border-color: var(--text-muted); }
+.qt-tpl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.qt-tpl-text b { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.qt-tpl-text span { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-tpl-word { color: #2b579a; }
+.qt-tpl-sheet { width: min(980px, 100%); max-height: 92vh; display: flex; flex-direction: column; }
+.qt-tpl-pick { width: min(520px, 100%); }
+.qt-tpl-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.qt-tpl-bar .pm-in { flex: 1 1 220px; }
+.qt-tpl-view { flex: 1; min-height: 240px; overflow: auto; margin-top: 12px; border-radius: 10px; background: #e5e7eb; }
+.qt-tpl-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.qt-docx-box .qt-docx-wrapper { background: #e5e7eb; padding: 12px; }
+.qt-docx-box .qt-docx { box-shadow: 0 2px 10px rgba(0,0,0,.15); margin: 0 auto 12px; color: #111; max-width: 100%; overflow: auto; }
+@media (max-width: 640px) { .qt-tpl-row .qt-quotes-acts { flex-wrap: wrap; justify-content: flex-end; } }
