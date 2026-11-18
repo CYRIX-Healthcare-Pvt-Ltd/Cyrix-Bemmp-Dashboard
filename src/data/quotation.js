@@ -197,7 +197,20 @@ export const person = (name, code) => (name ? (code ? `${name} (${code})` : name
 /* ----------------------------------------------------------- photos -- */
 
 /** Into the request's own folder; a request being raised names its folder before it exists. */
+/*
+  iPhone photos come as HEIC, which only Safari shows (the user, 18 Nov: QR-189's photos blank). They are turned into
+  JPEG before upload, and HEIC ones already saved are turned into JPEG when shown.
+*/
+const isHeic = (name, type) => /\.(heic|heif)$/i.test(name ?? '') || /heic|heif/i.test(type ?? '');
+async function toJpeg(blob) {
+  const { default: heic2any } = await import('heic2any');
+  const out = await heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+  return Array.isArray(out) ? out[0] : out;
+}
 export async function uploadPhoto(folder, file) {
+  if (isHeic(file.name, file.type)) {
+    try { const j = await toJpeg(file); file = new File([j], file.name.replace(/\.(heic|heif)$/i, '') + '.jpg', { type: 'image/jpeg' }); } catch { /* kept as it is */ }
+  }
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
   const { error } = await supabase.storage.from('qt-photos').upload(path, file, { contentType: file.type || undefined, upsert: false });
@@ -211,8 +224,13 @@ export async function photoUrl(path, fresh = false) {
   if (!fresh && hit && Date.now() - hit.at < 50 * 60 * 1000) return hit.url;
   const { data, error } = await supabase.storage.from('qt-photos').createSignedUrl(path, 3600);
   if (error) throw new Error(error.message);
-  urls.set(path, { url: data.signedUrl, at: Date.now() });
-  return data.signedUrl;
+  let url = data.signedUrl;
+  if (isHeic(path)) {
+    if (hit?.blob) return hit.url;
+    try { url = URL.createObjectURL(await toJpeg(await (await fetch(url)).blob())); urls.set(path, { url, at: Infinity, blob: true }); return url; } catch { /* the link as it is */ }
+  }
+  urls.set(path, { url, at: Date.now() });
+  return url;
 }
 
 /* ------------------------------------------------------------- TAT -- */
