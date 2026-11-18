@@ -373,7 +373,33 @@ export async function saveTemplate({ id, kind = 'word', name, file, doc }) {
     });
     if (error) throw new Error(error.message);
   }
-  return rpc('qt_template_save', { p: { id, kind, name, ...(path ? { path, file_name: file.name, size: file.size } : { path: (await loadTemplates()).find((x) => x.id === id)?.path }) } });
+  // The layout's pictures (letterhead, seal) not stored yet go into the template's folder.
+  let lay = doc?.layout;
+  if (lay) {
+    const put = async (a) => {
+      if (!a.blob) return a;
+      const ext = a.fmt === 'PNG' ? 'png' : 'jpg';
+      const p = `${id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+      const { error } = await supabase.storage.from('qt-photos').upload(p, a.blob, { contentType: ext === 'png' ? 'image/png' : 'image/jpeg', upsert: false });
+      if (error) throw new Error(error.message);
+      const { blob, ...rest } = a; arts.set(p, blob);
+      return { ...rest, path: p };
+    };
+    const done = new Map(); // a picture used twice is stored once
+    const once = async (a) => { if (!a.blob) return a; if (!done.has(a.key)) done.set(a.key, put(a)); const x = await done.get(a.key); return { ...a, path: x.path, blob: undefined }; };
+    lay = { ...lay, art: await Promise.all(lay.art.map(once)), blocks: await Promise.all(lay.blocks.map((b) => (b.k === 'img' ? once(b) : b))) };
+  }
+  return rpc('qt_template_save', { p: { id, kind, name, ...(lay ? { doc: { ...doc, layout: lay } } : {}),
+    ...(path ? { path, file_name: file.name, size: file.size } : { path: (await loadTemplates()).find((x) => x.id === id)?.path }) } });
+}
+
+/** A layout's picture as a data URL for the PDF: from the file just read, else from storage (kept for the session). */
+const arts = new Map();
+const dataUrl = (b) => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(b); });
+export async function templateArt(a) {
+  if (a.blob) return dataUrl(a.blob);
+  if (!arts.has(a.path)) arts.set(a.path, templateBlob(a.path).catch((e) => { arts.delete(a.path); throw e; }));
+  return dataUrl(await arts.get(a.path));
 }
 
 /**

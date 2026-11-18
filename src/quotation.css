@@ -1181,10 +1181,55 @@ button.qt-qstate { cursor: pointer; }
 .qt-tpl-bar .pm-in { flex: 1 1 220px; }
 .qt-tpl-view { flex: 1; min-height: 240px; overflow: auto; margin-top: 12px; border-radius: 10px; background: #e5e7eb; }
 .qt-tpl-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.qt-docx-box .qt-docx-wrapper { background: #e5e7eb; padding: 12px; }
-.qt-docx-box .qt-docx { box-shadow: 0 2px 10px rgba(0,0,0,.15); margin: 0 auto 12px; color: #111; max-width: 100%; overflow: auto; }
 @media (max-width: 640px) { .qt-tpl-row .qt-quotes-acts { flex-wrap: wrap; justify-content: flex-end; } }
 .qt-tpl-kind { margin-bottom: 12px; }
 .qt-tpl-form { display: grid; gap: 12px; }
 .qt-tpl-form textarea { min-height: 180px; }
 button.qt-qfile-ico { cursor: pointer; }
+.qt-tpl-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 140px; border-radius: 14px; border: 1.5px dashed var(--border); background: var(--track-bg); color: var(--text-primary); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.qt-tpl-drop:hover { border-color: var(--text-muted); }
+/* A Word template open: the whole screen, to read and edit it (the user, 18 Nov). */
+.mt-scrim.qt-tpl-fullwrap { padding: 0; }
+.mt-sheet.qt-tpl-full { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0; }
+.qt-tpl-full .mt-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.qt-tpl-full .qt-tpl-view { flex: 1 1 auto; min-height: 0; }
+
+/* Word templates as the app's own quotation (0065; the user, 18 Nov). */
+.qt-lm-form { display: grid; gap: 14px; max-width: 980px; width: 100%; margin: 0 auto; }
+.qt-tpl-full .qt-tpl-foot { max-width: 980px; width: 100%; margin: 12px auto 0; }
+.qt-lm-label { display: block; font-size: 13px; font-weight: 650; color: var(--text-secondary); margin-bottom: 6px; }
+.qt-lm-colsbox { display: grid; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); }
+.qt-lm-colsbox .qt-lm-label { margin: 0; }
+.qt-lm-cols { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.qt-lm-col { position: relative; display: block; }
+.qt-lm-col input { width: 100%; padding-right: 38px; }
+.qt-lm-col .qt-qadd-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; }
+.qt-lm-coladd { justify-content: center; }
+.qt-lm-pair { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+.qt-lm-gst { min-width: 0; }
+.qt-lm-go { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.qt-app .qt-maker-to.qt-lm-to { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.qt-app .qt-maker-to.qt-lm-to > * { grid-column: auto; }
+.qt-app .qt-maker-to.qt-lm-to > .qt-wide { grid-column: 1 / -1; }
+.qt-lm-item { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); }
+.qt-lm-item-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.qt-lm-item-head b::before { content: 'Row '; }
+.qt-lm-cells { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-items: end; }
+.qt-lm-cells .qt-mi-tot { flex-direction: column; align-items: flex-start; gap: 4px; padding-bottom: 10px; }
+.qt-blk-pop { width: min(860px, 100%); }
+.qt-blk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 64vh; overflow: auto; }
+.qt-blk-list li { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 8px; align-items: start; }
+.qt-blk-list textarea { resize: none; overflow: hidden; min-height: 40px; font-size: 14px; }
+.qt-blk-list .qt-qadd-x { margin-top: 6px; }
+.qt-blk-bold { font-weight: 700; }
+.qt-blk-br { border-top: 2px dashed var(--border); padding-top: 8px; }
+.qt-blk-fixed { grid-template-columns: auto minmax(0, 1fr) 30px !important; align-items: center !important; padding: 8px 10px; border-radius: 10px; background: var(--track-bg); font-size: 13px; }
+.qt-blk-fixed:has(> b:only-child) { grid-template-columns: 1fr !important; }
+.qt-blk-img { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 6px; }
+.qt-blk-grid > div { display: grid; gap: 4px; padding: 6px; border-radius: 10px; background: var(--track-bg); }
+.qt-blk-row { display: flex; gap: 4px; }
+.qt-blk-row textarea { min-width: 0; min-height: 36px; font-size: 13px; padding: 6px 8px; }
+@media (max-width: 640px) {
+  .qt-lm-cells { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-lm-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
