@@ -664,6 +664,24 @@
 .qt-rt-val { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .qt-rt-val b { color: var(--text-primary); }
 
+/* The request's flow (the user, 18 Nov): done, now, ahead */
+.qt-flow { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr)); gap: 4px; }
+.qt-flow li { position: relative; display: grid; justify-items: center; align-content: start; gap: 4px; text-align: center; font-size: 11.5px; line-height: 1.2; color: var(--text-secondary); min-width: 0; }
+.qt-flow li::before { content: ''; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--track-bg); z-index: 0; }
+.qt-flow li:first-child::before { display: none; }
+.qt-flow i { position: relative; z-index: 1; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 99px; font-style: normal; font-size: 11px; font-weight: 800;
+  background: var(--surface); border: 2px solid var(--border); color: #fff; }
+.qt-flow span { overflow-wrap: anywhere; }
+.qt-flow [data-state="done"] i { background: #16a34a; border-color: #16a34a; }
+.qt-flow [data-state="done"]::before, .qt-flow [data-state="now"]::before { background: #16a34a; }
+.qt-flow [data-state="now"] i { background: #ea580c; border-color: #ea580c; box-shadow: 0 0 0 4px rgba(234, 88, 12, .18); }
+.qt-flow [data-state="now"] span { color: var(--text-primary); font-weight: 700; }
+@media (max-width: 560px) {
+  .qt-flow { grid-template-columns: 1fr; gap: 0; }
+  .qt-flow li { grid-template-columns: 20px minmax(0, 1fr) auto; justify-items: start; align-items: center; gap: 10px; text-align: left; padding: 5px 0; font-size: 13px; }
+  .qt-flow li::before { top: auto; bottom: 50%; right: auto; left: 9px; width: 2px; height: 100%; }
+}
+
 /* The old software's number, small under ours (the user, 11 Nov) */
 .qt-no, .qt-sheet h2 { display: inline-flex; flex-direction: column; line-height: 1.1; }
 .qt-ref { display: block; font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--text-secondary); margin-top: 1px; }

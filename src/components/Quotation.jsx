@@ -8,7 +8,7 @@ import {
   loadList, loadOne, loadFacilities, loadEquipmentAt, loadPeople, loadTargets, loadEvents,
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
-  STEPS, stepOf, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
+  STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
 } from '../data/quotation.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
@@ -1584,6 +1584,8 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
               )}
               {r.done && r.close_note && <p className="qt-closed-note">{r.close_note}</p>}
               <Reopen r={r} me={me} onDone={changed} />
+              {/* Under the work to do, where the Coordinator sees it (the user, 18 Nov: "show that visual in current window"). */}
+              <Flow r={r} />
               {!r.mine && <Facts r={r} now={now} />}
               </div>
               <div className="qt-sheet-col">
@@ -1773,6 +1775,45 @@ function roleTimes(r, now) {
   const spans = fair(Math.floor(((r.closed_at ? Date.parse(r.closed_at) : now) - Date.parse(r.created_at)) / unit), unit);
   const pcts = total ? fair(100, total / 100) : keys.map(() => 0);
   return keys.map((k, i) => ({ role: k, secs: spans[i] * unit / 1000, pct: pcts[i] }));
+}
+
+/*
+  The request's way through, at a glance (the user, 18 Nov: for CAMC "quotation flow is skipped … show visual"): each
+  stage done, the one it is at, those ahead. A CAMC request's flow has no pricing, quotation or customer approval at
+  all, nothing said about them ("dont show this anywhere").
+*/
+const FLOW = [
+  ['Team Lead', ['tl_review', 'eng_fix', 'tl_clarify']],
+  ['Pricing', ['coord_initial', 'purchase_rates', 'pv'], true],
+  ['Quotation', ['coord_quote'], true],
+  ['Customer approval', ['eng_quote'], true],
+  ['PR', ['coord_pr']],
+  ['PO & dispatch', ['purchase_dispatch', 'coord_decide', 'on_hold', 'on_hold_dispatch']],
+  ['Receipt', ['receipt', 'observation', 'purchase_faulty', 'return_dispatch', 'purchase_replacement']],
+];
+function Flow({ r }) {
+  if (r.kind !== 'request' || r.cancelled || r.step === 'cancelled') return null;
+  // Completed from stock on an ITR: no PO, dispatch or receipt, the ITR in their place (0062).
+  const path = r.itr_no ? [...FLOW.slice(0, 5), ['From stock (ITR)', ['completed']]] : FLOW;
+  const stages = isCamc(r) ? path.filter(([, , priced]) => !priced) : path;
+  const been = new Set((r.events ?? []).flatMap((e) => [e.step, e.to_step]).filter(Boolean));
+  const at = stages.findIndex(([, steps]) => steps.includes(r.step));
+  return (
+    <section className="mt-card-block">
+      <span className="mt-block-label qt-tl-head">Flow</span>
+      <ol className="qt-flow" style={{ '--n': stages.length }}>
+        {stages.map(([name, steps], i) => {
+          const state = r.done || i < at || (at < 0 && steps.some((s) => been.has(s))) ? 'done' : i === at ? 'now' : 'ahead';
+          return (
+            <li key={name} data-state={state}>
+              <i aria-hidden="true">{state === 'done' ? '✓' : ''}</i>
+              <span>{name}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
 }
 
 function RoleTime({ r, now }) {

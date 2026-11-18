@@ -84,6 +84,8 @@ export const STEPS = {
   rejected: { label: 'Rejected', tone: 'red' },
 };
 export const stepOf = (s) => STEPS[s] ?? { label: s, tone: 'grey' };
+/** A CAMC request: no pricing, no quotation, no customer approval; the Team Lead's approval opens the PR (0067). */
+export const isCamc = (r) => String(r?.category ?? '').trim().toUpperCase() === 'CAMC';
 /** Each stage as the work done in it, for TAT (the user, 11 Nov: the doer's words, not "sent to"). */
 export const WORK = {
   tl_review: 'Team Lead approval', eng_fix: 'Correcting the request', tl_clarify: 'Answering a question', coord_initial: 'Coordinator check',
@@ -115,7 +117,7 @@ const STATUS = {
 };
 export const statusOf = (r) => {
   const on = Boolean(r.accepted_by);
-  if (r.step === 'coord_pr') return on ? 'PR processing' : r.kind === 'request' ? 'Quotation approved' : 'Sent to Coordinator for PR';
+  if (r.step === 'coord_pr') return on ? 'PR processing' : r.kind === 'request' && !isCamc(r) ? 'Quotation approved' : 'Sent to Coordinator for PR';
   if (r.step === 'receipt') return on ? 'Engineer confirming receipt' : (r.faulty_qty > 0 ? 'Replacement dispatched to engineer' : 'Dispatched to engineer');
   if (r.step === 'return_dispatch') { const who = r.kind === 'stock' ? 'Coordinator' : 'Engineer'; return on ? `${who} sending the faulty spare back` : `${who} to send the faulty spare back`; }
   const w = STATUS[r.step];
