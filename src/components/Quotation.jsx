@@ -46,8 +46,8 @@ function tabsFor(me) {
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' });
-  // Settings: the targets for a lead; a Team Lead adds their own new reportees as Engineers (0061). People are SW Admin's.
-  if (me.lead || r === 'team_lead') t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
+  // Settings (the targets): SW Admin only (0066; the user, 18 Nov: "not needed for pur, tl, pv, only sw admin").
+  if (me.admin) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
 }
 
@@ -3211,7 +3211,7 @@ function Settings({ me, targets, onDone }) {
   const [ask, box] = useAsk();
   return (
     <div className="qt-settings">
-      {me.lead && (
+      {me.admin && (
         <section className="panel mt-panel">
           <h3 className="qt-panel-h">Targets (hours)</h3>
           <div className="qt-targets">
@@ -3306,6 +3306,29 @@ const sampleDoc = (t) => ({
   items: [{ desc: 'Spare or service', price: 1000, qty: 1, gst: 18 }], terms: tplTerms(t),
 });
 
+/** Terms numbered as the PDF numbers them, one box a term (the user, 18 Nov: "if terms having serial number, keep the same"). */
+function TermsList({ terms, onChange }) {
+  const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
+  return (
+    <>
+      <ol className="qt-terms-list">
+        {terms.map((t, i) => (
+          <li key={i}>
+            <span className="qt-terms-no">{i + 1}.</span>
+            <textarea ref={fit} rows={1} value={t}
+              onChange={(e) => { onChange(terms.map((x, n) => (n === i ? e.target.value.replace(/\s*\n\s*/g, ' ') : x))); fit(e.target); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); onChange([...terms.slice(0, i + 1), '', ...terms.slice(i + 1)]); setTimeout(() => e.target.closest('ol')?.querySelectorAll('textarea')[i + 1]?.focus(), 0); }
+              }} placeholder="Term" />
+            <button type="button" className="qt-qadd-x" onClick={() => onChange(terms.filter((_, n) => n !== i))} aria-label={`Remove term ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>
+          </li>
+        ))}
+      </ol>
+      <button type="button" className="qt-camera qt-qadd-btn qt-terms-add" onClick={() => onChange([...terms, ''])}><Icon d={I.plus} size={16} /><span>Add term</span></button>
+    </>
+  );
+}
+
 /** A picture of the layout, small. */
 function ArtThumb({ a }) {
   const [src, setSrc] = useState(null);
@@ -3330,7 +3353,8 @@ function BlocksPop({ blocks, onChange, onClose, onReset }) {
         <ol className="qt-blk-list">
           {blocks.map((b, i) => {
             if (b.k === 'p') return b.t.trim() ? (
-              <li key={i} className={b.br ? 'qt-blk-br' : undefined}>
+              <li key={i} className={`${b.br ? 'qt-blk-br' : ''}${b.n ? ' qt-blk-num' : ''}`.trim() || undefined}>
+                {b.n && <span className="qt-terms-no">{b.n}</span>}
                 <textarea ref={fit} rows={1} value={b.t} className={b.b ? 'qt-blk-bold' : undefined}
                   onChange={(e) => { set(i, { ...b, t: e.target.value }); fit(e.target); }} />
                 <button type="button" className="qt-qadd-x" onClick={() => drop(i)} aria-label="Remove" title="Remove"><Icon d={I.x} size={14} /></button>
@@ -3466,7 +3490,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
           <div className="qt-tpl-form">
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spares Quotation" /></Field>
             <Field label="Subject"><input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={DEFAULT_SUBJECT} /></Field>
-            <Field label="Terms" wide><textarea rows={9} value={terms} onChange={(e) => setTerms(e.target.value)} /></Field>
+            <div className="pm-in qt-wide"><span>Terms</span><TermsList terms={terms === '' ? [] : terms.split('\n')} onChange={(l) => setTerms(l.join('\n'))} /></div>
           </div>
         ) : reading ? <div className="loader" aria-hidden="true" /> : !lay ? (
           <button type="button" className="qt-tpl-drop" onClick={() => input.current?.click()}><Icon d={I.doc} size={22} /><span>Choose Word file</span></button>

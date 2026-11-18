@@ -1181,7 +1181,9 @@ button.qt-qstate { cursor: pointer; }
 .qt-tpl-bar .pm-in { flex: 1 1 220px; }
 .qt-tpl-view { flex: 1; min-height: 240px; overflow: auto; margin-top: 12px; border-radius: 10px; background: #e5e7eb; }
 .qt-tpl-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-@media (max-width: 640px) { .qt-tpl-row .qt-quotes-acts { flex-wrap: wrap; justify-content: flex-end; } }
+/* View · Edit · delete on one line, centred on the row (the user, 18 Nov: "not aligned"). */
+.qt-tpl-row .qt-quotes-acts { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; flex: none; }
+.qt-tpl-row .qt-quotes-acts .mt-btn { padding-inline: 14px; }
 .qt-tpl-kind { margin-bottom: 12px; }
 .qt-tpl-form { display: grid; gap: 12px; }
 .qt-tpl-form textarea { min-height: 180px; }
@@ -1233,3 +1235,5 @@ button.qt-qfile-ico { cursor: pointer; }
   .qt-lm-cells { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .qt-lm-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+.qt-blk-list li.qt-blk-num { grid-template-columns: 26px minmax(0, 1fr) 30px; }
+.qt-blk-num .qt-terms-no { padding-top: 10px; }
