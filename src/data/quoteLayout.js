@@ -8,6 +8,7 @@
 */
 import { jsPDF } from 'jspdf';
 import { inWords, fmt } from './quoteMake.js';
+import { embedFonts, fontFor } from './pdfFonts.js';
 
 const EMU = 36000; // per mm
 const TW = 56.6929; // twips per mm
@@ -368,32 +369,6 @@ export function layoutTotals(items, layout, gst) {
   return { lines, total, tax, with: r2(total + tax) };
 }
 
-/*
-  The letter's fonts go into the PDF itself, so it looks the same on every phone (the user, 18 Nov: "the font is
-  changing based on phone, so lock the font as per word uploaded"). Word's fonts belong to Microsoft; each is drawn in
-  the free font made to the same letter widths, so lines break where Word breaks them: Calibri → Carlito, Times New
-  Roman → Tinos, Arial → Arimo, Cambria → Caladea.
-*/
-const FONT_BASE = `${String(import.meta.env?.BASE_URL || '/').replace(/\/+$/, '')}/fonts/`;
-export const fontFor = (name) => {
-  const n = String(name ?? '').toLowerCase();
-  if (/cambria/.test(n)) return 'Caladea';
-  if (/times|georgia|garamond|antiqua|palatino|bookman|schoolbook|serif/.test(n) && !/sans/.test(n)) return 'Tinos';
-  if (/arial|helvetica|verdana|tahoma|segoe|trebuchet|gothic|franklin|open sans|roboto|sans/.test(n)) return 'Arimo';
-  return 'Carlito';
-};
-const fontData = {};
-const fontFile = (fam, bold) => {
-  const file = `${fam}-${bold ? 'Bold' : 'Regular'}.ttf`;
-  fontData[file] ??= fetch(FONT_BASE + file).then((r) => { if (!r.ok) throw new Error(file); return r.arrayBuffer(); }).then((buf) => {
-    const u = new Uint8Array(buf); let bin = '';
-    for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
-    return btoa(bin);
-  });
-  fontData[file].catch(() => { delete fontData[file]; });
-  return fontData[file].then((b64) => ({ file, b64 }));
-};
-
 /**
   A quotation in a template's layout. q: { qtn_no, date, to, place, subject, from, upto, gst, items: [{ cells, price }],
   blocks? (this quotation's own wording) }. img(art) gives a picture as a data URL.
@@ -417,15 +392,8 @@ export async function makeLayoutPdf(q, layout, img) {
     if (b.f) fams.add(fontFor(b.f));
     if (b.k === 'grid') for (const c of b.rows.flat()) if (c.f) fams.add(fontFor(c.f));
   }
-  const have = new Set();
-  await Promise.all([...fams].flatMap((fam) => [false, true].map(async (bold) => {
-    try { const { file, b64 } = await fontFile(fam, bold); pdf.addFileToVFS(file, b64); pdf.addFont(file, fam, bold ? 'bold' : 'normal'); have.add(`${fam}/${bold}`); } catch { /* helvetica stands in */ }
-  })));
-  const font = (bold, size = 11, f = null) => {
-    const fam = fontFor(f ?? D.f ?? 'Calibri');
-    if (have.has(`${fam}/${!!bold}`)) pdf.setFont(fam, bold ? 'bold' : 'normal'); else pdf.setFont('helvetica', bold ? 'bold' : 'normal');
-    pdf.setFontSize(size); pdf.setTextColor(17, 17, 17);
-  };
+  const setFam = await embedFonts(pdf, fams);
+  const font = (bold, size = 11, f = null) => { setFam(fontFor(f ?? D.f ?? 'Calibri'), bold); pdf.setFontSize(size); pdf.setTextColor(17, 17, 17); };
   const LH = (s, lm = 1) => s * 0.3528 * 1.17 * lm;
   let y = TOP; let paraTop = TOP;
   const newPage = () => { pdf.addPage(); frame(); y = TOP; };

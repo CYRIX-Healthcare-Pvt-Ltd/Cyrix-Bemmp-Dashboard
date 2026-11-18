@@ -5,6 +5,7 @@
   Tax Amount · Total with Taxes, as their Excel), terms, bank details and the signature.
 */
 import { jsPDF } from 'jspdf';
+import { embedFonts } from './pdfFonts.js';
 
 const BASE = `${String(import.meta.env?.BASE_URL || '/').replace(/\/+$/, '')}/qt-letter/`;
 const imgs = {};
@@ -74,7 +75,9 @@ export async function makeQuotePdf(q) {
   };
   const newPage = () => { pdf.addPage(); frame(); return TOP; };
   const text = (t, x, y, o = {}) => { pdf.text(t, x, y, o); };
-  const font = (style = 'normal', size = 11, rgb = [17, 17, 17]) => { pdf.setFont('helvetica', style); pdf.setFontSize(size); pdf.setTextColor(...rgb); };
+  // Arimo, Helvetica's widths, put into the PDF: the same on every phone (the user, 18 Nov: "lock for all quotations").
+  const setFam = await embedFonts(pdf, ['Arimo']);
+  const font = (style = 'normal', size = 11, rgb = [17, 17, 17]) => { setFam('Arimo', style === 'bold'); pdf.setFontSize(size); pdf.setTextColor(...rgb); };
   const para = (t, y, size = 11, gapAfter = 3, style = 'normal') => {
     font(style, size);
     const lines = pdf.splitTextToSize(t, CW);
