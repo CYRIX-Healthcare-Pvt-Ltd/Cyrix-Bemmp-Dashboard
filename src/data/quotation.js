@@ -363,7 +363,8 @@ export async function templateBlob(path) {
   if (error) throw new Error(error.message);
   return data;
 }
-export async function saveTemplate({ id, name, file }) {
+export async function saveTemplate({ id, kind = 'word', name, file, doc }) {
+  if (kind === 'app') return rpc('qt_template_save', { p: { id, kind, name, doc } });
   let path = null;
   if (file) {
     path = `${id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.docx`;
@@ -372,7 +373,7 @@ export async function saveTemplate({ id, name, file }) {
     });
     if (error) throw new Error(error.message);
   }
-  return rpc('qt_template_save', { p: { id, name, ...(path ? { path, file_name: file.name, size: file.size } : { path: (await loadTemplates()).find((x) => x.id === id)?.path }) } });
+  return rpc('qt_template_save', { p: { id, kind, name, ...(path ? { path, file_name: file.name, size: file.size } : { path: (await loadTemplates()).find((x) => x.id === id)?.path }) } });
 }
 
 /**

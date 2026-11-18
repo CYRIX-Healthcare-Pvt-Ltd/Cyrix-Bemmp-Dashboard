@@ -1184,3 +1184,7 @@ button.qt-qstate { cursor: pointer; }
 .qt-docx-box .qt-docx-wrapper { background: #e5e7eb; padding: 12px; }
 .qt-docx-box .qt-docx { box-shadow: 0 2px 10px rgba(0,0,0,.15); margin: 0 auto 12px; color: #111; max-width: 100%; overflow: auto; }
 @media (max-width: 640px) { .qt-tpl-row .qt-quotes-acts { flex-wrap: wrap; justify-content: flex-end; } }
+.qt-tpl-kind { margin-bottom: 12px; }
+.qt-tpl-form { display: grid; gap: 12px; }
+.qt-tpl-form textarea { min-height: 180px; }
+button.qt-qfile-ico { cursor: pointer; }
