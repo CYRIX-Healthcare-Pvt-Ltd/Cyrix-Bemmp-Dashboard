@@ -4548,8 +4548,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
                       {q.items.length > 1 && <button type="button" className="qt-qadd-x" onClick={() => set('items', q.items.filter((_, n) => n !== i))} aria-label={`Remove item ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>}
                     </div>
                     <div className="qt-lm-cells">
-                      {own.map((x) => (
-                        <label key={x.key} className="pm-in"><span>{x.label}</span>
+                      {own.map((x, k) => (
+                        <label key={x.key} className={`pm-in${k === own.findIndex((y) => !y.qty) ? ' qt-lm-desc' : ''}`}><span>{x.label}</span>
                           {x.sample.length > 40
                             ? <textarea rows={2} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.sample} />
                             : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : x.sample} />}

@@ -1261,8 +1261,11 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-lm-item { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); }
 .qt-lm-item-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .qt-lm-item-head b::before { content: 'Row '; }
-.qt-lm-cells { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-items: end; }
-.qt-lm-cells .qt-mi-tot { flex-direction: column; align-items: flex-start; gap: 4px; padding-bottom: 10px; }
+/* A price row: its boxes share the row's width, the description twice as wide, the amount on the same line (the user,
+   19 Nov: "this much area" empty beside them). */
+.qt-lm-cells { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: end; }
+.qt-lm-cells > .qt-lm-desc { grid-column: span 2; }
+.qt-lm-cells .qt-mi-tot { grid-area: auto; flex-direction: column; align-items: flex-end; gap: 4px; padding-bottom: 12px; }
 .qt-blk-pop { width: min(860px, 100%); }
 .qt-blk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 64vh; overflow: auto; }
 .qt-blk-list li { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 8px; align-items: start; }
