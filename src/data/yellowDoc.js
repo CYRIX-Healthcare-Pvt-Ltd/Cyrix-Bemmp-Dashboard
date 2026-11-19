@@ -130,7 +130,9 @@ export function moneyLike(sample, n) {
   const g = i.length > 3 ? `${i.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${i.slice(-3)}` : i;
   const pre = /^\s*(₹|rs\.?|inr)\s*/i.exec(s)?.[0] ?? '';
   const post = /\s*\/-\s*$/.exec(s)?.[0] ?? '';
-  return `${pre}${s.includes(',') || i.length <= 3 ? g : i}${f ? `.${f}` : ''}${post}`;
+  // Without commas only where the sample was a long figure written without them; "840" is too short to tell ("1,208").
+  const plain = !s.includes(',') && (/\d{4,}/.exec(s) != null);
+  return `${pre}${plain ? i : g}${f ? `.${f}` : ''}${post}`;
 }
 const numIn = (s) => Number(String(s ?? '').replace(/[^0-9.]/g, '')) || 0;
 
@@ -167,7 +169,8 @@ function tablesOf(doc) {
   for (const t of tbls) {
     const rows = kids(t, 'w:tr');
     const yrow = rows.findIndex((tr, i) => i > 0 && all(tr, 'w:p').some((p) => groupsIn(p).length));
-    const tot = rows.findIndex((tr, i) => i > yrow && /\btotal\b/i.test(textOf(tr)));
+    // Cell by cell: a row's text runs its cells together ("GRAND TOTAL16,800", Carmel).
+    const tot = rows.findIndex((tr, i) => i > yrow && kids(tr, 'w:tc').some((tc) => /\btotal\b/i.test(textOf(tc))));
     if (!price && yrow > 0 && tot > yrow) { price = { t, rows, item: yrow }; continue; }
     const head = rows[0];
     const cells = head ? kids(head, 'w:tc') : [];
@@ -184,16 +187,23 @@ function priceOf(pt) {
   const numeric = (c) => c.groups.length === 1 && /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i.test(c.groups[0].text);
   let pk = cells.filter((c) => numeric(c) && PRICE_HEAD.test(c.head)).map((c) => c.k)[0];
   if (pk == null) pk = cells.filter(numeric).map((c) => c.k).pop();
-  const qk = cells.find((c) => c.k !== pk && c.groups.length && QTY_HEAD.test(c.head))?.k ?? null;
+  const qk = cells.find((c) => c.k !== pk && c.groups.length && QTY_HEAD.test(c.head) && !SERIAL.test(c.head))?.k ?? null; // "SI No" is not a Qty
   const fields = [];
   for (const c of cells) {
     if (c.k === pk || !c.groups.length) continue;
+    // A whole table marked yellow (Carmel, the user, 19 Nov): its serial number and the columns worked out from the
+    // price (Total Price, GST %, Tax Amount, Total with Taxes) are not boxes to type.
+    if (SERIAL.test(c.head) || colKind(head, c.k, pk)) continue;
     c.groups.forEach((g, j) => fields.push({
       key: `c${c.k}g${j}`, label: c.groups.length > 1 ? `${c.head || 'Item'} · line ${j + 1}` : c.head || 'Item', sample: norm(g.text), qty: c.k === qk,
     }));
   }
   // The template's own figures: GST % from "GST 18%", and whether its price was for the whole row (76 Nos, 1,25,000 total).
-  let gst = 18; let total = null;
+  // GST from the item row's own GST % cell (Carmel's 5%), else from a "GST 18%" row under it.
+  const rateCell = cells.find((c) => /%/.test(c.head) && c.k > (pk ?? 99));
+  const rc = rateCell ? kids(pt.rows[pt.item], 'w:tc')[rateCell.k] : null;
+  const rowRate = rc ? /(\d+(\.\d+)?)\s*%/.exec(textOf(rc)) : null;
+  let gst = rowRate ? Number(rowRate[1]) : 18; let total = null;
   for (const tr of pt.rows.slice(pt.item + 1)) {
     const tcs = kids(tr, 'w:tc'); const label = norm(textOf(tcs[0] ?? tr));
     const m = /(gst|tax)\D*?(\d+(\.\d+)?)\s*%/i.exec(textOf(tr)); if (m) gst = Number(m[2]);
@@ -242,7 +252,13 @@ function scan(doc) {
   const skip = (p) => {
     const tbl = up(p, 'w:tbl');
     if (list && tbl === list.t) return true;
-    if (price && tbl === price.t && up(p, 'w:tr') === price.rows[price.item]) return true;
+    // The price table's headings, item row and totals are its own: yellow there (Carmel, all yellow) makes no box. Other
+    // rows of it keep their boxes (Giri Pushp's "Contract Period: 03/11/2026 to 02/11/2027").
+    if (price && tbl === price.t) {
+      const tr = up(p, 'w:tr');
+      if (tr === price.rows[0] || tr === price.rows[price.item]) return true;
+      if (/total|gst|tax/i.test(textOf(kids(tr, 'w:tc')[0] ?? tr))) return true;
+    }
     return false;
   };
   const groupsByP = new Map();
@@ -370,6 +386,50 @@ export function startValue(f, ctx = {}) {
   return f.sample;
 }
 
+/*
+  What a request already knows, put into the boxes this template has, and only those (the user, 19 Nov: "every template
+  changes and is unique"). To: the hospital, its district on the next line. Price table: the spare in the item column and
+  its quantity in the Qty column; the charge stays the Coordinator's (the request's rate is our cost, not the price).
+  Annexure: one row of the equipment, make, model and serial under the columns named so. A box the template lacks is
+  left out; nothing is added to the Word file.
+*/
+export function fromRequest(Y, r) {
+  const s = (v) => String(v ?? '').trim();
+  const hosp = s(r?.hospital); const dist = s(r?.district);
+  const to = hosp && dist && !hosp.toLowerCase().includes(dist.toLowerCase()) ? `${hosp}\n${dist}` : hosp;
+  const item = {};
+  const fields = (Y.price?.fields ?? []).filter((f) => !f.link);
+  // Only a price table quoting a spare (a Spare, Part, Item, Description… column): an AMC letter's "Equipment Name ·
+  // AMC CONTRACT" and its Qty (the Annexure's count) stay as the template has them.
+  const qf = fields.find((f) => f.qty);
+  const qty = s(r?.approved_qty ?? r?.qty);
+  const spare = s(r?.spare);
+  const nf = fields.find((f) => !f.qty && /part\s*(no|number|code)|item\s*code/i.test(f.label));
+  const sf = fields.find((f) => !f.qty && f !== nf && /spare|part|item|description|particular|product|material/i.test(f.label));
+  if (sf && spare) {
+    item[sf.key] = spare;
+    if (qf && qty) item[qf.key] = `${qty}${/\s*nos?\.?\s*$/i.exec(qf.sample)?.[0] ?? ''}`;
+    if (nf && s(r?.part_no)) item[nf.key] = s(r.part_no);
+  }
+  let row = null;
+  if (Y.list?.cols?.length) {
+    const make = s(r?.make); const model = s(r?.model);
+    const cell = (h) => {
+      if (SERIAL.test(h)) return '';
+      if (/make.*model|model.*make/i.test(h)) return [make, model].filter(Boolean).join(' / ');
+      if (/serial|sr\.?\s*no\b|s\/n/i.test(h)) return s(r?.serial);
+      if (/make|brand|manufacturer|oem/i.test(h)) return make;
+      if (/model/i.test(h)) return model;
+      if (/asset|barcode|tag/i.test(h)) return s(r?.barcode);
+      if (/equipment|device|machine|description|item|name/i.test(h)) return s(r?.equipment);
+      return '';
+    };
+    const cells = Y.list.cols.map(cell);
+    if (cells.some(Boolean)) row = cells;
+  }
+  return { to, item, row };
+}
+
 /** CLIENT from To: the person's line (always first when there is one) left out (the user, 19 Nov). */
 export const clientFrom = (to) => { const l = String(to ?? '').split('\n').map((x) => x.trim()).filter(Boolean); return (l.length > 1 && PERSON.test(l[0]) ? l.slice(1) : l).join('\n'); };
 
@@ -379,6 +439,21 @@ export function itemsOf(Y, items, rows) {
   const qf = Y.price?.fields.find((f) => f.qty && !f.link);
   const list = (items ?? []).length ? items : [{}];
   return list.map((it) => (qf && n && !String(it[qf.key] ?? '').trim() ? { ...it, [qf.key]: `${n}${/\s*nos?\.?\s*$/i.exec(qf.sample)?.[0] ?? ''}` } : it));
+}
+
+/*
+  A worked-out column of the price table by its heading: 'rate' (GST %), 'tax' (GST amount), 'line' (the row before tax)
+  or 'with' (with tax). A Total or Amount column with a tax column after it is before tax (Carmel: Total Price · GST % ·
+  Tax Amount · Total with Taxes); one with none after it is with tax (Sub AMC: RATE · GST % · GST RATE · TOTAL).
+*/
+function colKind(cols, k, price) {
+  if (price == null || k <= price) return null;
+  const h = cols[k] ?? '';
+  if (/%/.test(h)) return 'rate';
+  if (/with|incl|gross|grand/i.test(h)) return 'with';
+  if (/gst|tax/i.test(h)) return 'tax';
+  if (/total|amount|value/i.test(h)) return cols.slice(k + 1).some((c) => /gst|tax/i.test(c) && !/%/.test(c) && !/with|incl/i.test(c)) ? 'line' : 'with';
+  return null;
 }
 
 /** The figures of the price table: per item, the total, the GST and the grand total. */
@@ -584,7 +659,9 @@ export async function fillYellow(file, Y, v) {
         kids(tr, 'w:tc').forEach((tc, k) => {
           const gs = all(tc, 'w:p').flatMap(groupsIn);
           if (k === pr.price) { if (gs[0]) setGroup(gs[0], moneyLike(pr.samplePrice, it.price)); gs.slice(1).forEach((g) => setGroup(g, '')); return; }
-          if (gs.length) {
+          // Serial number and worked-out columns are worked out even when yellow (a whole table marked, Carmel).
+          const worked = SERIAL.test(pr.cols[k] ?? '') || colKind(pr.cols, k, pr.price);
+          if (gs.length && !worked) {
             gs.forEach((g, j) => {
               const fd = pr.fields.find((x) => x.key === `c${k}g${j}`);
               let val = fd?.link ? writeNum(g.text, value(fd.link)) : it[`c${k}g${j}`];
@@ -600,9 +677,9 @@ export async function fillYellow(file, Y, v) {
           const line = tot.lines[i] ?? 0; const tax = Math.round(line * Number(v.gst || 0)) / 100;
           const fig = ps.find((x) => /\d/.test(textOf(x)));
           if (!fig) return;
-          if (/gst\s*%|tax\s*%|%/i.test(h) && /%/.test(t)) setPara(doc, fig, `${Number(v.gst || 0)}%`);
-          else if (/gst|tax/i.test(h) && k > (pr.price ?? 99)) setPara(doc, fig, moneyLike(textOf(fig).trim(), tax));
-          else if (/total|amount/i.test(h) && k > (pr.price ?? 99)) setPara(doc, fig, moneyLike(textOf(fig).trim(), line + tax));
+          const kind = colKind(pr.cols, k, pr.price);
+          if (kind === 'rate' && /%/.test(t)) setPara(doc, fig, `${Number(v.gst || 0)}%`);
+          else if (kind) setPara(doc, fig, moneyLike(textOf(fig).trim(), kind === 'tax' ? tax : kind === 'with' ? line + tax : line));
         });
         // No Annexure rows: the line pointing to it goes (the user, 19 Nov).
         if (!rows.length && Y.list) for (const p of all(tr, 'w:p')) if (/annex/i.test(textOf(p)) && kids(p.parentNode, 'w:p').length > 1) p.parentNode.removeChild(p);
@@ -616,6 +693,17 @@ export async function fillYellow(file, Y, v) {
         if (/^\d+\.?$/.test(label) || !/total|gst|tax/i.test(t)) continue;
         const kind = /grand/i.test(t) ? 'with' : /gst|tax|igst|cgst|sgst/i.test(label) ? 'tax' : /total/i.test(label) ? 'total' : null;
         if (!kind) continue;
+        // A totals row with a figure under each worked-out column (Carmel's GRAND TOTAL · 16,800 · 840 · 17,640): each its own.
+        const at = []; let col = 0;
+        for (const tc of tcs) { at.push(col); col += Number(all(tc, 'w:gridSpan')[0]?.getAttribute('w:val')) || 1; }
+        const figs = tcs.map((tc, i) => ({ tc, k: at[i] })).slice(1).filter((x) => /\d/.test(textOf(x.tc)) && colKind(pr.cols, x.k, pr.price));
+        if (figs.length > 1 && col === pr.cols.length) {
+          for (const x of figs) {
+            const ck = colKind(pr.cols, x.k, pr.price); const ps = all(x.tc, 'w:p').filter((q) => /\d/.test(textOf(q)));
+            if (ps[0] && ck !== 'rate') setPara(doc, ps[0], moneyLike(textOf(ps[0]).trim(), ck === 'tax' ? tot.tax : ck === 'with' ? tot.with : tot.total));
+          }
+          continue;
+        }
         const vc = [...tcs].slice(1).reverse().find((c) => /\d/.test(textOf(c)));
         if (vc) { const ps = all(vc, 'w:p').filter((p) => /\d/.test(textOf(p))); if (ps[0]) setPara(doc, ps[0], moneyLike(textOf(ps[0]).trim(), tot[kind])); }
         if (kind === 'tax') for (const x of all(tcs[0], 'w:t')) x.textContent = x.textContent.replace(/\d+(\.\d+)?\s*%/, `${Number(v.gst || 0)}%`);

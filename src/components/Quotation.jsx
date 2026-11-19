@@ -12,7 +12,7 @@ import {
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
   loadBarcodeCounts, loadBarcodeHistory, loadSigner,
 } from '../data/quotation.js';
-import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf } from '../data/yellowDoc.js';
+import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -4380,14 +4380,16 @@ function YellowMaker({ r, start, onClose, onMade }) {
     }
     const Y = start.tpl.layout.yellow;
     const f = {};
-    for (const x of Y.fields) f[x.key] = startValue(x, { today: todayIst(), hospital: r.free ? '' : (r.hospital ?? ''), signer: '' });
+    // From the request, into this template's own boxes only (fromRequest); a free quotation starts empty.
+    const fr = r.free ? { to: '', item: {}, row: null } : fromRequest(Y, r);
+    for (const x of Y.fields) f[x.key] = startValue(x, { today: todayIst(), hospital: fr.to, signer: '' });
     const cl = Y.fields.find((x) => x.role === 'client');
     if (cl && f[cl.key]) f[cl.key] = titleLike(cl.sample, f[cl.key]);
     const own = (Y.price?.fields ?? []).filter((x) => !x.link);
     return {
       v: 2, tpl: start.tpl.name, tplPath: start.tpl.path, Y, f, gst: String(Y.price?.gst ?? 18), lump: Boolean(Y.price?.lump),
-      items: [{ key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, x.qty ? '' : x.sample])) }],
-      rows: [], path: null, clientOwn: false, qtn_no: null,
+      items: [{ key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, x.qty ? '' : x.sample])), ...fr.item }],
+      rows: fr.row ? [fr.row] : [], path: null, clientOwn: false, qtn_no: null,
     };
   });
   const Y = q.Y;
