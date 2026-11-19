@@ -926,7 +926,7 @@ button.qt-qstate { cursor: pointer; }
 .qt-maker-head { display: none; }
 .qt-maker-item {
   display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-areas: 'n x' 'desc desc' 'cost margin' 'price qty' 'tax tax' 'tot tot';
+  grid-template-areas: 'n x' 'desc desc' 'cost margin' 'whole whole' 'price qty' 'tax tax' 'tot tot';
   padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
 }
 .qt-mi-n { grid-area: n; align-self: center; font-size: 13px; font-weight: 750; }
@@ -968,6 +968,8 @@ button.qt-qstate { cursor: pointer; }
     grid-template-columns: 36px minmax(160px, 1fr) 84px 64px 96px 48px 132px 92px 28px; column-gap: 8px;
     grid-template-areas: 'n desc cost margin price qty tax tot x';
   }
+  .qt-maker-item { grid-template-areas: 'n desc cost margin price qty tax tot x' '. whole whole whole whole whole whole whole .'; }
+  .qt-mi-whole .qt-choice, .qt-mi-whole > * { max-width: 320px; }
   .qt-maker-head { padding: 10px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
   .qt-maker-head > :nth-child(6) { text-align: right; }
   .qt-maker-item { padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
@@ -1138,11 +1140,12 @@ button.qt-qstate { cursor: pointer; }
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
 }
 .qt-qbook-row [data-col='qtn_no'] { grid-area: no; }
-.qt-qbook-row [data-col='total'] { grid-area: total; font-variant-numeric: tabular-nums; }
+.qt-qbook-row [data-col='total'] { grid-area: total; font-variant-numeric: tabular-nums; justify-self: end; text-align: right; font-size: 16px; }
 .qt-qbook-row [data-col='to'] { grid-area: to; font-size: 14px; }
 .qt-qbook-row [data-col='date'] { grid-area: date; font-size: 12.5px; color: var(--text-secondary); }
 .qt-qbook-row [data-col='by_name'] { grid-area: by; font-size: 12.5px; color: var(--text-secondary); text-align: right; }
-.qt-qbook-acts { grid-area: acts; display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.qt-qbook-acts { grid-area: acts; display: flex; gap: 8px; align-items: center; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.qt-qbook-acts .mt-btn { flex: 1 1 0; }
 .qt-qbook-acts .mt-btn { min-height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13.5px; }
 .qt-qbook-acts .mt-btn:hover { background: var(--hover-wash); border-color: var(--text-muted); }
 .qt-qbook-no { all: unset; cursor: pointer; text-align: left; min-width: 0; overflow-wrap: anywhere; }
@@ -1150,13 +1153,39 @@ button.qt-qstate { cursor: pointer; }
 .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: 1 / -1; }
 @media (min-width: 900px) {
   .qt-qbook-bar { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+  .qt-maker-free .qt-maker-to { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: auto; }
+}
+/*
+  The list follows its own width, not the screen's (a template's Ref is long: QTN1022/PBEMP-AMC/UP/26-27): wide, a table;
+  middling, two lines a quotation with the buttons on the right; narrow (phones), the card above.
+*/
+.qt-qbook { container-type: inline-size; }
+/* View, Edit, Revise: an icon with its word on a phone card, the icon alone where the row is short of room. */
+.qt-act { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-act svg { flex: none; }
+@container (min-width: 560px) {
+  .qt-qbook-acts .qt-act, .qt-tpl-row .qt-quotes-acts .qt-act { width: 38px; min-width: 38px; padding: 0; }
+  .qt-act > span { display: none; }
+}
+@container (min-width: 560px) and (max-width: 919.98px) {
+  .qt-qbook-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'no total' 'to by' 'date acts'; gap: 4px 16px; }
+  .qt-qbook-row [data-col='by_name'] { align-self: center; }
+  .qt-qbook-acts { margin-top: 0; padding-top: 0; border-top: 0; justify-content: flex-end; }
+  .qt-qbook-acts .mt-btn { flex: 0 0 auto; }
+}
+@container (min-width: 920px) {
   .qt-qbook-table { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
   .qt-qbook-head, .qt-qbook-row {
-    display: grid; grid-template-areas: none; align-items: center; gap: 12px;
-    grid-template-columns: minmax(180px, 1.3fr) 110px minmax(0, 1.6fr) 120px 260px;
+    display: grid; grid-template-areas: none; align-items: center; gap: 10px;
+    grid-template-columns: minmax(232px, 1.3fr) 92px minmax(0, 2fr) 112px 164px;
   }
-  .qt-qbook-table[data-everyone] :is(.qt-qbook-head, .qt-qbook-row) { grid-template-columns: minmax(180px, 1.3fr) 110px minmax(0, 1.5fr) 120px minmax(0, 1fr) 260px; }
-  .qt-qbook-row [data-col] { grid-area: auto; }
+  .qt-qbook-table[data-everyone] :is(.qt-qbook-head, .qt-qbook-row) { grid-template-columns: minmax(232px, 1.3fr) 92px minmax(0, 2.2fr) 112px minmax(0, 1fr) 164px; }
+  /* Every cell in its own column: the buttons too, never left on a line of their own. */
+  .qt-qbook-row [data-col], .qt-qbook-row .qt-qbook-acts { grid-area: auto; }
+  .qt-qbook-acts { margin-top: 0; padding-top: 0; border-top: 0; justify-content: flex-end; }
+  .qt-qbook-acts .mt-btn { flex: 0 0 auto; }
+  .qt-qbook-row [data-col='total'] { justify-self: stretch; font-size: inherit; }
   .qt-qbook-head { padding: 10px 16px; border-bottom: 1px solid var(--border); }
   .qt-qbook-th { all: unset; cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
   .qt-qbook-th:hover, .qt-qbook-th[aria-sort] { color: var(--text-primary); }
@@ -1166,8 +1195,6 @@ button.qt-qstate { cursor: pointer; }
   .qt-qbook-row:hover { background: var(--hover-wash); }
   .qt-qbook-row [data-col='total'] { text-align: right; }
   .qt-qbook-row [data-col='date'], .qt-qbook-row [data-col='by_name'] { font-size: 13.5px; text-align: left; }
-  .qt-maker-free .qt-maker-to { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
-  .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: auto; }
 }
 /* Without a request the cost is typed: a box like the others (the user, 16 Nov). */
 @media (min-width: 900px) { .qt-maker-item .qt-mi-cost-in > span { display: block; } .qt-maker-item .qt-mi-cost-in { display: grid; gap: 6px; } }
@@ -1284,3 +1311,34 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-history-list em { grid-area: amt; font-style: normal; font-weight: 700; font-size: 13px; }
 .qt-history-list svg { grid-area: go; color: #999; }
 .qt-history-more { margin-top: 8px; width: 100%; padding: 8px; border: 1px dashed #f0c66b; background: transparent; border-radius: 8px; color: #8a5a00; font-weight: 700; cursor: pointer; }
+
+/* Quotation: Excel rows and the look before saving (the user, 19 Nov) */
+.qt-lm-excel { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.qt-lm-excel .mt-btn { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-maker-items > .qt-lm-excel { padding: 0 0 4px; }
+.qt-pdf-acts { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; justify-content: center; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.75); }
+.qt-pdf-acts .mt-btn, .qt-pdf-acts .mt-go { min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-pdfbox:has(.qt-pdf-acts) .qt-pdf-pages { padding-bottom: 90px; }
+
+.qt-mi-whole { grid-area: whole; min-width: 0; }
+.qt-tpl-none { margin: 4px 0 12px; font-size: 14px; color: var(--text-secondary); }
+.qt-docx-pages { overflow: auto; } .qt-docx-doc { display: grid; justify-items: center; } .qt-docx-doc .docx-wrapper { background: transparent !important; padding: 12px 0 !important; } .qt-docx-doc .docx-wrapper > section.docx { box-shadow: 0 2px 12px rgba(0,0,0,.35); margin-bottom: 16px !important; } .qt-docxbox:has(.qt-pdf-acts) .qt-docx-pages { padding-bottom: 90px; }
+.qt-lm-cells textarea { resize: vertical; min-height: 44px; }
+
+/* Yellow-blank templates: the lines to keep (ticks) and the Annexure list (19 Nov). */
+.qt-bl-ticks { display: grid; gap: 6px; margin: 12px 0; }
+.qt-bl-tick { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line, #2a2a2a); border-radius: 10px; font-size: 14px; line-height: 1.35; cursor: pointer; }
+.qt-bl-tick input { width: 18px; height: 18px; margin-top: 1px; flex: none; accent-color: #dc2626; }
+.qt-bl-list { margin-top: 14px; }
+.qt-bl-h { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+
+/* What a yellow template asks (yellowDoc): its boxes, the price table, the Annexure, one boxed line each. */
+.qt-yc { display: grid; gap: 16px; }
+.qt-yc-sec h3 { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+.qt-yc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.qt-yc-list li { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-size: 13px; }
+.qt-yc-list b { flex: none; max-width: 48%; overflow-wrap: anywhere; }
+.qt-yc-list span { flex: 1 1 auto; min-width: 0; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-yc-list em { flex: none; font-style: normal; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.qt-yc-sec > .pm-in { margin-top: 10px; }
+@media (max-width: 600px) { .qt-yc-list { grid-template-columns: minmax(0, 1fr); } }

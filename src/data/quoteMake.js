@@ -34,9 +34,10 @@ const r2 = (n) => Math.round(num(n) * 100) / 100;
 export const fmt = (n) => r2(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 /** Each line's totals and the grand totals. */
+/** it.whole: the price is the line's total, the Qty only shown ("qty 76, price 2,80,000"; the user, 19 Nov). */
 export function quoteTotals(items) {
   const lines = (items ?? []).map((it) => {
-    const total = r2(num(it.price) * num(it.qty));
+    const total = r2(it.whole ? num(it.price) : num(it.price) * num(it.qty));
     const tax = r2((total * num(it.gst)) / 100);
     return { total, tax, with: r2(total + tax) };
   });
@@ -139,7 +140,7 @@ export async function makeQuotePdf(q) {
     if (y + h > BOTTOM) { y = newPage(); pdf.line(L, y, xs[8], y); header(); }
     const ty = y + (h - desc.length * 4.4) / 2 + 3.2;
     desc.forEach((ln, k) => text(ln, xs[1] + PAD, ty + k * 4.4));
-    [n + 1, '', fmt(it.price), fmt(it.qty), fmt(lines[n].total), `${num(it.gst)}%`, fmt(lines[n].tax), fmt(lines[n].with)].forEach((v, i) => cell(v, i, y + h / 2 + 1.3, i === 7));
+    [n + 1, '', it.whole ? '—' : fmt(it.price), fmt(it.qty), fmt(lines[n].total), `${num(it.gst)}%`, fmt(lines[n].tax), fmt(lines[n].with)].forEach((v, i) => cell(v, i, y + h / 2 + 1.3, i === 7));
     grid(y, h);
     y += h;
   });

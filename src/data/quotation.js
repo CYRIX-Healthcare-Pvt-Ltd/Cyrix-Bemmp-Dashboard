@@ -380,7 +380,7 @@ export async function saveTemplate({ id, kind = 'word', name, file, doc }) {
   }
   // The layout's pictures (letterhead, seal) not stored yet go into the template's folder.
   let lay = doc?.layout;
-  if (lay) {
+  if (lay && lay.v !== 2) {
     const put = async (a) => {
       if (!a.blob) return a;
       const ext = a.fmt === 'PNG' ? 'png' : 'jpg';
@@ -425,4 +425,40 @@ export async function templateName(file) {
     if (subj && words(subj)) return words(subj);
   } catch { /* the file's name then */ }
   return words(file.name.replace(/\.docx$/i, '').replace(/^\W+/, '')) || 'Template';
+}
+
+/*
+  A filled Word quotation made into a PDF on our server (the qt-pdf function: LibreOffice), so the PDF is laid out as
+  Word lays it out, the same on every phone (the user, 19 Nov: "build it perfectly … font, spacing everything").
+*/
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export async function wordToPdf(blob) {
+  const base = import.meta.env?.VITE_SUPABASE_URL; const key = import.meta.env?.VITE_SUPABASE_ANON_KEY;
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!base || !token) throw new Error('Sign in again to make the PDF.');
+  const res = await fetch(`${base}/functions/v1/qt-pdf`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, apikey: key, 'Content-Type': DOCX_TYPE }, body: blob });
+  if (!res.ok) { let m = 'The PDF could not be made.'; try { m = (await res.json()).error || m; } catch { /* our words */ } throw new Error(m); }
+  const out = await res.blob();
+  if (out.size < 500) throw new Error('The PDF could not be made.');
+  return new Blob([out], { type: 'application/pdf' });
+}
+
+/** Who signs a quotation by default: the signed-in person's name, designation and office phone (the user, 19 Nov). */
+/** The PDF server sleeps when unused: woken as a quotation or a template is opened, so it is ready by Preview. */
+export async function wakePdf() {
+  try {
+    const base = import.meta.env?.VITE_SUPABASE_URL; const key = import.meta.env?.VITE_SUPABASE_ANON_KEY;
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!base || !token) return;
+    await fetch(`${base}/functions/v1/qt-pdf`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, apikey: key, 'Content-Type': 'text/plain' }, body: 'wake' });
+  } catch { /* the PDF waits for it then */ }
+}
+
+export async function loadSigner() {
+  const { data: auth } = await supabase.auth.getUser();
+  const id = auth?.user?.id; if (!id) return '';
+  const { data } = await supabase.from('employees').select('full_name, designation, official_phone').eq('auth_user_id', id).maybeSingle();
+  return [data?.full_name, data?.designation, data?.official_phone].map((x) => String(x ?? '').trim()).filter(Boolean).join('\n');
 }

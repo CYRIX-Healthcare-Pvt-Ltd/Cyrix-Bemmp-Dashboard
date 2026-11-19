@@ -279,8 +279,11 @@ export async function readLayout(file) {
   const drop = (x) => { if (x.f === font) delete x.f; };
   for (const b of out) { if (b.k === 'p') drop(b); else if (b.k === 'grid') b.rows.flat().forEach(drop); }
 
+  // Blanks marked in yellow make the form (quoteBlanks; the user, 19 Nov).
+  const bl = await (await import('./quoteBlanks.js')).readBlanks(file).catch(() => null);
   return {
-    layout: { v: 1, page, dflt: { ...dflt, f: font }, art, blocks: out, items, period: !!per, subject, sample: { ...found, subject } },
+    layout: { v: 1, page, dflt: { ...dflt, f: font }, art, blocks: out, items, period: !!per, subject, sample: { ...found, subject },
+      blanksRead: true, ...(bl && (bl.fields.length || bl.ticks.length || bl.list) ? { blanks: bl } : {}) },
     files,
   };
 }
@@ -293,13 +296,20 @@ export async function readLayout(file) {
   amount field?"). Its total rows and full-width rows (a contract period) are kept.
 */
 const TAXCOL = /gst|tax/i;
-export function findItems(blocks) {
-  const money = (h) => /amount|price|rate|value|cost/i.test(h) && !TAXCOL.test(h);
+// "CAMC CHARGES" (Giri Pushp's Sub AMC; the user, 19 Nov) as well as rate, price, amount.
+const money = (h) => /amount|price|rate|value|cost|charge|fee|₹|\brs\b|\binr\b/i.test(h) && !TAXCOL.test(h);
+function pickItems(blocks) {
   const isHead = (row) => row.length >= 3 && row.some((c) => money(c.t) || /total/i.test(c.t));
   let mi = blocks.findIndex((b) => b.k === 'grid' && b.rows.length > 1 && isHead(b.rows[0])
     && b.rows[0].some((c) => /model|description|item|equipment|make|contract|particular|service|type/i.test(c.t)));
   if (mi < 0) mi = blocks.findIndex((b) => b.k === 'grid' && b.rows.length > 1 && isHead(b.rows[0])
     && b.rows.slice(1).some((r) => r.length === b.rows[0].length && r.some((c) => /\d/.test(c.t))));
+  return mi;
+}
+/** Which of a Word file's tables (rows of cell texts) is the price table, by the same rule (quoteWord). */
+export const findItemsTable = (tables) => pickItems(tables.map((rows) => ({ k: 'grid', rows: rows.map((r) => r.map((t) => ({ t: String(t).trim() }))) })));
+export function findItems(blocks) {
+  const mi = pickItems(blocks);
   if (mi < 0) return { blocks, items: null };
   const g = blocks[mi];
   const head = g.rows[0].map((c) => c.t.replace(/\s+/g, ' ').trim());
@@ -329,12 +339,17 @@ export function findItems(blocks) {
     sample: data.map((r) => ({ cells: cols.map((c, k) => r[(idx ? 1 : 0) + k]?.t ?? ''), price: num(String(r[pi]?.t).replace(/[^0-9.]/g, '')) })),
     old: Object.fromEntries(totals.map((x, i) => [kindOf(x, i), String(x.v).replace(/[^0-9.]/g, '')]).filter(([, v]) => v)),
   };
+  // Its own figures say whether the amount is for the whole row: "76 Nos · 1,25,000" with TOTAL 1,25,000.
+  const qi = cols.findIndex((c) => /^\s*(qty|quantity)/i.test(c));
+  const sum = items.sample.reduce((t, x) => t + (x.price || 0), 0);
+  const many = items.sample.some((x) => num(String(x.cells[qi] ?? '').replace(/[^0-9.]/g, '')) > 1);
+  if (qi >= 0 && many && sum > 0 && Math.abs(num(items.old.total ?? items.old.grand) - sum) < 1) items.lump = true;
   return { blocks: blocks.map((b, i) => (i === mi ? { k: 'items' } : b)), items };
 }
 
 /** "Ref: …", "Ref – …", "Ref. No …" and "Date: …", "Date- …" (Sub AMC writes them with a dash). */
-const REF = /\b(?:Our\s+)?Ref(?:\.?\s*No)?\s*[:.\-\u2013]\s*([^\t\n{]+?)(?:\s{2,}|\t|\n|$)/i;
-const DATE = /\bDate\s*[:.\-\u2013]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i;
+export const REF = /\b(?:Our\s+)?Ref(?:\.?\s*No)?\s*[:.\-\u2013]\s*([^\t\n{]+?)(?:\s{2,}|\t|\n|$)/i;
+export const DATE = /\bDate\s*[:.\-\u2013]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i;
 
 /**
   A layout kept before the reader knew a table like Sub AMC's or a "Ref –" line (18 Nov): its table and its ref and date
@@ -359,10 +374,13 @@ export function upgradeLayout(lay) {
 
 const dots = (iso) => (iso ? iso.split('-').reverse().join('.') : '');
 
-/** Each line's amount (price × qty when there is a Qty column) and the totals at the quotation's GST. */
+/**
+  Each line's amount (price × qty when there is a Qty column) and the totals at the quotation's GST. lump: the price is
+  already the row's amount, the Qty only shown ("qty 76, price 2,80,000"; the user, 19 Nov).
+*/
 export const qtyCol = (layout) => (layout?.items?.cols ?? []).findIndex((c) => /^\s*(qty|quantity)/i.test(c));
-export function layoutTotals(items, layout, gst) {
-  const qi = qtyCol(layout);
+export function layoutTotals(items, layout, gst, lump = false) {
+  const qi = lump ? -1 : qtyCol(layout);
   const lines = (items ?? []).map((it) => r2(num(it.price) * (qi >= 0 ? (num(String(it.cells?.[qi] ?? '').replace(/[^0-9.]/g, '')) || 1) : 1)));
   const total = r2(lines.reduce((s, x) => s + x, 0));
   const tax = Math.round((total * num(gst)) / 100); // to the rupee, as their Word quotations
@@ -399,7 +417,7 @@ export async function makeLayoutPdf(q, layout, img) {
   const newPage = () => { pdf.addPage(); frame(); y = TOP; };
   frame();
 
-  const t = layoutTotals(q.items, layout, q.gst);
+  const t = layoutTotals(q.items, layout, q.gst, q.lump);
   const fill = (s) => String(s ?? '').replace(/\{(\w+)\}/g, (m, k) => ({
     to: q.to, place: q.place, date: dots(q.date), ref: q.qtn_no ?? '', subject: q.subject ?? '', from: dots(q.from), upto: dots(q.upto),
     total: fmt(t.total), gst: fmt(t.tax), grand: fmt(t.with), words: inWords(t.with), rate: String(num(q.gst)),

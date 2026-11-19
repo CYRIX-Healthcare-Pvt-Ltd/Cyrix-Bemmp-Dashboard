@@ -10,11 +10,16 @@ import {
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
-  loadBarcodeCounts, loadBarcodeHistory,
+  loadBarcodeCounts, loadBarcodeHistory, wordToPdf, loadSigner, wakePdf,
 } from '../data/quotation.js';
+import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
+import { readGrid } from '../data/readSheet.js';
+import { fillWord } from '../data/quoteWord.js';
+import { readBlanks, fillBlanks, cleanYellow } from '../data/quoteBlanks.js';
+import { writeBook, saveBlob } from '../data/xlsx.js';
 import '../medtronic.css';
 import '../pm.css';
 import '../quotation.css';
@@ -39,6 +44,12 @@ const store = {
 };
 const ROLE_NAME = { engineer: 'Engineer', team_lead: 'Team Lead', coordinator: 'Coordinator', purchase: 'Purchase', pv: 'PV', observer: 'Observer', maker: 'Quotation maker', viewer: 'Viewer' };
 
+/*
+  The quotation creator (Create quotation, Quotations, Quotation templates) for test accounts only while it is rebuilt
+  (the user, 19 Nov: "remove quotation creator for all, except test"). Attaching a quotation file is for everybody.
+*/
+export const canMakeQuotes = (profile) => /^E(6666|7777|8888|9999)$/i.test(profile?.code ?? '') || /-\s*test\b/i.test(profile?.full_name ?? '');
+
 function tabsFor(me) {
   const r = me.role;
   if (r === 'maker') return [{ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' }]; const t = [{ id: 'dashboard', label: 'Dashboard', short: 'Dashboard' }, { id: 'requests', label: 'Requests', short: 'Requests' }];
@@ -46,14 +57,24 @@ function tabsFor(me) {
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
   if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
-  if (r === 'coordinator' || me.lead) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' });
+  if ((r === 'coordinator' || me.lead) && me.make) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' });
   // Settings (the targets): SW Admin only (0066; the user, 18 Nov: "not needed for pur, tl, pv, only sw admin").
   if (me.admin) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
 }
 
-export default function QuotationApp({ me, profile, narrow, switcher, onSignOut }) {
-  const [tab, setTab] = useState(me.role === 'maker' ? 'quotations' : 'dashboard');
+export default function QuotationApp({ me: meIn, profile, narrow, switcher, onSignOut }) {
+  const me = useMemo(() => ({ ...meIn, make: canMakeQuotes(profile) }), [meIn, profile]);
+  // The open tab rides in the address (?tab=), so a reload stays on it (the user, 19 Nov).
+  const [tab, setTabRaw] = useState(() => {
+    const t = new URL(window.location.href).searchParams.get('tab');
+    return t && tabsFor(me).some((x) => x.id === t) ? t : (me.role === 'maker' ? 'quotations' : 'dashboard');
+  });
+  const setTab = (t) => {
+    setTabRaw(t);
+    const u = new URL(window.location.href); u.searchParams.set('tab', t);
+    window.history.replaceState(null, '', u);
+  };
   const [period, setPeriod] = useState({ id: 'all', from: '', to: '' });
   const [list, setList] = useState(null);
   const [targets, setTargets] = useState({});
@@ -112,9 +133,9 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
     const vendors = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([x]) => x);
     const seen = [...(store.get(`qt-recent-hosp:${code}`) ?? [])];
     if (me.role === 'engineer') for (const r of [...(list ?? [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) if (r.kind === 'request' && r.facility_id) seen.push(r.facility_id);
-    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead), pools, repeats, openReq: open, role: me.role };
+    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead), pools, repeats, openReq: open, role: me.role, make: me.make };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, code, me.role, me.lead, pools, repeats]);
+  }, [list, code, me.role, me.lead, me.make, pools, repeats]);
   const tabs = tabsFor(me);
   const mine = list?.filter((r) => r.mine && !r.done) ?? [];
   const sub = `Quotation tracker · ${ROLE_NAME[me.role] ?? ''}${me.lead && me.role !== 'viewer' ? ' (lead)' : ''}${list ? ` · ${mine.length} to do` : ''}`;
@@ -181,6 +202,8 @@ const I = {
   back: <path d="M15 5l-7 7 7 7" />,
   chevron: <path d="M9 5l7 7-7 7" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>,
+  revise: <><path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3" /><rect x="3" y="8" width="13" height="13" rx="2" /><path d="M9.5 11.5v6M6.5 14.5h6" /></>,
 };
 
 /** The role a request now waits with (a stock return goes to the Coordinator). */
@@ -484,6 +507,69 @@ function Viewer({ paths, start, name, onClose }) {
 /* ===================================================== quotations (0055) == */
 
 const isPdf = (p) => /\.pdf$/i.test(p ?? '');
+const isDocx = (p) => /\.docx$/i.test(p ?? '');
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const SomeViewer = ({ word, ...p }) => (word ? <DocxViewer {...p} /> : <PdfViewer {...p} />);
+const wordShown = async (blob) => { try { return { blob: await wordToPdf(blob) }; } catch { return { blob, word: true }; } };
+
+/*
+  A Word quotation shown as Word lays it out (docx-preview), with Download; the customer's file itself is what is kept
+  and downloaded (the user, 19 Nov: "if anything changes customer will make problem").
+*/
+function DocxViewer({ path, blob, name, onClose, actions }) {
+  const box = useRef(null);
+  const [file, setFile] = useState(blob ?? null);
+  const [fail, setFail] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const b = blob ?? await (await fetch(await photoUrl(path))).blob(); if (!on) return; setFile(b);
+        const { renderAsync } = await import('docx-preview');
+        if (box.current) {
+          box.current.innerHTML = '';
+          await renderAsync(b, box.current, null, { inWrapper: true, breakPages: true, ignoreLastRenderedPageBreak: false, experimental: true });
+          // A letterhead drawn as one page-sized picture (Sub AMC): laid on each page from its corner, behind the text.
+          for (const page of box.current.querySelectorAll('section.docx')) {
+            const pw = page.getBoundingClientRect().width;
+            for (const img of page.querySelectorAll('header img, footer img')) {
+              if (img.getBoundingClientRect().width < pw * 0.8) continue;
+              // The preview does not always break pages where Word does: the picture repeats every A4 page.
+              const ph = pw * (297 / 210);
+              Object.assign(page.style, { backgroundImage: `url("${img.src}")`, backgroundSize: `100% ${ph}px`, backgroundRepeat: 'repeat-y', backgroundPosition: '0 0' });
+              (img.closest('div[style*="position"]') ?? img).remove();
+            }
+          }
+        }
+      } catch { if (on) setFail(true); }
+    })();
+    return () => { on = false; };
+  }, [path, blob]);
+  useEffect(() => {
+    const key = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', key);
+    const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key); document.body.style.overflow = was; };
+  }, [onClose]);
+  const download = async () => {
+    if (!file) return; setBusy(true);
+    const href = URL.createObjectURL(file);
+    const a = document.createElement('a'); a.href = href; a.download = `${fileName(name)}.docx`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 4000); setBusy(false);
+  };
+  return createPortal(
+    <div className="qt-lightbox qt-pdfbox qt-docxbox" role="dialog" aria-label="Quotation">
+      <div className="qt-lb-bar">
+        <button type="button" className="mt-sheet-x qt-lb-btn" disabled={!file || busy} onClick={download} aria-label="Download" title="Download"><Icon d={I.down} size={19} /></button>
+        <button type="button" className="mt-sheet-x qt-lb-btn" onClick={onClose} aria-label="Close" title="Close"><Icon d={I.x} size={20} /></button>
+      </div>
+      <div className="qt-pdf-pages qt-docx-pages">
+        {fail ? <p className="qt-pdf-msg">This Word file could not be opened.</p> : <div ref={box} className="qt-docx-doc"><span className="qt-thumb-wait" /></div>}
+      </div>
+      {actions && <div className="qt-pdf-acts">{actions}</div>}
+    </div>, document.body);
+}
 const fileName = (s) => String(s || 'file').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
 
 /** Save what a link points at under our own name (a cross-origin link would only open). */
@@ -500,7 +586,7 @@ async function saveAs(url, name) {
   A PDF in the app's own pop-up, never a new tab on the storage link (the user, 14 Nov: "why no pop up?"): every page
   down the screen, − / + or Ctrl + wheel or a pinch to zoom, download, close or Esc.
 */
-function PdfViewer({ path, blob, name, onClose }) {
+function PdfViewer({ path, blob, name, onClose, actions }) {
   const [doc, setDoc] = useState(null);
   const [url, setUrl] = useState(null);
   const [fail, setFail] = useState(false);
@@ -559,6 +645,7 @@ function PdfViewer({ path, blob, name, onClose }) {
           : !doc ? <span className="qt-thumb-wait" />
             : pages.map((n) => <PdfPage key={n} doc={doc} n={n} zoom={zoom} />)}
       </div>
+      {actions && <div className="qt-pdf-acts">{actions}</div>}
     </div>, document.body);
 }
 
@@ -584,8 +671,9 @@ function PdfPage({ doc, n, zoom }) {
   return <canvas ref={ref} className="qt-pdf-page" />;
 }
 
-/** Whatever a file is: a PDF in the PDF pop-up, a photo in the photo viewer. */
+/** Whatever a file is: a PDF in the PDF pop-up, a Word file in the Word pop-up, a photo in the photo viewer. */
 function FileView({ path, name, onClose }) {
+  if (isDocx(path)) return <DocxViewer path={path} name={name} onClose={onClose} />;
   return isPdf(path) ? <PdfViewer path={path} name={name} onClose={onClose} /> : <Viewer paths={[path]} start={0} name={name} onClose={onClose} />;
 }
 
@@ -616,7 +704,7 @@ function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', o
     <div className="qt-qadd">
       {files.map((f) => (
         <div key={f.path} className="qt-qadd-row">
-          <button type="button" className="qt-qfile-ico" onClick={() => setOpen(f.path)} aria-label="See it">{isPdf(f.path) ? 'PDF' : <Icon d={I.camera} size={16} />}</button>
+          <button type="button" className="qt-qfile-ico" onClick={() => setOpen(f.path)} aria-label="See it">{isPdf(f.path) ? 'PDF' : isDocx(f.path) ? 'W' : <Icon d={I.camera} size={16} />}</button>
           <button type="button" className="qt-qadd-text" onClick={() => setOpen(f.path)}>
             <b>{f.qtn_no ?? (signed ? 'Signed copy' : 'Quotation')}</b>
             <span>{[!signed && f.qtn_to, !signed && f.total != null && money(f.total), !f.qtn_no && 'QTN number not read'].filter(Boolean).join(' · ')}</span>
@@ -692,6 +780,7 @@ function useHeldQtn(r, q, set) {
 /** A Word template's quotation in its own layout; otherwise Spares Quotation. */
 function QuoteMaker(props) {
   const s = props.start;
+  if (s?.tpl?.layout?.v === 2 || s?.doc?.v === 2 || s?.draft?.v === 2) return <YellowMaker {...props} />;
   return s?.tpl?.layout || s?.doc?.layout || s?.draft?.layout ? <LayoutMaker {...props} /> : <SparesMaker {...props} />;
 }
 
@@ -707,7 +796,7 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
       qtn_no: s.qtn_no ?? null, date: s.date ?? todayIst(), to: s.to ?? '', place: s.place ?? '', subject: s.subject ?? DEFAULT_SUBJECT,
       terms: (s.terms ?? DEFAULT_TERMS).join('\n'), path: start.path ?? null,
       items: (s.items ?? []).map((it) => ({ key: Math.random(), desc: it.desc ?? '', cost: it.cost != null ? String(it.cost) : '', margin: it.margin ? String(it.margin) : '',
-        price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? '') })),
+        price: String(it.price ?? ''), qty: String(it.qty ?? 1), gst: String(it.gst ?? ''), whole: Boolean(it.whole) })),
     } : {
       qtn_no: null, path: null, date: todayIst(), to: r.hospital ?? '', place: r.district ?? '', subject: start?.tpl?.doc.subject ?? DEFAULT_SUBJECT, tpl: start?.tpl?.name ?? null,
       items: [{ key: Math.random(), desc: spareLine(r), cost: approved, margin: '', price: approved, qty: String(r.approved_qty ?? r.qty ?? 1), gst: tax != null ? String(Number(tax)) : '' }],
@@ -735,14 +824,52 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
   const setCost = (i, c) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, cost: c, price: Number(c) > 0 ? priceOf(c, it.margin) : it.price } : it)) }));
   const setPrice = (i, p) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: p, margin: marginOf(it.cost, p) } : it)) }));
   const [marginAll, setMarginAll] = useState('');
+  /*
+    Items from Excel (the user, 19 Nov: "where is excel upload option for equipments?"): Description, Qty, Unit price or
+    Total price, GST %, Cost. A Total price column makes those rows total-priced. Excel format gives the headings.
+  */
+  const xlsIn = useRef(null);
+  const SHEET = ['Description', 'Qty', 'Unit price', 'Total price', 'GST %', 'Cost'];
+  const format = async () => saveBlob(await writeBook([{ name: 'Items', columns: SHEET.map((h, k) => ({ header: h, key: String(k), numeric: k > 0 })), rows: [] }]), 'Quotation items.xlsx');
+  const fromExcel = async (f) => {
+    clear();
+    if (!f) return;
+    try {
+      const grid = await readGrid(f);
+      const n = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9%]/g, '');
+      const find = (heads, re) => heads.findIndex((h) => re.test(h));
+      let hi = -1; let at = null;
+      for (let i = 0; i < Math.min(grid.length, 15); i++) {
+        const h = grid[i].map(n);
+        const m = { desc: find(h, /desc|item|equipment|particular|spare|name/), qty: find(h, /^(qty|quantity|nos|no?ofunits)/), unit: find(h, /unit|rate|^price$/),
+          whole: find(h, /total|amount|value/), gst: find(h, /gst|tax/), cost: find(h, /cost/) };
+        if (m.desc >= 0 && (m.unit >= 0 || m.whole >= 0)) { hi = i; at = m; break; }
+      }
+      if (hi < 0) { show('Headings not found. Use the Excel format: Description, Qty, Unit price or Total price, GST %.'); return; }
+      const v = (g, k) => (k >= 0 ? String(g[k] ?? '').trim() : '');
+      const num = (x) => x.replace(/[^0-9.]/g, '');
+      const last = q.items[q.items.length - 1]?.gst ?? '';
+      const rows = grid.slice(hi + 1).filter((g) => v(g, at.desc)).map((g) => {
+        const whole = !num(v(g, at.unit)) && !!num(v(g, at.whole));
+        const price = num(whole ? v(g, at.whole) : v(g, at.unit));
+        const gst = num(v(g, at.gst).replace(/^0?\.(\d+)$/, (m0, d) => String(Number(`0.${d}`) * 100)));
+        const c0 = num(v(g, at.cost));
+        return { key: Math.random(), desc: v(g, at.desc), cost: c0, margin: c0 && price ? marginOf(c0, price) : '', price, qty: num(v(g, at.qty)) || '1', gst: gst || last, whole };
+      });
+      if (!rows.length) { show('No items under the headings.'); return; }
+      const blank = (it) => !it.desc.trim() && !it.price;
+      setQ((o) => ({ ...o, items: [...o.items.filter((it) => !blank(it)), ...rows] }));
+    } catch (e) { show(e.message || 'This file could not be read.'); }
+  };
   const applyAll = () => setQ((o) => ({ ...o, items: o.items.map((it) => (Number(it.cost) > 0 ? { ...it, margin: marginAll, price: priceOf(it.cost, marginAll) } : it)) }));
   const costed = q.items.filter((it) => Number(it.cost) > 0);
-  const costSum = costed.reduce((t, it) => t + Number(it.cost) * (Number(it.qty) || 0), 0);
-  const marginSum = costed.reduce((t, it) => t + (Number(it.price || 0) - Number(it.cost)) * (Number(it.qty) || 0), 0);
+  const per = (it) => (it.whole ? 1 : Number(it.qty) || 0);
+  const costSum = costed.reduce((t, it) => t + Number(it.cost) * per(it), 0);
+  const marginSum = costed.reduce((t, it) => t + (Number(it.price || 0) - Number(it.cost)) * per(it), 0);
   const doc = (qtn) => ({
     qtn_no: qtn, date: q.date, to: q.to.trim(), place: q.place.trim(), subject: q.subject.trim() || DEFAULT_SUBJECT,
     // Cost and margin are kept with the quotation for the record; the PDF shows only the price.
-    items: q.items.map(({ desc, cost, margin, price, qty, gst }) => ({ desc: desc.trim(), price: Number(price), qty: Number(qty), gst: Number(gst),
+    items: q.items.map(({ desc, cost, margin, price, qty, gst, whole }) => ({ desc: desc.trim(), price: Number(price), qty: Number(qty), gst: Number(gst), ...(whole ? { whole: true } : {}),
       ...(Number(cost) > 0 ? { cost: Number(cost), margin: Number(margin) || 0 } : {}) })),
     terms: q.terms.split('\n').map((t) => t.trim()).filter(Boolean),
   });
@@ -754,7 +881,7 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
     for (const [n, it] of q.items.entries()) {
       const name = q.items.length > 1 ? ` of item ${n + 1}` : '';
       if (!it.desc.trim()) return `Write the description${name}.`;
-      if (!(Number(it.price) > 0)) return `Write the unit price${name}.`;
+      if (!(Number(it.price) > 0)) return `Write the ${it.whole ? 'total' : 'unit'} price${name}.`;
       if (!(Number(it.qty) >= 1)) return `Write the quantity${name}.`;
       if (it.gst === '' || it.gst == null) return `Choose the GST %${name}.`;
     }
@@ -776,13 +903,22 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
       else if (save) { qtn = (qtn ?? '').trim() || await nextQtn(); set('qtn_no', qtn); }
       const d = doc(save ? qtn : (q.qtn_no ?? 'QTN number on saving'));
       const blob = await makeQuotePdf(d);
+      // Save shows it first: Edit goes back to the form, Save keeps it (the user, 19 Nov).
       if (!save) { setPreview(blob); return; }
+      setConfirm({ blob, d, qtn, total: totals.with });
+    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+  };
+  const [confirm, setConfirm] = useState(null);
+  const keep = async () => {
+    const { blob, d, qtn, total } = confirm;
+    setBusy('save');
+    try {
       const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
       const path = await uploadPhoto(r.folder ?? r.id, file);
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
-      settle(qtn);
-      onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
-    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+      settle(qtn); setConfirm(null);
+      onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total, date: d.date, doc: d }, q.path);
+    } catch (e) { setConfirm(null); show(e.message || 'The quotation could not be saved.'); } finally { setBusy(null); }
   };
   const termList = q.terms.split('\n').map((t) => t.trim()).filter(Boolean);
   const terms = q.terms === '' ? [] : q.terms.split('\n');
@@ -810,7 +946,7 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
             </div>
             <div className="qt-maker-items">
               <div className="qt-maker-head" aria-hidden="true">
-                <span>Sl No</span><span>Description</span><span>Cost</span><span>Margin %</span><span>Unit price</span><span>Qty</span><span>GST %</span><span>With GST</span><span />
+                <span>Sl No</span><span>Description</span><span>Cost</span><span>Margin %</span><span>Price</span><span>Qty</span><span>GST %</span><span>With GST</span><span />
               </div>
               {q.items.map((it, i) => (
                 <section key={it.key} className="qt-maker-item">
@@ -821,16 +957,17 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
                   </label>
                   {/* Without a request the maker types the cost (the user, 16 Nov: "where is margin?"). */}
                   {r.free ? (
-                    <label className="pm-in qt-mi-cost qt-mi-cost-in"><span>Cost</span>
+                    <label className="pm-in qt-mi-cost qt-mi-cost-in"><span>{it.whole ? 'Total cost' : 'Unit cost'}</span>
                       <input inputMode="decimal" value={it.cost ?? ''} onChange={(e) => setCost(i, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
                     </label>
-                  ) : <p className="qt-mi-cost"><span>Cost</span><b>{Number(it.cost) > 0 ? money(Number(it.cost)) : '—'}</b></p>}
+                  ) : <p className="qt-mi-cost"><span>{it.whole ? 'Total cost' : 'Unit cost'}</span><b>{Number(it.cost) > 0 ? money(Number(it.cost)) : '—'}</b></p>}
                   {Number(it.cost) > 0 || r.free ? (
                     <label className="pm-in qt-mi-margin"><span>Margin %</span>
                       <input inputMode="decimal" value={it.margin ?? ''} onChange={(e) => setMargin(i, e.target.value.replace(/[^0-9.-]/g, ''))} placeholder="0" />
                     </label>
                   ) : <p className="qt-mi-margin qt-mi-none"><span>Margin %</span><b>—</b></p>}
-                  <label className="pm-in qt-mi-price"><span>Unit price</span>
+                  <div className="qt-mi-whole"><Choice value={it.whole ? 'whole' : 'unit'} onChange={(x) => setItem(i, 'whole', x === 'whole')} options={[['unit', 'Unit price', 'good'], ['whole', 'Total price', 'good']]} /></div>
+                  <label className="pm-in qt-mi-price"><span>{it.whole ? 'Total price' : 'Unit price'}</span>
                     <input inputMode="decimal" value={it.price} onChange={(e) => setPrice(i, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
                   </label>
                   <label className="pm-in qt-mi-qty"><span>Qty</span>
@@ -843,6 +980,11 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
               <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), desc: '', cost: '', margin: '', price: '', qty: '1', gst: q.items[q.items.length - 1]?.gst ?? '' }])}>
                 <Icon d={I.plus} size={18} /><span>Add item</span>
               </button>
+              <div className="qt-lm-excel">
+                <button type="button" className="mt-btn" onClick={() => xlsIn.current?.click()}><Icon d={I.doc} size={16} />Upload Excel</button>
+                <button type="button" className="mt-btn" onClick={format}><Icon d={I.down} size={16} />Excel format</button>
+                <input ref={xlsIn} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => { fromExcel(e.target.files?.[0]); e.target.value = ''; }} />
+              </div>
             </div>
             {/* Terms on one line; pressed, a small pop-up to edit them (the user, 16 Nov: "dont show term fully, on click a small sub popup"). */}
             <button type="button" className="qt-maker-terms" onClick={() => setTermsOpen(true)}>
@@ -906,7 +1048,18 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
         </div>
       )}
       {preview && <PdfViewer blob={preview} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />}
+      {confirm && <SaveLook confirm={confirm} busy={busy} onEdit={() => setConfirm(null)} onSave={keep} free={r.free} />}
     </div>, document.body);
+}
+
+/** The PDF before it is kept: Edit back to the form, Save keeps it (the user, 19 Nov: "on saving, just show a pop up preview"). */
+function SaveLook({ confirm, busy, onEdit, onSave, free }) {
+  return (
+    <SomeViewer word={confirm.word} blob={confirm.blob} name={quoteFileName(confirm.d)} onClose={() => !busy && onEdit()} actions={<>
+      <button type="button" className="mt-btn mt-btn-lg" onClick={onEdit} disabled={!!busy}><Icon d={I.pen} size={16} />Edit</button>
+      <button type="button" className="mt-go" onClick={onSave} disabled={!!busy}>{busy ? 'Saving…' : free ? 'Save quotation' : 'Save and attach'}</button>
+    </>} />
+  );
 }
 
 /**
@@ -1002,9 +1155,9 @@ function Quotations({ me, onToast }) {
               <b data-col="total">{money(x.total)}</b>
               {everyone && <span data-col="by_name">{x.by_name} ({x.by_code})</span>}
               <span className="qt-qbook-acts">
-                <button type="button" className="mt-btn" onClick={() => setView(x)}>View</button>
-                {(x.mine || me.lead) && <button type="button" className="mt-btn" onClick={() => edit(x)}>Edit</button>}
-                <button type="button" className="mt-btn" onClick={() => revise(x)}>Revise</button>
+                <button type="button" className="mt-btn qt-act" onClick={() => setView(x)} aria-label={`View ${x.qtn_no}`} title="View"><Icon d={I.eye} size={17} /><span>View</span></button>
+                {(x.mine || me.lead) && <button type="button" className="mt-btn qt-act" onClick={() => edit(x)} aria-label={`Edit ${x.qtn_no}`} title="Edit"><Icon d={I.pen} size={16} /><span>Edit</span></button>}
+                <button type="button" className="mt-btn qt-act" onClick={() => revise(x)} aria-label={`Revise ${x.qtn_no}`} title="Revise"><Icon d={I.revise} size={17} /><span>Revise</span></button>
                 {(x.mine || me.lead) && <button type="button" className="qt-qadd-x" onClick={() => remove(x)} aria-label={`Delete ${x.qtn_no}`} title="Delete"><Icon d={I.x} size={14} /></button>}
               </span>
             </div>
@@ -1012,7 +1165,7 @@ function Quotations({ me, onToast }) {
         </div>
       )}
       {making && <QuoteMaker r={making.r} pick={null} start={making.start} onClose={close} onMade={(f) => made(f)} />}
-      {view && <PdfViewer path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn_no, to: view.to })} onClose={() => setView(null)} />}
+      {view && <FileView path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn_no, to: view.to })} onClose={() => setView(null)} />}
       {tplBox}
       {askBox}
     </div>
@@ -1097,7 +1250,7 @@ function QuoteBlock({ r, me }) {
           <div key={key} className="qt-qcard">
             <button type="button" className="qt-qcard-open" onClick={() => setOpen({ path: c.q.path, name: c.q.qtn_no ?? `${r.no} quotation` })} aria-label="See the quotation" />
             <div className="qt-qcard-top">
-              <span className="qt-qfile-ico">{isPdf(c.q.path) ? 'PDF' : <Icon d={I.camera} size={15} />}</span>
+              <span className="qt-qfile-ico">{isPdf(c.q.path) ? 'PDF' : isDocx(c.q.path) ? 'W' : <Icon d={I.camera} size={15} />}</span>
               <span className="qt-qstate" data-tone={STATE[c.state][0]}>{c.state === 'signed' && <Icon d={I.check} size={13} />}{STATE[c.state][1]}</span>
             </div>
             <p className="qt-qno">{c.q.qtn_no ?? 'Quotation'}</p>
@@ -1123,7 +1276,7 @@ function QuoteBlock({ r, me }) {
           <div key={key} className="qt-qcard">
             <button type="button" className="qt-qcard-open" onClick={() => setOpen({ path: s.path, name: `${s.qtn_no ?? r.no} signed` })} aria-label="See the signed copy" />
             <div className="qt-qcard-top">
-              <span className="qt-qfile-ico">{isPdf(s.path) ? 'PDF' : <Icon d={I.camera} size={15} />}</span>
+              <span className="qt-qfile-ico">{isPdf(s.path) ? 'PDF' : isDocx(s.path) ? 'W' : <Icon d={I.camera} size={15} />}</span>
               <span className="qt-qstate" data-tone="warn">No quotation</span>
             </div>
             <p className="qt-qno">{s.qtn_no ?? 'Signed copy'}</p>
@@ -2367,6 +2520,7 @@ function CoordQuote({ r, onDone }) {
     : go());
   const closeMaker = useCallback(() => { setMaking(null); setDraft(quoteDraft.get(r.id)); }, [r.id]);
   const [pickTpl, tplBox] = useTemplatePick((tpl) => setMaking({ start: draft ? { draft } : tpl ? { tpl } : lastMade() }));
+  const { make } = useContext(QtCtx);
   const made = (f, path) => {
     setFiles(path ? v.files.map((x) => (x.path === path ? f : x)) : [...v.files, f]);
     if (path || !v.quote_date) set('quote_date', f.date);
@@ -2384,9 +2538,9 @@ function CoordQuote({ r, onDone }) {
         <div className="qt-quote-row">
           <div className="pm-in qt-wide"><span>Quotation</span>
             <QuoteAdd folder={r.id} files={v.files} onChange={setFiles}
-              onCreate={pickTpl}
-              onEdit={(f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } }))}
-              draft={draft} onDraft={() => setMaking({ start: { draft } })}
+              onCreate={make ? pickTpl : undefined}
+              onEdit={make ? (f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } })) : undefined}
+              draft={make ? draft : null} onDraft={() => setMaking({ start: { draft } })}
               onDropDraft={() => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, draft?.to, money(docGrand(draft))].filter(Boolean), ok: 'Delete', tone: 'bad',
                 run: async () => { await releaseQtn(draft?.qtn_no).catch(() => false); quoteDraft.drop(r.id); setDraft(null); } })}
               onRemove={(f) => (f.doc
@@ -3463,17 +3617,18 @@ function MyEngineers({ ask, onDone }) {
 const tplSubject = (t) => t?.doc?.subject || DEFAULT_SUBJECT;
 const tplTerms = (t) => (t?.doc?.terms?.length ? t.doc.terms : DEFAULT_TERMS);
 /** What Create quotation starts from: an in-app template's name, subject and terms; a Word one's layout. */
-const tplStart = (t) => (!t ? null : t.kind === 'word' ? { name: t.name, layout: upgradeLayout(t.doc?.layout) } : { name: t.name, doc: { subject: tplSubject(t), terms: tplTerms(t) } });
+const tplStart = (t) => (!t ? null : t.kind === 'word' ? { name: t.name, layout: t.doc?.layout?.v === 2 ? t.doc.layout : upgradeLayout(t.doc?.layout), path: t.path } : { name: t.name, doc: { subject: tplSubject(t), terms: tplTerms(t) } });
 
 /** A quotation's grand total, whichever kind it is. */
-const docGrand = (d) => (d?.layout ? layoutTotals(d.items, d.layout, d.gst).with : quoteTotals(d?.items ?? []).with);
+const docGrand = (d) => (d?.v === 2 ? totalsOf(d.Y, itemsOf(d.Y, d.items, d.rows), d.gst, d.lump).with
+  : d?.layout ? layoutTotals(d.items, d.layout, d.gst, d.lump).with : quoteTotals(d?.items ?? []).with);
 
 /** "06.12.2026" → "2026-12-06". */
 const isoOf = (s) => { const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(String(s ?? '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : ''; };
 
 /** The layout of a Word template: kept with it, or read from its file (older ones). */
 async function layoutOf(t) {
-  if (t.doc?.layout) return upgradeLayout(t.doc.layout);
+  if (t.doc?.layout) return t.doc.layout.v === 2 ? t.doc.layout : upgradeLayout(t.doc.layout);
   return (await readLayout(await templateBlob(t.path))).layout;
 }
 
@@ -3630,13 +3785,18 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
     if (!/\.docx$/i.test(f.name)) { setErr('Choose a Word file (.docx).'); return; }
     setErr(null); setReading(true);
     try {
-      const [{ layout }, n] = await Promise.all([readLayout(f), t ? Promise.resolve(null) : templateName(f)]);
-      setFile(f); setLay(layout); if (n) setName(n);
+      // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
+      wakePdf();
+      const [Y, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
+      if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
+      setFile(f); setLay({ v: 2, yellow: Y }); if (n) setName(n);
     } catch { setErr('This Word file could not be read.'); } finally { setReading(false); }
   };
   const look = async () => {
     setBusy('look'); setErr(null);
-    try { setPreview(await makeLayoutPdf(layoutSample(lay), lay, templateArt)); } catch { setErr('The preview could not be made.'); } finally { setBusy(null); }
+    try {
+      setPreview(lay.v === 2 ? await wordShown(file ?? await templateBlob(t.path)) : { blob: await makeLayoutPdf(layoutSample(lay), lay, templateArt) });
+    } catch { setErr('The preview could not be made.'); } finally { setBusy(null); }
   };
   const save = async () => {
     if (!name.trim()) { setErr('Write the template name.'); return; }
@@ -3650,7 +3810,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
       onSaved(name.trim());
     } catch (e) { setErr(e.message); } finally { setBusy(null); }
   };
-  const lines = lay ? lay.blocks.filter((b) => b.k === 'p' && b.t.trim()).length : 0;
+  const lines = lay?.blocks ? lay.blocks.filter((b) => b.k === 'p' && b.t.trim()).length : 0;
   const full = kind === 'word' && (lay || reading);
   return createPortal(
     <div className={`mt-scrim qt-app${full ? ' qt-tpl-fullwrap' : ''}`} role="presentation">
@@ -3676,6 +3836,14 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
           </div>
         ) : reading ? <div className="loader" aria-hidden="true" /> : !lay ? (
           <button type="button" className="qt-tpl-drop" onClick={() => input.current?.click()}><Icon d={I.doc} size={22} /><span>Choose Word file</span></button>
+        ) : lay.v === 2 ? (
+          <div className="qt-tpl-form qt-lm-form">
+            <div className="qt-tpl-bar">
+              <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="AMC Proposal" /></Field>
+              <button type="button" className="mt-btn" onClick={() => input.current?.click()}><Icon d={I.doc} size={16} />Replace file</button>
+            </div>
+            <YellowCheck lay={lay} onChange={setLay} />
+          </div>
         ) : (
           <div className="qt-tpl-form qt-lm-form">
             <div className="qt-tpl-bar">
@@ -3702,19 +3870,23 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
         </div>
       </div>
       {pop && lay && <BlocksPop blocks={lay.blocks} onChange={(blocks) => setLay((o) => ({ ...o, blocks }))} onClose={() => setPop(false)} />}
-      {preview && <PdfViewer blob={preview} name={name || 'Template'} onClose={() => setPreview(null)} />}
+      {preview && <SomeViewer word={preview.word} blob={preview.blob} name={name || 'Template'} onClose={() => setPreview(null)} />}
     </div>, document.body);
 }
 
 /** A template as the quotation it makes: the sample, refilled, as a PDF. */
 function TemplateView({ t, onClose }) {
-  const [blob, setBlob] = useState(null);
+  const [shown, setShown] = useState(null);
   const [fail, setFail] = useState(false);
   useEffect(() => {
-    (t.kind === 'app' ? makeQuotePdf(sampleDoc(t)) : layoutOf(t).then((lay) => makeLayoutPdf(layoutSample(lay), lay, templateArt)))
-      .then(setBlob).catch(() => setFail(true));
+    (async () => {
+      if (t.kind === 'app') return { blob: await makeQuotePdf(sampleDoc(t)) };
+      const lay = await layoutOf(t);
+      if (lay.v === 2) return wordShown(await templateBlob(t.path));
+      return { blob: await makeLayoutPdf(layoutSample(lay), lay, templateArt) };
+    })().then(setShown).catch(() => setFail(true));
   }, [t]);
-  if (blob) return <PdfViewer blob={blob} name={t.name} onClose={onClose} />;
+  if (shown) return <SomeViewer word={shown.word} blob={shown.blob} name={t.name} onClose={onClose} />;
   return createPortal(
     <div className="qt-lightbox qt-pdfbox" onClick={fail ? onClose : undefined}>
       {fail ? <p className="qt-pdf-msg">This template could not be shown.</p> : <span className="qt-thumb-wait" />}
@@ -3727,9 +3899,9 @@ function Templates({ me, onToast }) {
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
   const [ask, askBox] = useAsk();
-  const load = useCallback(() => loadTemplates().then(setList).catch(() => setList([])), []);
+  const load = useCallback(() => loadTemplates().then((l) => setList((l ?? []).filter((x) => x.mine))).catch(() => setList([])), []);
   useEffect(() => { load(); }, [load]);
-  const everyone = (list ?? []).some((x) => !x.mine);
+  const everyone = false;
   return (
     <div className="qt-qbook">
       <div className="qt-qbook-bar qt-tpl-top">
@@ -3744,8 +3916,8 @@ function Templates({ me, onToast }) {
               <span>{[x.kind === 'word' ? x.file_name : 'Made in the app', whenText(x.updated_at), everyone && `${x.by_name} (${x.by_code})`].filter(Boolean).join(' · ')}</span>
             </button>
             <span className="qt-quotes-acts">
-              <button type="button" className="mt-btn" onClick={() => setView(x)}>View</button>
-              <button type="button" className="mt-btn" onClick={() => setEdit({ t: x })}>Edit</button>
+              <button type="button" className="mt-btn qt-act" onClick={() => setView(x)} aria-label={`View ${x.name}`} title="View"><Icon d={I.eye} size={17} /><span>View</span></button>
+              <button type="button" className="mt-btn qt-act" onClick={() => setEdit({ t: x })} aria-label={`Edit ${x.name}`} title="Edit"><Icon d={I.pen} size={16} /><span>Edit</span></button>
               <button type="button" className="qt-qadd-x" aria-label={`Delete ${x.name}`} title="Delete"
                 onClick={() => ask({ title: `Delete template ${x.name}?`, lines: [x.kind === 'word' ? x.file_name : 'Made in the app'].filter(Boolean), ok: 'Delete', tone: 'bad', run: async () => { await deleteTemplate(x.id); load(); } })}>
                 <Icon d={I.x} size={14} />
@@ -3771,8 +3943,18 @@ function useTemplatePick(onApp) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
-  useEffect(() => { loadTemplates().then((l) => setList((l ?? []).filter((x) => x.mine))).catch(() => setList([])); }, [open]);
+  useEffect(() => { loadTemplates().then((l) => setList((l ?? []).filter((x) => x.mine && x.kind === 'word'))).catch(() => setList([])); }, [open]);
   const choose = async (x) => {
+    // Uploaded before the yellow blanks and S.No lists were read (19 Nov): read from its file now.
+    if (x.kind === 'word' && x.doc?.layout && x.doc.layout.v !== 2 && !x.doc.layout.blanksRead && x.path) {
+      setBusy(x.id); setErr(null);
+      try {
+        const bl = await readBlanks(await templateBlob(x.path));
+        const layout = { ...x.doc.layout, blanksRead: true, ...(bl.fields.length || bl.ticks.length || bl.list ? { blanks: bl } : {}) };
+        setOpen(false); onApp(tplStart({ ...x, doc: { ...x.doc, layout } }));
+      } catch { setErr(`${x.name} could not be opened.`); setOpen(true); } finally { setBusy(null); }
+      return;
+    }
     if (x.kind === 'app' || x.doc?.layout) { setOpen(false); onApp(tplStart(x)); return; }
     setBusy(x.id); setErr(null);
     try {
@@ -3782,7 +3964,8 @@ function useTemplatePick(onApp) {
       setOpen(false); onApp(tplStart(kept));
     } catch { setErr(`${x.name} could not be opened.`); setOpen(true); } finally { setBusy(null); }
   };
-  const start = () => (!list?.length ? onApp(null) : list.length === 1 ? choose(list[0]) : setOpen(true));
+  // Word templates only: the rows follow that Word table (the user, 19 Nov: "we need only from word, some quotation may not have qty").
+  const start = () => (list?.length === 1 ? choose(list[0]) : setOpen(true));
   const box = open && createPortal(
     <div className="mt-scrim qt-app" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
       <div className="mt-sheet qt-tpl-pick" role="dialog" aria-modal="true" aria-label="Choose template">
@@ -3791,6 +3974,7 @@ function useTemplatePick(onApp) {
           <button type="button" className="mt-sheet-x" onClick={() => setOpen(false)} aria-label="Close"><Icon d={I.x} size={20} /></button>
         </div>
         <div className="mt-sheet-body">
+        {list && !list.length && <p className="qt-tpl-none">No Word template yet. Upload one under Templates.</p>}
         <ul className="qt-tpl-list">
           {(list ?? []).map((x) => (
             <li key={x.id}><button type="button" className="qt-tpl-row qt-tpl-choice" disabled={!!busy} onClick={() => choose(x)}>
@@ -3839,9 +4023,18 @@ function LayoutMaker({ r, start, onClose, onMade }) {
         items: its.map((it) => ({ key: it.key ?? Math.random(), cells: [...(it.cells ?? [])], price: String(it.price ?? '') })) };
     }
     const lay = start.tpl.layout; const cols = lay.items?.cols ?? [];
+    // Yellow blanks (quoteBlanks): a box per name, its sample kept where nothing is to be typed; ticks all on.
+    const bl = lay.blanks;
+    const fields = {};
+    for (const f of bl?.fields ?? []) {
+      if (f.kind === 'date' || f.kind === 'period') continue;
+      fields[f.key] = /customer|hospital/.test(f.key) ? (r.hospital ?? '') : f.key === 'place' ? (r.district ?? '') : f.kind === 'qtn' ? ''
+        : f.blank ? (/\d/.test(f.sample) ? f.sample : '') : f.sample;
+    }
     return {
-      tpl: start.tpl.name, layout: { ...lay, blocks: [] }, blocks: lay.blocks, qtn_no: null, path: null, date: todayIst(),
-      to: r.hospital ?? '', place: r.district ?? '', subject: lay.subject ?? '', from: '', upto: '', gst: String(lay.items?.gst ?? 18),
+      ...(bl ? { fields, ticks: {}, rows: [] } : {}),
+      tpl: start.tpl.name, tplPath: start.tpl.path ?? null, layout: { ...lay, blocks: [] }, blocks: lay.blocks, qtn_no: null, path: null, date: todayIst(),
+      to: r.hospital ?? '', place: r.district ?? '', subject: lay.subject ?? '', from: '', upto: '', gst: String(lay.items?.gst ?? 18), lump: Boolean(lay.items?.lump),
       items: [{ key: Math.random(), cells: cellsFor(cols, r), price: !r.free && cost != null ? String(Number(cost)) : '' }],
     };
   });
@@ -3855,18 +4048,90 @@ function LayoutMaker({ r, start, onClose, onMade }) {
   const settle = useHeldQtn(r, q, set);
   const setCell = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, cells: cols.map((_, c) => (c === k ? v : it.cells[c] ?? '')) } : it)) }));
   const setPrice = (i, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, price: v } : it)) }));
-  const totals = layoutTotals(q.items, lay, q.gst);
+  const totals = layoutTotals(q.items, lay, q.gst, q.lump);
   const qi = qtyCol(lay);
+  const [confirm, setConfirm] = useState(null);
+  const xlsIn = useRef(null);
+  /*
+    Rows from Excel (the user, 19 Nov: "1 quotation with 100 equipments"): the heading row is the one naming the
+    template's columns; each row under it becomes a row here. Format gives an empty sheet with those headings.
+  */
+  const norm = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const priceName = lay.items?.price ?? 'Rate';
+  const format = async () => saveBlob(await writeBook([{ name: 'Rows', columns: [...cols, priceName].map((h, k) => ({ header: h, key: String(k), numeric: k === cols.length })), rows: [] }]), `${q.tpl || 'Quotation'} rows.xlsx`);
+  const fromExcel = async (f) => {
+    clear();
+    if (!f) return;
+    try {
+      const grid = await readGrid(f);
+      const want = [...cols, priceName].map(norm);
+      const match = (h, w, k) => h && (h === w || (k === cols.length ? /rate|price|amount|value/.test(h) : h.includes(w) || w.includes(h)));
+      let hi = -1; let at = [];
+      for (let i = 0; i < Math.min(grid.length, 15); i++) {
+        const heads = grid[i].map(norm);
+        const m = want.map((w, k) => heads.findIndex((h) => match(h, w, k)));
+        if (m.filter((x) => x >= 0).length > at.filter((x) => x >= 0).length) { hi = i; at = m; }
+      }
+      if (hi < 0 || at.filter((x) => x >= 0).length < 2) { show(`Headings not found. Use the Excel format: ${[...cols, priceName].join(', ')}.`); return; }
+      const rows = grid.slice(hi + 1).map((g) => ({ key: Math.random(), cells: cols.map((_, k) => (at[k] >= 0 ? g[at[k]] ?? '' : '')),
+        price: at[cols.length] >= 0 ? String(g[at[cols.length]] ?? '').replace(/[^0-9.]/g, '') : '' }))
+        .filter((x) => x.cells.some((v) => v) || x.price);
+      if (!rows.length) { show('No rows under the headings.'); return; }
+      const blank = (it) => !it.cells.some((v) => String(v ?? '').trim()) && !it.price;
+      setQ((o) => ({ ...o, items: [...o.items.filter((it) => !blank(it)), ...rows] }));
+    } catch (e) { show(e.message || 'This file could not be read.'); }
+  };
+  // The yellow form (quoteBlanks): fields, ticks and the Annexure list rows.
+  const bl = lay.blanks;
+  // Yellow boxes in place of To / Ref / Subject only when the template has them; a list alone keeps the usual header.
+  const yb = bl && (bl.fields.length || bl.ticks.length) ? bl : null;
+  const setField = (k, v) => setQ((o) => {
+    const fields = { ...o.fields, [k]: v };
+    const who = bl?.fields.find((f) => /customer|hospital/.test(f.key));
+    return { ...o, fields, ...(who && who.key === k ? { to: v } : {}), ...(k === 'place' ? { place: v } : {}) };
+  });
+  const numbered = /^(s[il]?\.?\s*no|sr\.?\s*no|no)\.?$/i.test(bl?.list?.cols[0] ?? '');
+  const listCols = (bl?.list?.cols ?? []).map((c, k) => ({ c, k })).filter(({ k }) => !(numbered && k === 0));
+  const setRow = (i, k, v) => setQ((o) => ({ ...o, rows: o.rows.map((row, n) => (n === i ? bl.list.cols.map((_, j) => (j === k ? v : row[j] ?? '')) : row)) }));
+  const listIn = useRef(null);
+  const listFormat = async () => saveBlob(await writeBook([{ name: 'Equipment', columns: listCols.map(({ c }, j) => ({ header: c, key: String(j), numeric: /qty|quantity|nos/i.test(c) })), rows: [] }]), `${q.tpl || 'Quotation'} equipment.xlsx`);
+  const listExcel = async (f) => {
+    clear();
+    if (!f) return;
+    try {
+      const grid = await readGrid(f);
+      const want = listCols.map(({ c }) => norm(c));
+      let hi = -1; let at = [];
+      for (let i = 0; i < Math.min(grid.length, 15); i++) {
+        const heads = grid[i].map(norm);
+        const m = want.map((w) => heads.findIndex((h) => h && (h === w || h.includes(w) || w.includes(h) || (/qty|quantity/.test(w) && /qty|quantity|nos/.test(h)))));
+        if (m.filter((x) => x >= 0).length > at.filter((x) => x >= 0).length) { hi = i; at = m; }
+      }
+      if (hi < 0 || at.filter((x) => x >= 0).length < Math.min(2, want.length)) { show(`Headings not found. Use the Excel format: ${listCols.map(({ c }) => c).join(', ')}.`); return; }
+      const rows = grid.slice(hi + 1).map((g) => {
+        const row = bl.list.cols.map(() => '');
+        listCols.forEach(({ k }, j) => { if (at[j] >= 0) row[k] = String(g[at[j]] ?? '').trim(); });
+        return row;
+      }).filter((row) => row.some((v) => v));
+      if (!rows.length) { show('No rows under the headings.'); return; }
+      setQ((o) => ({ ...o, rows: [...(o.rows ?? []).filter((row) => row.some((v) => String(v ?? '').trim())), ...rows] }));
+    } catch (e) { show(e.message || 'This file could not be read.'); }
+  };
   const doc = (qtn) => ({
-    tpl: q.tpl, qtn_no: qtn, date: q.date, to: q.to.trim(), place: q.place.trim(), subject: q.subject.trim(), from: q.from, upto: q.upto, gst: Number(q.gst),
+    tpl: q.tpl, qtn_no: qtn, date: q.date, to: q.to.trim(), place: q.place.trim(), ...(q.tplPath && q.address != null ? { address: q.address } : {}), subject: q.subject.trim(), from: q.from, upto: q.upto, gst: Number(q.gst), lump: Boolean(q.lump),
     items: q.items.map((it) => ({ cells: it.cells.map((c) => String(c ?? '').trim()), price: Number(it.price), desc: it.cells.filter(Boolean).join(' ') })),
-    blocks: q.blocks, layout: lay,
+    blocks: q.blocks, layout: lay, tplPath: q.tplPath ?? null,
+    ...(bl ? { fields: q.fields ?? {}, ticks: q.ticks ?? {}, rows: q.rows ?? [] } : {}),
   });
   const check = () => {
-    if (r.free && !(q.qtn_no ?? '').trim()) return 'Write the Ref number.';
-    if (!q.to.trim()) return 'Write the hospital the quotation is to.';
+    if (yb) {
+      for (const f of yb.fields) if ((f.blank || f.kind === 'qtn') && f.kind !== 'date' && f.kind !== 'period' && !String(q.fields?.[f.key] ?? '').trim()) return `Write the ${f.label}.`;
+    } else {
+      if (r.free && !(q.qtn_no ?? '').trim()) return 'Write the Ref number.';
+      if (!q.to.trim()) return 'Write the hospital the quotation is to.';
+    }
     if (!q.date) return 'Choose the quotation date.';
-    if (lay.period && (!q.from || !q.upto)) return 'Choose the contract period.';
+    if ((lay.period || bl?.period) && (!q.from || !q.upto)) return 'Choose the contract period.';
     if (lay.period && q.upto < q.from) return 'The contract ends before it starts.';
     if (!q.items.length) return 'Add a row.';
     for (const [n, it] of q.items.entries()) {
@@ -3887,17 +4152,35 @@ function LayoutMaker({ r, start, onClose, onMade }) {
     setBusy(save ? 'save' : 'look');
     try {
       let qtn = q.qtn_no;
-      if (r.free) qtn = (qtn ?? '').trim() || null;
+      // The QTN typed into the template's own number (QTN0001/CHC/2026-27): the whole number is the quotation's.
+      const qf = bl?.fields.find((f) => f.kind === 'qtn');
+      if (qf) {
+        const w = qf.at[0].line.split(/\s+/).find((x) => x.includes(qf.sample)) ?? qf.sample;
+        qtn = w.replace(qf.sample, String(q.fields?.[qf.key] ?? '').trim()).replace(/[–-]$/, '');
+        if (save) set('qtn_no', qtn);
+      } else if (r.free) qtn = (qtn ?? '').trim() || null;
       else if (save) { qtn = (qtn ?? '').trim() || await nextQtn(); set('qtn_no', qtn); }
       const d = doc(save ? qtn : (q.qtn_no ?? 'Ref on saving'));
-      const blob = await makeLayoutPdf(d, lay, templateArt);
-      if (!save) { setPreview(blob); return; }
-      const file = new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
+      // The customer's own Word filled in (the user, 19 Nov: "edit on same word"); a layout without its file is drawn.
+      const word = Boolean(q.tplPath);
+      let blob;
+      if (word && bl) blob = await cleanYellow(await fillWord(await fillBlanks(await templateBlob(q.tplPath), bl, d), lay, d));
+      else blob = word ? await fillWord(await templateBlob(q.tplPath), lay, d) : await makeLayoutPdf(d, lay, templateArt);
+      if (!save) { setPreview({ blob, word }); return; }
+      setConfirm({ blob, d, qtn, total: totals.with, word });
+    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+  };
+  const keep = async () => {
+    const { blob, d, qtn, total, word } = confirm;
+    setBusy('save');
+    try {
+      const file = word ? new File([blob], `${quoteFileName(d)}.docx`, { type: DOCX })
+        : new File([blob], `${quoteFileName(d)}.pdf`, { type: 'application/pdf' });
       const path = await uploadPhoto(r.folder ?? r.id, file);
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
-      settle(qtn);
-      onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total: totals.with, date: d.date, doc: d }, q.path);
-    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+      settle(qtn); setConfirm(null);
+      onMade({ path, sha256: sha, qtn_no: qtn, qtn_to: d.to, total, date: d.date, doc: d }, q.path);
+    } catch (e) { setConfirm(null); show(e.message || 'The quotation could not be saved.'); } finally { setBusy(null); }
   };
   const lines = q.blocks.filter((b) => b.k === 'p' && b.t.trim()).length;
   return createPortal(
@@ -3912,9 +4195,54 @@ function LayoutMaker({ r, start, onClose, onMade }) {
         </header>
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
-            <div className="qt-maker-to qt-lm-to">
-              <Field label="To" wide><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
-              <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
+            {yb && (
+              <div className="qt-maker-to qt-lm-to">
+                {bl.fields.filter((f) => f.kind !== 'period').map((f) => (
+                  f.kind === 'date' ? <Field key={f.key} label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
+                  : f.kind === 'pick' ? (
+                    <Field key={f.key} label={f.label} wide>
+                      <select value={q.fields?.[f.key] ?? f.sample} onChange={(e) => setField(f.key, e.target.value)}>
+                        {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </Field>
+                  ) : /address/.test(f.key) ? (
+                    <Field key={f.key} label={f.label} wide>
+                      <textarea rows={3} value={q.fields?.[f.key] ?? ''} onChange={(e) => setField(f.key, e.target.value)} placeholder={f.label} />
+                    </Field>
+                  ) : (
+                    <Field key={f.key} label={f.label} wide={f.sample.length > 18}>
+                      <input value={q.fields?.[f.key] ?? ''} onChange={(e) => setField(f.key, e.target.value)} placeholder={f.blank ? f.label : f.sample}
+                        inputMode={f.kind === 'qtn' || /contact|phone|mobile/.test(f.key) ? 'numeric' : undefined} />
+                    </Field>
+                  )
+                ))}
+                {(lay.period || bl.period) && <>
+                  <Field label="Contract from"><input type="date" value={q.from} onChange={(e) => set('from', e.target.value)} /></Field>
+                  <Field label="Contract to"><input type="date" value={q.upto} min={q.from || undefined} onChange={(e) => set('upto', e.target.value)} /></Field>
+                </>}
+              </div>
+            )}
+            {bl?.ticks.length > 0 && (
+              <div className="qt-bl-ticks">
+                {bl.ticks.map((t) => (
+                  <label key={t.id} className="qt-bl-tick">
+                    <input type="checkbox" checked={q.ticks?.[t.id] !== false} onChange={(e) => setQ((o) => ({ ...o, ticks: { ...o.ticks, [t.id]: e.target.checked } }))} />
+                    <span>{t.text}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {!yb && <div className="qt-maker-to qt-lm-to">
+              {q.tplPath ? (
+                <Field label="To" wide>
+                  <textarea rows={Math.max(3, Math.min(7, (q.address ?? '').split('\n').length))} value={q.address ?? [q.to, q.place].filter(Boolean).join('\n')}
+                    onChange={(e) => setQ((o) => ({ ...o, address: e.target.value, to: e.target.value.split('\n')[0]?.trim() ?? '', place: '' }))}
+                    placeholder={[lay.sample?.to, lay.sample?.place].filter(Boolean).join('\n') || 'Hospital'} />
+                </Field>
+              ) : <>
+                <Field label="To" wide><input value={q.to} onChange={(e) => set('to', e.target.value)} placeholder="Hospital" /></Field>
+                <Field label="Place"><input value={q.place} onChange={(e) => set('place', e.target.value)} placeholder="Place" /></Field>
+              </>}
               <Field label="Date"><input type="date" value={q.date} max={todayIst()} onChange={(e) => set('date', e.target.value)} /></Field>
               {<Field label="Ref" wide><input value={q.qtn_no ?? ''} onChange={(e) => set('qtn_no', e.target.value)} placeholder={lay.sample?.ref || 'AMC 136/2026-27'} /></Field>}
               <Field label="Subject" wide><input value={q.subject} onChange={(e) => set('subject', e.target.value)} placeholder={lay.subject || 'Subject'} /></Field>
@@ -3922,7 +4250,12 @@ function LayoutMaker({ r, start, onClose, onMade }) {
                 <Field label="Contract from"><input type="date" value={q.from} onChange={(e) => set('from', e.target.value)} /></Field>
                 <Field label="Contract to"><input type="date" value={q.upto} min={q.from || undefined} onChange={(e) => set('upto', e.target.value)} /></Field>
               </>}
-            </div>
+            </div>}
+            {lay.items && qi >= 0 && (
+              <Field label={priceName} wide>
+                <Choice value={q.lump ? 'lump' : 'unit'} onChange={(x) => set('lump', x === 'lump')} options={[['unit', 'For one (× Qty)', 'good'], ['lump', 'For the whole row', 'good']]} />
+              </Field>
+            )}
             {lay.items && (
               <div className="qt-maker-items">
                 {q.items.map((it, i) => (
@@ -3933,23 +4266,61 @@ function LayoutMaker({ r, start, onClose, onMade }) {
                     <div className="qt-lm-cells">
                       {cols.map((c, k) => (
                         <label key={k} className="pm-in"><span>{c}</span>
-                          <input value={it.cells[k] ?? ''} inputMode={k === qi ? 'numeric' : undefined}
-                            onChange={(e) => setCell(i, k, k === qi ? e.target.value.replace(/[^0-9]/g, '') : e.target.value)} placeholder={lay.items.sample?.[0]?.cells?.[k] || c} />
+                          {/* Several lines where the Word cell has them ("AMC CONTRACT" then its description; 19 Nov). */}
+                          {k === qi ? (
+                            <input value={it.cells[k] ?? ''} inputMode={!q.lump ? 'numeric' : undefined}
+                              onChange={(e) => setCell(i, k, !q.lump ? e.target.value.replace(/[^0-9]/g, '') : e.target.value)} placeholder={lay.items.sample?.[0]?.cells?.[k] || c} />
+                          ) : (
+                            <textarea rows={Math.min(6, Math.max(1, String(it.cells[k] ?? lay.items.sample?.[0]?.cells?.[k] ?? '').split('\n').length))} value={it.cells[k] ?? ''}
+                              onChange={(e) => setCell(i, k, e.target.value)} placeholder={lay.items.sample?.[0]?.cells?.[k] || c} />
+                          )}
                         </label>
                       ))}
                       <label className="pm-in"><span>{lay.items.price}</span>
                         <input inputMode="decimal" value={it.price} onChange={(e) => setPrice(i, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
                       </label>
-                      {qi >= 0 && <p className="qt-mi-tot"><span>Amount</span><b>{money(totals.lines[i]) || '₹0'}</b></p>}
+                      {qi >= 0 && !q.lump && <p className="qt-mi-tot"><span>Amount</span><b>{money(totals.lines[i]) || '₹0'}</b></p>}
                     </div>
                   </section>
                 ))}
                 <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), cells: cols.map(() => ''), price: '' }])}>
                   <Icon d={I.plus} size={18} /><span>Add row</span>
                 </button>
+                <div className="qt-lm-excel">
+                  <button type="button" className="mt-btn" onClick={() => xlsIn.current?.click()}><Icon d={I.doc} size={16} />Upload Excel</button>
+                  <button type="button" className="mt-btn" onClick={format}><Icon d={I.down} size={16} />Excel format</button>
+                  <input ref={xlsIn} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => { fromExcel(e.target.files?.[0]); e.target.value = ''; }} />
+                </div>
               </div>
             )}
             <div className="qt-lm-gst"><TaxChips value={q.gst} onChange={(v) => set('gst', v)} /></div>
+            {bl?.list && (
+              <div className="qt-maker-items qt-bl-list">
+                <h3 className="qt-bl-h">{bl.list.title || bl.fields.find((f) => /annexure/i.test(f.sample))?.sample || 'Annexure'}</h3>
+                {(q.rows ?? []).map((row, i) => (
+                  <section key={i} className="qt-lm-item">
+                    <div className="qt-lm-item-head"><b>{i + 1}</b>
+                      <button type="button" className="qt-qadd-x" onClick={() => set('rows', q.rows.filter((_, n) => n !== i))} aria-label={`Remove row ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>
+                    </div>
+                    <div className="qt-lm-cells">
+                      {listCols.map(({ c, k }) => (
+                        <label key={k} className="pm-in"><span>{c}</span>
+                          <input value={row[k] ?? ''} onChange={(e) => setRow(i, k, e.target.value)} placeholder={c} inputMode={/qty|quantity|nos/i.test(c) ? 'numeric' : undefined} />
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('rows', [...(q.rows ?? []), bl.list.cols.map(() => '')])}>
+                  <Icon d={I.plus} size={18} /><span>Add row</span>
+                </button>
+                <div className="qt-lm-excel">
+                  <button type="button" className="mt-btn" onClick={() => listIn.current?.click()}><Icon d={I.doc} size={16} />Upload Excel</button>
+                  <button type="button" className="mt-btn" onClick={listFormat}><Icon d={I.down} size={16} />Excel format</button>
+                  <input ref={listIn} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => { listExcel(e.target.files?.[0]); e.target.value = ''; }} />
+                </div>
+              </div>
+            )}
             <button type="button" className="qt-maker-terms" onClick={() => setPop(true)}>
               <span>Letter and terms</span><b>{lines} {lines === 1 ? 'line' : 'lines'}</b><Icon d={I.pen} size={15} />
             </button>
@@ -3972,6 +4343,315 @@ function LayoutMaker({ r, start, onClose, onMade }) {
       </div>
       {pop && <BlocksPop blocks={q.blocks} onChange={(blocks) => set('blocks', blocks)} onClose={() => setPop(false)}
         onReset={start?.tpl?.layout ? () => set('blocks', start.tpl.layout.blocks) : undefined} />}
-      {preview && <PdfViewer blob={preview} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />}
+      {preview && (preview.word ? <DocxViewer blob={preview.blob} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />
+        : <PdfViewer blob={preview.blob} name={quoteFileName(doc(q.qtn_no ?? 'Preview'))} onClose={() => setPreview(null)} />)}
+      {confirm && <SaveLook confirm={confirm} busy={busy} onEdit={() => setConfirm(null)} onSave={keep} free={r.free} />}
     </div>, document.body);
+}
+
+
+/*
+  A quotation from a template marked in yellow (yellowDoc; the user, 19 Nov: "whatever user shows in yellow is a field,
+  rest everything should keep exactly"): a box for each yellow thing, in the order the letter has them; the price
+  table's items; the Annexure rows, typed or from Excel. Customer details start empty (the date today, the signer the
+  signed-in person, CLIENT from To without the person's line); the usual terms as uploaded. Preview and Save make the
+  Word file itself and, on our server, its PDF; both are kept, the PDF is what is attached.
+*/
+const PERSON_LINE = /^(dr|mr|mrs|ms|miss|prof)\b\.?/i;
+const titleLike = (sample, text) => {
+  const t = String(text ?? '');
+  if (/[a-z]/.test(sample) && t === t.toUpperCase()) return t.toLowerCase().replace(/(^|[\s,(/-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  return t;
+};
+
+function YellowMaker({ r, start, onClose, onMade }) {
+  const [q, setQ] = useState(() => {
+    const d = start?.draft ?? start?.doc;
+    if (d?.v === 2) {
+      const ref = d.Y.fields.find((x) => x.role === 'ref'); const day = d.Y.fields.find((x) => x.role === 'date');
+      // A revision (R1, R2…) comes with its number and today: they go into the Ref and Date boxes.
+      const f = { ...d.f, ...(ref && d.qtn_no ? { [ref.key]: d.qtn_no } : {}), ...(day && d.date ? { [day.key]: d.date } : {}) };
+      return { ...d, f, items: (d.items ?? []).map((it) => ({ key: Math.random(), ...it })), rows: d.rows ?? [], path: start.path ?? d.path ?? null };
+    }
+    const Y = start.tpl.layout.yellow;
+    const f = {};
+    for (const x of Y.fields) f[x.key] = startValue(x, { today: todayIst(), hospital: r.free ? '' : (r.hospital ?? ''), signer: '' });
+    const cl = Y.fields.find((x) => x.role === 'client');
+    if (cl && f[cl.key]) f[cl.key] = titleLike(cl.sample, f[cl.key]);
+    const own = (Y.price?.fields ?? []).filter((x) => !x.link);
+    return {
+      v: 2, tpl: start.tpl.name, tplPath: start.tpl.path, Y, f, gst: String(Y.price?.gst ?? 18), lump: Boolean(Y.price?.lump),
+      items: [{ key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, x.qty ? '' : x.sample])) }],
+      rows: [], path: null, clientOwn: false, qtn_no: null,
+    };
+  });
+  const Y = q.Y;
+  const own = (Y.price?.fields ?? []).filter((x) => !x.link);
+  const [busy, setBusy] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [err, show, clear, at] = useErr();
+  const roleOf = (role) => Y.fields.find((x) => x.role === role);
+  const toOf = (f) => {
+    const to = roleOf('to'); const cl = roleOf('client');
+    const lines = String((to && f[to.key]) || (cl && f[cl.key]) || r.hospital || '').split('\n').map((x) => x.trim()).filter(Boolean);
+    return (lines.find((x) => !PERSON_LINE.test(x)) ?? lines[0] ?? '').replace(/[\s,;:–—-]+$/, '');
+  };
+  useEffect(() => { quoteDraft.set(r.id, { ...q, to: toOf(q.f) }); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
+  useEffect(() => { wakePdf(); }, []);
+  // The signer: the signed-in person's name, designation and phone, unless already written.
+  useEffect(() => {
+    const sg = Y.fields.find((x) => x.kind === 'signer');
+    if (!sg || String(q.f[sg.key] ?? '').trim()) return;
+    loadSigner().then((v) => { if (v) setQ((o) => (String(o.f[sg.key] ?? '').trim() ? o : { ...o, f: { ...o.f, [sg.key]: v } })); }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const setF = (k, v) => setQ((o) => {
+    const f = { ...o.f, [k]: v };
+    const to = roleOf('to'); const cl = roleOf('client');
+    // CLIENT follows To (without the person's line) until it is written itself (the user, 19 Nov).
+    if (to && cl && k === to.key && !o.clientOwn) f[cl.key] = titleLike(cl.sample, clientFrom(v));
+    return { ...o, f, ...(cl && k === cl.key ? { clientOwn: true } : {}) };
+  });
+  const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
+  const totals = totalsOf(Y, itemsOf(Y, q.items, q.rows), q.gst, q.lump);
+
+  // The Annexure: its columns (S.No. counted), rows typed or from Excel.
+  const nrm = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const numbered = /^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i.test(Y.list?.cols[0] ?? '');
+  const listCols = (Y.list?.cols ?? []).map((c, k) => ({ c, k })).filter(({ k }) => !(numbered && k === 0));
+  const setRow = (i, k, v) => setQ((o) => ({ ...o, rows: o.rows.map((row, n) => (n === i ? Y.list.cols.map((_, j) => (j === k ? v : row[j] ?? '')) : row)) }));
+  const listIn = useRef(null);
+  const listFormat = async () => saveBlob(await writeBook([{ name: 'Rows', columns: listCols.map(({ c }, j) => ({ header: c, key: String(j) })), rows: [] }]), `${Y.list?.title || q.tpl || 'Annexure'}.xlsx`);
+  const listExcel = async (file) => {
+    clear();
+    if (!file) return;
+    try {
+      const grid = await readGrid(file);
+      const want = listCols.map(({ c }) => nrm(c));
+      let hi = -1; let found = [];
+      for (let i = 0; i < Math.min(grid.length, 15); i++) {
+        const heads = grid[i].map(nrm);
+        const m = want.map((w) => heads.findIndex((h) => h && (h === w || h.includes(w) || w.includes(h))));
+        if (m.filter((x) => x >= 0).length > found.filter((x) => x >= 0).length) { hi = i; found = m; }
+      }
+      if (hi < 0 || found.filter((x) => x >= 0).length < Math.min(2, want.length)) { show(`Headings not found. Use the Excel format: ${listCols.map(({ c }) => c).join(', ')}.`); return; }
+      const rows = grid.slice(hi + 1).map((g) => {
+        const row = Y.list.cols.map(() => '');
+        listCols.forEach(({ k }, j) => { if (found[j] >= 0) row[k] = String(g[found[j]] ?? '').trim(); });
+        return row;
+      }).filter((row) => row.some((v) => v));
+      if (!rows.length) { show('No rows under the headings.'); return; }
+      setQ((o) => ({ ...o, rows: [...o.rows.filter((row) => row.some((v) => String(v ?? '').trim())), ...rows] }));
+    } catch (e) { show(e.message || 'This file could not be read.'); }
+  };
+
+  const doc = (forSave) => {
+    const ref = roleOf('ref'); const date = roleOf('date');
+    return {
+      v: 2, tpl: q.tpl, tplPath: q.tplPath, Y, f: q.f, rows: q.rows, gst: Number(q.gst), lump: q.lump, clientOwn: q.clientOwn,
+      // Each item's words kept as one line too, for the search of Quotations.
+      items: q.items.map(({ key, ...it }) => ({ ...it, desc: own.map((x) => String(it[x.key] ?? '').trim()).filter(Boolean).join(' ') })),
+      qtn_no: (ref && String(q.f[ref.key] ?? '').trim()) || q.qtn_no || (forSave ? null : 'Preview'), date: (date && q.f[date.key]) || todayIst(),
+      to: toOf(q.f), total: totals.with,
+    };
+  };
+  const check = () => {
+    if (r.free && !roleOf('ref')) return 'The Ref number is not in yellow in this template.';
+    for (const x of Y.fields) {
+      if (x.kind === 'words') continue;
+      const v = q.f[x.key];
+      if (x.kind === 'period') { if (!v?.from || !v?.upto) return `Choose the ${x.label}.`; if (v.upto < v.from) return `${x.label} ends before it starts.`; continue; }
+      if (!String(v ?? '').trim()) return x.kind === 'date' ? `Choose the ${x.label}.` : `Write the ${x.label}.`;
+    }
+    if (Y.price) {
+      for (const [i, it] of q.items.entries()) {
+        const n = q.items.length > 1 ? ` of item ${i + 1}` : '';
+        for (const x of own) if (!String(it[x.key] ?? '').trim() && !(x.qty && Y.list && q.rows.length)) return `Write the ${x.label}${n}.`;
+        if (!(Number(it.price) > 0)) return `Write the ${Y.price.priceHead}${n}.`;
+      }
+    }
+    return null;
+  };
+  useEffect(() => {
+    const esc = (e) => { if (e.key !== 'Escape') return; e.stopImmediatePropagation(); if (preview) setPreview(null); else if (confirm) setConfirm(null); else if (!busy) onClose(); };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [preview, confirm, busy, onClose]);
+  const run = async (save) => {
+    clear();
+    const bad = check(); if (bad) { show(bad); return; }
+    setBusy(save ? 'save' : 'look');
+    try {
+      const d = doc(save);
+      const docx = await fillYellow(await templateBlob(q.tplPath), Y, d);
+      // The PDF from our server; when it cannot be made now the Word file is shown and kept alone.
+      const shown = await wordShown(docx); const pdf = shown.word ? null : shown.blob;
+      if (!save) { setPreview({ ...shown, name: quoteFileName(d) }); return; }
+      setConfirm({ blob: pdf ?? docx, word: !pdf, docx, pdf, d, total: totals.with });
+    } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
+  };
+  const keep = async () => {
+    const { docx, pdf, d, total } = confirm;
+    setBusy('save');
+    try {
+      const base = quoteFileName(d);
+      const wpath = await uploadPhoto(r.folder ?? r.id, new File([docx], `${base}.docx`, { type: DOCX }));
+      const ppath = pdf ? await uploadPhoto(r.folder ?? r.id, new File([pdf], `${base}.pdf`, { type: 'application/pdf' })) : null;
+      const main = pdf ?? docx;
+      const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await main.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      setConfirm(null);
+      onMade({ path: ppath ?? wpath, sha256: sha, qtn_no: d.qtn_no, qtn_to: d.to, total, date: d.date, doc: { ...d, word: wpath } }, q.path);
+    } catch (e) { setConfirm(null); show(e.message || 'The quotation could not be saved.'); } finally { setBusy(null); }
+  };
+
+  const box = (x) => {
+    const v = q.f[x.key];
+    if (x.kind === 'date') return <Field key={x.key} label={x.label}><input type="date" value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} /></Field>;
+    if (x.kind === 'period') return [
+      <Field key={`${x.key}-a`} label={`${x.label} from`}><input type="date" value={v?.from ?? ''} onChange={(e) => setF(x.key, { ...v, from: e.target.value })} /></Field>,
+      <Field key={`${x.key}-b`} label={`${x.label} to`}><input type="date" value={v?.upto ?? ''} min={v?.from || undefined} onChange={(e) => setF(x.key, { ...v, upto: e.target.value })} /></Field>,
+    ];
+    if (x.kind === 'num') return <Field key={x.key} label={x.label}><input inputMode="numeric" value={v ?? ''} onChange={(e) => setF(x.key, e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} placeholder={x.sample} /></Field>;
+    if (x.kind === 'lines' || x.kind === 'signer') {
+      const n = Math.max(2, Math.min(8, Math.max(String(v ?? '').split('\n').length, x.sample.split('\n').length)));
+      return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={x.sample} /></Field>;
+    }
+    return <Field key={x.key} label={x.label} wide={x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={x.sample} /></Field>;
+  };
+  const qtyName = (x) => (Y.list && q.rows.length ? `${q.rows.length}${/\s*nos?\.?\s*$/i.exec(x.sample)?.[0] ?? ''}` : x.sample);
+
+  return createPortal(
+    <div className={`mt-scrim qt-maker-scrim qt-app${r.free ? ' qt-maker-free' : ''}`}>
+      <div className="mt-sheet qt-maker" role="dialog" aria-modal="true" aria-label="Create quotation">
+        <header className="mt-sheet-head">
+          <div className="mt-sheet-title">
+            <h2>{start?.doc ? 'Edit quotation' : 'Create quotation'}</h2>
+            <p>{[r.free ? null : `${r.no} · ${r.spare}`, q.tpl].filter(Boolean).join(' · ')}</p>
+          </div>
+          <button type="button" className="mt-sheet-x" onClick={onClose} disabled={!!busy} aria-label="Close"><Icon d={I.x} size={20} /></button>
+        </header>
+        <div className="mt-sheet-body qt-maker-body">
+          <div className="qt-maker-main">
+            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words').flatMap((x) => [box(x)].flat())}</div>
+            {Y.price && (
+              <div className="qt-maker-items">
+                {q.items.map((it, i) => (
+                  <section key={it.key} className="qt-lm-item">
+                    <div className="qt-lm-item-head"><b>{i + 1}</b>
+                      {q.items.length > 1 && <button type="button" className="qt-qadd-x" onClick={() => set('items', q.items.filter((_, n) => n !== i))} aria-label={`Remove item ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>}
+                    </div>
+                    <div className="qt-lm-cells">
+                      {own.map((x) => (
+                        <label key={x.key} className="pm-in"><span>{x.label}</span>
+                          {x.sample.length > 40
+                            ? <textarea rows={2} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.sample} />
+                            : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : x.sample} />}
+                        </label>
+                      ))}
+                      <label className="pm-in"><span>{Y.price.priceHead}</span>
+                        <input inputMode="decimal" value={it.price ?? ''} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder={Y.price.samplePrice} />
+                      </label>
+                      {!q.lump && Y.price.qty != null && <p className="qt-mi-tot"><span>Amount</span><b>{money(totals.lines[i]) || '₹0'}</b></p>}
+                    </div>
+                  </section>
+                ))}
+                <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('items', [...q.items, { key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, ''])) }])}>
+                  <Icon d={I.plus} size={18} /><span>Add item</span>
+                </button>
+              </div>
+            )}
+            {Y.price && <div className="qt-lm-gst"><TaxChips value={q.gst} onChange={(v) => set('gst', v)} /></div>}
+            {Y.list && (
+              <div className="qt-maker-items qt-bl-list">
+                <h3 className="qt-bl-h">{Y.list.title || 'Annexure'}{q.rows.length ? ` · ${q.rows.length}` : ''}</h3>
+                {q.rows.map((row, i) => (
+                  <section key={i} className="qt-lm-item">
+                    <div className="qt-lm-item-head"><b>{i + 1}</b>
+                      <button type="button" className="qt-qadd-x" onClick={() => set('rows', q.rows.filter((_, n) => n !== i))} aria-label={`Remove row ${i + 1}`} title="Remove"><Icon d={I.x} size={14} /></button>
+                    </div>
+                    <div className="qt-lm-cells">
+                      {listCols.map(({ c, k }) => (
+                        <label key={k} className="pm-in"><span>{c}</span><input value={row[k] ?? ''} onChange={(e) => setRow(i, k, e.target.value)} placeholder={c} /></label>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                <button type="button" className="qt-camera qt-qadd-btn qt-maker-add" onClick={() => set('rows', [...q.rows, Y.list.cols.map(() => '')])}>
+                  <Icon d={I.plus} size={18} /><span>Add row</span>
+                </button>
+                <div className="qt-lm-excel">
+                  <button type="button" className="mt-btn" onClick={() => listIn.current?.click()}><Icon d={I.doc} size={16} />Upload Excel</button>
+                  <button type="button" className="mt-btn" onClick={listFormat}><Icon d={I.down} size={16} />Excel format</button>
+                  <input ref={listIn} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => { listExcel(e.target.files?.[0]); e.target.value = ''; }} />
+                </div>
+              </div>
+            )}
+          </div>
+          <aside className="qt-maker-side">
+            {Y.price && (
+              <div className="qt-maker-sum">
+                <p><span>Total</span><b>{money(totals.total) || '₹0'}</b></p>
+                <p><span>GST {Number(q.gst) || 0}%</span><b>{money(totals.tax) || '₹0'}</b></p>
+                <p className="qt-maker-grand"><span>Grand total</span><b>{money(totals.with) || '₹0'}</b></p>
+                <small>{inWords(totals.with)}</small>
+              </div>
+            )}
+            <Err text={err} at={at} />
+            <div className="qt-maker-go" data-role="engineer">
+              <button type="button" className="mt-btn mt-btn-lg" onClick={() => run(false)} disabled={!!busy}>{busy === 'look' ? 'Making…' : 'Preview'}</button>
+              <button type="button" className="mt-go" onClick={() => run(true)} disabled={!!busy}>{busy === 'save' ? 'Making…' : r.free ? 'Save quotation' : 'Save and attach'}</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+      {preview && <SomeViewer word={preview.word} blob={preview.blob} name={preview.name} onClose={() => setPreview(null)} />}
+      {confirm && <SaveLook confirm={confirm} busy={busy} onEdit={() => setConfirm(null)} onSave={keep} free={r.free} />}
+    </div>, document.body);
+}
+
+/** What a yellow template asks, shown when it is uploaded, so a missed or wrong yellow is seen at once. */
+function YellowCheck({ lay, onChange }) {
+  const Y = lay.yellow;
+  const own = (Y.price?.fields ?? []).filter((x) => !x.link);
+  const role = (k) => {
+    if (k === Y.price.price) return 'Price';
+    if (k === Y.price.qty) return 'Qty';
+    if (own.some((x) => x.key.startsWith(`c${k}g`))) return 'Typed';
+    if (/^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i.test(Y.price.cols[k] ?? '')) return 'Counted';
+    return 'As in the file';
+  };
+  return (
+    <div className="qt-yc">
+      <section className="qt-yc-sec">
+        <h3>Boxes · {Y.fields.filter((x) => x.kind !== 'words').length}</h3>
+        <ul className="qt-yc-list">
+          {Y.fields.map((x) => (
+            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.sample.split('\n').join(' · ')}</span>{x.places > 1 && <em>×{x.places}</em>}</li>
+          ))}
+        </ul>
+      </section>
+      {Y.price && (
+        <section className="qt-yc-sec">
+          <h3>Price table</h3>
+          <ul className="qt-yc-list">
+            {Y.price.cols.map((c, k) => <li key={k}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
+            <li><b>Total · GST · Grand total</b><span>Worked out</span></li>
+          </ul>
+          {Y.price.qty != null && (
+            <Field label={`${Y.price.priceHead} is for`} wide>
+              <Choice value={Y.price.lump ? 'row' : 'unit'} onChange={(x) => onChange({ ...lay, yellow: { ...Y, price: { ...Y.price, lump: x === 'row' } } })}
+                options={[['unit', 'One (× Qty)', 'good'], ['row', 'The whole row', 'good']]} />
+            </Field>
+          )}
+        </section>
+      )}
+      {Y.list && (
+        <section className="qt-yc-sec">
+          <h3>{Y.list.title || 'List'}</h3>
+          <ul className="qt-yc-list">{Y.list.cols.map((c, k) => <li key={k}><b>{c}</b><span>{k === 0 && /^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i.test(c) ? 'Counted' : 'Typed or Excel'}</span></li>)}</ul>
+        </section>
+      )}
+    </div>
+  );
 }
