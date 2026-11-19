@@ -2147,13 +2147,28 @@ function CoordInitial({ r, onDone }) {
   const [a, setA] = useState('to_purchase');
   const [v, setV] = useState({ item_code: r.item_code ?? '', vendor: '', rate: '', tax: '', note: '', pr_no: '', pr_date: '', contract: '' });
   const s = useSend(r, onDone);
-  /** A hospital under both contracts says which one at Close; one contract asks nothing (the user, 14 Nov; 0054). */
+  /*
+    A hospital under both contracts: the Coordinator picks AMC or CAMC first and the flow follows it (the user, 19 Nov;
+    0073). CAMC has no pricing: Send to PR, Clarify or Close. One contract asks nothing.
+  */
   const both = /amc.*&.*amc/i.test(r.category ?? '');
+  const camc = both ? v.contract === 'CAMC' : isCamc(r);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
-  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date, ...(both ? { contract: v.contract } : {}) } : {}) };
+  const pick = (c) => { set('contract', c); setA(c === 'CAMC' ? 'camc_pr' : (x) => (x === 'camc_pr' ? 'to_purchase' : x)); };
+  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(both ? { contract: v.contract } : {}), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date } : {}) };
+  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.']]);
   return (
     <>
-      <Choice value={a} onChange={setA} options={[['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
+      {both && (
+        <Field label="Contract" wide>
+          <Choice value={v.contract} onChange={pick} options={[['AMC', 'AMC', 'good'], ['CAMC', 'CAMC', 'good']]} />
+        </Field>
+      )}
+      <div className={both && !v.contract ? 'qt-faded' : undefined}>
+      <Choice value={a} onChange={setA} options={camc
+        ? [['camc_pr', 'Send to PR', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]
+        : [['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
+      </div>
       {a === 'sap' && (
         <div className="qt-grid qt-sap">
           <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
@@ -2165,16 +2180,7 @@ function CoordInitial({ r, onDone }) {
       )}
       {/* Close: PR no and date if there is one, never required; the reason is (the user, 14 Nov; 0053). */}
       {a === 'close' && (
-        <div className={both ? 'qt-date-pair qt-close-row' : 'qt-date-pair'}>
-          {both && (
-            <Field label="Contract">
-              <select value={v.contract} onChange={(e) => set('contract', e.target.value)}>
-                <option value="">Choose</option>
-                <option value="AMC">AMC</option>
-                <option value="CAMC">CAMC</option>
-              </select>
-            </Field>
-          )}
+        <div className="qt-date-pair">
           <Field label="PR no"><input value={v.pr_no} onChange={(e) => set('pr_no', e.target.value)} autoComplete="off" /></Field>
           <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
         </div>
@@ -2182,13 +2188,14 @@ function CoordInitial({ r, onDone }) {
       <Field label={a === 'close' ? 'Reason' : a === 'ask_tl' ? 'Question' : 'Remarks'} wide>
         <textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} />
       </Field>
-      {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
-      {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}
+      {a === 'camc_pr' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to PR?`, ['CAMC: no pricing, straight to PR.'], 'Send to PR', p, `${r.no} is at PR.`)}>Send to PR</button>}
+      {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
+      {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}
       {a === 'close' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([...(both ? [[v.contract, 'Choose the contract.']] : []), [v.note, 'Write the reason.']]) && s.go(`Close ${r.no}?`, [person(r.engineer_name, r.engineer_code), [both && v.contract, v.pr_no && `PR ${v.pr_no}`, v.pr_date && dayText(v.pr_date)].filter(Boolean).join(' · ') || null, v.note], 'Close', p, `${r.no} closed.`, 'bad')}>Close the request</button>}
       {a === 'sap' && (
         <div className="qt-two">
-          <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
-          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Convert to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Convert to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Convert to PR</button>
+          <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
+          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Convert to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Convert to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Convert to PR</button>
         </div>
       )}
       <Err text={s.err} at={s.at} />
@@ -2832,7 +2839,7 @@ function RaiseForm({ me, onDone }) {
   const [token, setToken] = useState(() => draft?.token ?? uuid());
   const [ask, box] = useAsk();
   const [err, show, clear, at] = useErr();
-  const filled = Boolean(v.facility_id || v.equipment || v.make || v.model || v.serial || v.note || eqPhotos.length
+  const filled = Boolean(v.ticket || v.barcode || v.facility_id || v.equipment || v.make || v.model || v.serial || v.note || eqPhotos.length
     || spares.some((s) => s.spare || s.part_no || s.photos.length || Number(s.qty) !== 1));
   const sent = useRef(false);
   useEffect(() => { if (!sent.current) store.set(key, filled ? { v, eqPhotos, spares, step, token } : null); }, [key, filled, v, eqPhotos, spares, step, token]);
@@ -2840,7 +2847,7 @@ function RaiseForm({ me, onDone }) {
     setV(BLANK_RAISE); setEqPhotos([]); setSpares([blankSpare()]); setStep(1); setToken(uuid()); clear(); store.set(key, null);
   } });
   useEffect(() => { loadFacilities().then((f) => setFacilities(f ?? [])).catch(() => {}); }, []);
-  useEffect(() => { if (v.facility_id) loadEquipmentAt(v.facility_id).then((x) => setBefore(x ?? [])).catch(() => setBefore([])); }, [v.facility_id]);
+  useEffect(() => { if (!v.facility_id) { setBefore([]); return; } loadEquipmentAt(v.facility_id).then((x) => setBefore(x ?? [])).catch(() => setBefore([])); }, [v.facility_id]);
   const set = (k, x) => { setV((o) => ({ ...o, [k]: x })); clear(); };
   const setSpare = (i, k, x) => { setSpares((s) => s.map((o, j) => (j === i ? { ...o, [k]: x } : o))); clear(); };
   const f = facilities.find((x) => x.id === v.facility_id);

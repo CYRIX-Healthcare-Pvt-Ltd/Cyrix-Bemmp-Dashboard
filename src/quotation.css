@@ -1266,6 +1266,9 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-ticket-bad { margin: 6px 0 0; font-size: 13px; color: var(--status-bad, #dc2626); }
 .qt-ticket-ok { margin: 6px 0 0; font-size: 13px; color: var(--status-good); }
 
+/* Both contracts: the actions wait for AMC or CAMC (0073) */
+.qt-faded { opacity: .45; }
+
 /* Spares received before for the same barcode (BEMMP 0071) */
 .qt-repeat { background: #fff3d6; color: #8a5a00; border: 1px solid #f0c66b; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .qt-history { margin: 8px 0; padding: 10px 12px; border: 1px solid #f0c66b; background: #fffaf0; border-radius: 12px; }
