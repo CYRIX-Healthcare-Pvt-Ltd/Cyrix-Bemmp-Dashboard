@@ -1255,3 +1255,13 @@ button.qt-qfile-ico { cursor: pointer; }
 }
 .qt-blk-list li.qt-blk-num { grid-template-columns: 26px minmax(0, 1fr) 30px; }
 .qt-blk-num .qt-terms-no { padding-top: 10px; }
+
+/* Ticket ID with its Fill button, one row (BEMMP 0068). */
+.qt-ticket-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.qt-ticket-go {
+  padding: 0 18px; border-radius: 12px; border: 0; cursor: pointer; font: inherit; font-weight: 700;
+  background: var(--status-good); color: #fff;
+}
+.qt-ticket-go:disabled { opacity: 0.55; cursor: default; }
+.qt-ticket-bad { margin: 6px 0 0; font-size: 13px; color: var(--status-bad, #dc2626); }
+.qt-ticket-ok { margin: 6px 0 0; font-size: 13px; color: var(--status-good); }

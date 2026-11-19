@@ -1648,7 +1648,7 @@ function Facts({ r, now }) {
     <section className="mt-facts qt-facts">
       <Fact label={r.kind === 'stock' ? 'For' : 'Engineer'} sub={r.team_lead_name ? `Team Lead ${r.team_lead_name}` : null}>{person(r.engineer_name, r.engineer_code)}</Fact>
       <Fact label="Hospital" sub={[r.district, r.state, r.category].filter(Boolean).join(' · ')}>{r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)}</Fact>
-      <Fact label="Equipment" sub={[r.make, r.model, r.serial && `Serial ${r.serial}`].filter(Boolean).join(' · ')}>{r.equipment}</Fact>
+      <Fact label="Equipment" sub={[r.make, r.model, r.serial && `Serial ${r.serial}`, r.ticket_id && `Ticket ${r.ticket_id}`].filter(Boolean).join(' · ')}>{r.equipment}</Fact>
       <Fact label="Spare" sub={[r.part_no && `Part ${r.part_no}`, r.item_code && `Item ${r.item_code}`].filter(Boolean).join(' · ')}>{r.spare} × {r.qty}{r.approved_qty && r.approved_qty !== r.qty ? ` (approved ${r.approved_qty})` : ''}</Fact>
       <Fact label="Raised" sub={r.raised_by_name && r.raised_by_name !== r.engineer_name ? `by ${r.raised_by_name}` : null}>{whenText(r.created_at)}</Fact>
       <Fact label="Delivery address">{r.delivery_address}</Fact>
@@ -2714,7 +2714,48 @@ function HospitalPick({ facilities, value, onChange, bad }) {
 }
 
 /** Raise in two steps (idea 6): hospital and equipment, then the spares, one request number each. */
-const BLANK_RAISE = { facility_id: '', equipment: '', make: '', model: '', serial: '', note: '' };
+const BLANK_RAISE = { ticket: '', facility_id: '', equipment: '', make: '', model: '', serial: '', note: '' };
+
+/*
+  A Care 360 ticket ID fills the hospital and the equipment (BEMMP 0068; the user, 19 Nov: "when ticket id is entered
+  automatically all available data should fill", "ya care360 needed"). Everything stays changeable.
+*/
+const squash = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+function TicketFind({ value, onChange, facilities, onFound }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const find = async () => {
+    // Only the number is enough: 23 is PMPT_000023 (the user, 19 Nov).
+    const raw = value.trim().toUpperCase().replace(/\s+/g, '');
+    const n = raw.match(/^(?:PMPT[_-]?)?(\d+)$/);
+    const id = n ? `PMPT_${n[1].padStart(6, '0')}` : raw;
+    if (!id) return;
+    if (id !== value) onChange(id);
+    setBusy(true); setMsg(null);
+    const { data, error } = await supabase.functions.invoke('bemp-ticket', { body: { ticket: id, from: 'quotation' } });
+    setBusy(false);
+    if (error || !data?.ticket) {
+      let text = 'The ticket could not be looked up';
+      try { text = (await error?.context?.json())?.error ?? text; } catch { /* keep the plain one */ }
+      setMsg({ bad: true, text }); return;
+    }
+    const t = data.ticket;
+    const h = squash(t.hospital);
+    const fac = h ? (facilities.find((x) => squash(x.name) === h) ?? facilities.find((x) => squash(x.name).includes(h) || h.includes(squash(x.name)))) : null;
+    onFound({ facility_id: fac?.id, equipment: t.equipment, make: t.make, model: t.model, serial: t.barcode });
+    setMsg(fac ? { bad: false, text: 'Filled from the ticket' } : { bad: true, text: `${t.hospital ?? 'The hospital'} is not in the list. Choose it below.` });
+  };
+  return (
+    <div className="pm-in"><span>Ticket ID</span>
+      <div className="qt-ticket-row">
+        <input value={value} onChange={(e) => { onChange(e.target.value); setMsg(null); }} placeholder="PMPT_000023"
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void find(); } }} onBlur={() => { if (value.trim() && !msg && !busy) void find(); }} />
+        <button type="button" className="qt-ticket-go" disabled={busy || !value.trim()} onClick={() => void find()}>{busy ? 'Finding…' : 'Fill'}</button>
+      </div>
+      {msg && <p className={msg.bad ? 'qt-ticket-bad' : 'qt-ticket-ok'} role={msg.bad ? 'alert' : undefined}>{msg.text}</p>}
+    </div>
+  );
+}
 function RaiseForm({ me, onDone }) {
   const { code } = useContext(QtCtx);
   const key = `qt-raise-draft:${code}`;
@@ -2770,6 +2811,8 @@ function RaiseForm({ me, onDone }) {
       </div>
       {step === 1 ? (
         <section className="pm-card pm-details">
+          <TicketFind value={v.ticket ?? ''} onChange={(x) => set('ticket', x)} facilities={facilities}
+            onFound={(t) => setV((o) => ({ ...o, facility_id: t.facility_id ?? o.facility_id, equipment: t.equipment ?? o.equipment, make: t.make ?? o.make, model: t.model ?? o.model, serial: t.serial ?? o.serial }))} />
           <HospitalPick facilities={facilities} value={v.facility_id} onChange={(x) => set('facility_id', x)} />
           {before.length > 0 && (
             <div className="qt-before">
