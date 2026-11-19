@@ -171,7 +171,14 @@ function tablesOf(doc) {
     const yrow = rows.findIndex((tr, i) => i > 0 && all(tr, 'w:p').some((p) => groupsIn(p).length));
     // Cell by cell: a row's text runs its cells together ("GRAND TOTAL16,800", Carmel).
     const tot = rows.findIndex((tr, i) => i > yrow && kids(tr, 'w:tc').some((tc) => /\btotal\b/i.test(textOf(tc))));
-    if (!price && yrow > 0 && tot > yrow) { price = { t, rows, item: yrow }; continue; }
+    // No total row under it (Sub AMC: SI NO. · CONTRACT TYPE · RATE · GST % · GST RATE · TOTAL, the user, 19 Nov): a
+    // price heading over a yellow figure in the item row is enough.
+    const priced = () => {
+      const heads = kids(rows[0], 'w:tc').map((c) => norm(textOf(c)));
+      return kids(rows[yrow], 'w:tc').some((tc, k) => PRICE_HEAD.test(heads[k] ?? '') && !/%/.test(heads[k] ?? '')
+        && all(tc, 'w:p').flatMap(groupsIn).some((g) => /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i.test(g.text)));
+    };
+    if (!price && yrow > 0 && (tot > yrow || priced())) { price = { t, rows, item: yrow }; continue; }
     const head = rows[0];
     const cells = head ? kids(head, 'w:tc') : [];
     const runs = head ? all(head, 'w:r').filter((r) => textOf(r).trim()) : [];
@@ -212,7 +219,12 @@ function priceOf(pt) {
   const price = pk != null ? numIn(cells[pk].groups[0].text) : 0;
   const qty = qk != null ? numIn(cells[qk].groups[0]?.text) : 0;
   const lump = qk == null ? true : total != null && qty > 1 ? Math.abs(total - price) < Math.abs(total - price * qty) : false;
-  return { cols: head, price: pk ?? null, priceHead: head[pk] ?? 'Amount', samplePrice: pk != null ? cells[pk].groups[0].text : '', qty: qk, fields, gst, lump };
+  // Asked at upload only when the template does not say (the user, 19 Nov): "Unit Price", "Rate", "Per…", "Each" or a
+  // row-total column after the price (Carmel's Total Price) is one piece × Qty.
+  const perUnit = qk != null && pk != null && (/unit|\bper\b|each|\brate\b/i.test(head[pk] ?? '')
+    || head.some((h, k) => k > pk && /total|amount/i.test(h) && colKind(head, k, pk) === 'line'));
+  return { cols: head, price: pk ?? null, priceHead: head[pk] ?? 'Amount', samplePrice: pk != null ? cells[pk].groups[0].text : '', qty: qk, fields, gst,
+    lump: perUnit ? false : lump, ...(perUnit ? { lumpSure: true } : {}) };
 }
 
 /* ---------- Lines ---------- */

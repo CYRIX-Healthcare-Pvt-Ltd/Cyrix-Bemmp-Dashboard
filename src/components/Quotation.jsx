@@ -4644,7 +4644,7 @@ function YellowCheck({ lay, onChange }) {
             {Y.price.cols.map((c, k) => <li key={k}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
             <li><b>Total · GST · Grand total</b><span>Worked out</span></li>
           </ul>
-          {Y.price.qty != null && (
+          {Y.price.qty != null && !Y.price.lumpSure && (
             <Field label={`${Y.price.priceHead} is for`} wide>
               <Choice value={Y.price.lump ? 'row' : 'unit'} onChange={(x) => onChange({ ...lay, yellow: { ...Y, price: { ...Y.price, lump: x === 'row' } } })}
                 options={[['unit', 'One (× Qty)', 'good'], ['row', 'The whole row', 'good']]} />
