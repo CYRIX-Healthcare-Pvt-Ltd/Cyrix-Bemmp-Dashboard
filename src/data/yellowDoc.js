@@ -226,8 +226,12 @@ function priceOf(pt) {
   // row-total column after the price (Carmel's Total Price) is one piece × Qty.
   const perUnit = qk != null && pk != null && (/unit|\bper\b|each|\brate\b/i.test(head[pk] ?? '')
     || head.some((h, k) => k > pk && /total|amount/i.test(h) && colKind(head, k, pk) === 'line'));
+  // The template's TOTAL row settles it too (the user, 19 Nov): 1,25,000 for 76 Nos with TOTAL 1,25,000 is the whole row;
+  // TOTAL = price × Qty is one piece. No Qty column: nothing to multiply.
+  const near = (a, b) => Math.abs(a - b) < 0.5;
+  const totalSays = qk == null || (total != null && qty > 1 && price > 0 && (near(total, price) || near(total, price * qty)));
   return { cols: head, price: pk ?? null, priceHead: head[pk] ?? 'Amount', samplePrice: pk != null ? cells[pk].groups[0].text : '', qty: qk, fields, gst,
-    lump: perUnit ? false : lump, ...(perUnit ? { lumpSure: true } : {}) };
+    lump: perUnit ? false : lump, ...(perUnit || totalSays ? { lumpSure: true } : {}) };
 }
 
 /* ---------- Lines ---------- */
