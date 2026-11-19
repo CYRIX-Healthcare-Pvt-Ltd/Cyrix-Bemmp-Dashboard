@@ -4489,6 +4489,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
     const bad = check(); if (bad) { show(bad); return; }
     setBusy(save ? 'save' : 'look');
     try {
+      // Two frames for the page-writing to start before the drawing keeps the phone busy.
+      await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
       const d = doc(save);
       const docx = await fillYellow(await templateBlob(q.tplPath), Y, d);
       // The PDF from our server; when it cannot be made now the Word file is shown and kept alone.
@@ -4611,9 +4613,35 @@ function YellowMaker({ r, start, onClose, onMade }) {
           </aside>
         </div>
       </div>
+      {busy && !confirm && !preview && <PageWriting />}
       {preview && <SomeViewer word={preview.word} blob={preview.blob} name={preview.name} onClose={() => setPreview(null)} />}
       {confirm && <SaveLook confirm={confirm} busy={busy} onEdit={() => setConfirm(null)} onSave={keep} free={r.free} />}
     </div>, document.body);
+}
+
+/*
+  While the PDF is made: a page writes itself, as the app draws it from the Word file: the letterhead, the To lines,
+  the letter, the price rows one by one, the total last (the user, 19 Nov: "the first one"). Still when the phone asks
+  for less motion.
+*/
+function PageWriting() {
+  const lines = [55, 40, 85, 75];
+  return (
+    <div className="qt-write" role="status" aria-live="polite">
+      <div className="qt-write-sheet" aria-hidden="true">
+        <i className="qt-write-logo" />
+        {lines.map((w, k) => <i key={k} className="qt-write-ln" style={{ width: `${w}%`, animationDelay: `${0.2 + k * 0.22}s` }} />)}
+        <span className="qt-write-gap" />
+        {[0, 1, 2].map((r2) => (
+          <span key={r2} className="qt-write-row">
+            {[0, 1, 2].map((c) => <i key={c} style={{ animationDelay: `${1.2 + r2 * 0.3 + c * 0.1}s` }} />)}
+          </span>
+        ))}
+        <i className="qt-write-tot" />
+      </div>
+      <p>Making the PDF</p>
+    </div>
+  );
 }
 
 /** What a yellow template asks, shown when it is uploaded, so a missed or wrong yellow is seen at once. */
