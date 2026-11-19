@@ -687,7 +687,7 @@ function FileView({ path, name, onClose }) {
   Quotations or signed copies to attach, as many as there are (the user, 14 Nov: "dont keep quotation upload limit").
   Each is read as it is added (QTN number, To, total; a signed copy only its number) and uploaded beside it.
 */
-function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', onCreate, onEdit, onRemove, draft, onDraft, onDropDraft }) {
+function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', onCreate, onEdit, onRemove, drafts = [], onDraft, onDropDraft }) {
   const input = useRef(null);
   const [busy, setBusy] = useState(0);
   const [err, setErr] = useState(null);
@@ -719,16 +719,7 @@ function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', o
           <button type="button" className="qt-qadd-x" onClick={() => (onRemove ? onRemove(f) : onChange(files.filter((x) => x.path !== f.path)))} aria-label="Remove"><Icon d={I.x} size={14} /></button>
         </div>
       ))}
-      {draft && (
-        <div className="qt-qadd-row qt-qadd-draft">
-          <button type="button" className="qt-qfile-ico" onClick={onDraft} aria-label="Continue the draft"><Icon d={I.pen} size={16} /></button>
-          <button type="button" className="qt-qadd-text" onClick={onDraft}>
-            <b>Draft{draft.qtn_no ? ` · ${draft.qtn_no}` : ''}</b>
-            <span>{[draft.to, `${draft.items?.length ?? 0} ${draft.items?.length === 1 ? 'item' : 'items'}`, money(docGrand(draft))].filter(Boolean).join(' · ')}</span>
-          </button>
-          <button type="button" className="qt-qadd-x" onClick={onDropDraft} aria-label="Delete the draft" title="Delete the draft"><Icon d={I.x} size={14} /></button>
-        </div>
-      )}
+      {drafts.map((x) => <DraftRow key={x.id} d={x.d} onOpen={() => onDraft(x)} onDrop={() => onDropDraft(x)} />)}
       {/* Create in the app, or attach one made elsewhere (the user, 16 Nov: "attach or prepare/create, something logical"). */}
       <div className={onCreate ? 'qt-qadd-two' : 'qt-qadd-one'}>
         {onCreate && (
@@ -756,7 +747,56 @@ const quoteDraft = {
   get: (id) => store.get(draftKey(id)),
   set: (id, d) => store.set(draftKey(id), d),
   drop: (id) => store.set(draftKey(id), null),
+  /** One draft per template (the user, 19 Nov: "other templates draft shouldnt affect this"): "<base>~<template file>". */
+  idFor: (base, tpl) => (tpl?.path ? `${base}~${tpl.path}` : base),
+  /** Every draft kept under base; a draft from before (one per base) moves to its template's own place. */
+  all(base) {
+    const out = [];
+    try {
+      const old = store.get(draftKey(base));
+      if (old?.tplPath) {
+        const to = draftKey(`${base}~${old.tplPath}`);
+        if (!store.get(to)) store.set(to, old);
+        store.set(draftKey(base), null);
+      }
+      const pre = draftKey('');
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k?.startsWith(pre)) continue;
+        const id = k.slice(pre.length);
+        if (id !== base && !id.startsWith(`${base}~`)) continue;
+        const d = store.get(k); if (d) out.push({ id, d });
+      }
+    } catch { /* no storage: no drafts */ }
+    return out;
+  },
 };
+
+/** Whether anything was typed or picked in a box while the form is open (the user, 19 Nov: opening and closing is no
+    draft; a single character entered is). A draft continued is one already. */
+function useTyped(already) {
+  const t = useRef(Boolean(already));
+  useEffect(() => {
+    const on = () => { t.current = true; };
+    document.addEventListener('input', on, true); document.addEventListener('change', on, true);
+    return () => { document.removeEventListener('input', on, true); document.removeEventListener('change', on, true); };
+  }, []);
+  return t;
+}
+
+/** A draft waiting: continue (pen or its words) or delete (x). */
+function DraftRow({ d, onOpen, onDrop, className = '' }) {
+  return (
+    <div className={`qt-qadd-row qt-qadd-draft ${className}`.trim()}>
+      <button type="button" className="qt-qfile-ico" onClick={onOpen} aria-label="Continue the draft"><Icon d={I.pen} size={16} /></button>
+      <button type="button" className="qt-qadd-text" onClick={onOpen}>
+        <b>{['Draft', d.tpl, d.qtn_no].filter(Boolean).join(' · ')}</b>
+        <span>{[d.to, `${d.items?.length ?? 0} ${d.items?.length === 1 ? 'item' : 'items'}`, money(docGrand(d))].filter(Boolean).join(' · ')}</span>
+      </button>
+      <button type="button" className="qt-qadd-x" onClick={onDrop} aria-label="Delete the draft" title="Delete the draft"><Icon d={I.x} size={14} /></button>
+    </div>
+  );
+}
 
 /**
   The quotation made in the app (the user, 16 Nov): the company letter with the items as their Excel had them, edited and
@@ -813,7 +853,8 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
   const [preview, setPreview] = useState(null);
   const [termsOpen, setTermsOpen] = useState(false);
   const [err, show, clear, at] = useErr();
-  useEffect(() => { quoteDraft.set(r.id, q); }, [r.id, q]);
+  const typed = useTyped(start?.draft);
+  useEffect(() => { if (typed.current) quoteDraft.set(r.id, q); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
   const settle = useHeldQtn(r, q, set);
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
@@ -1085,7 +1126,8 @@ function Quotations({ me, onToast }) {
   const [sort, setSort] = useState({ key: 'date', dir: -1 });
   const [making, setMaking] = useState(null);
   const [view, setView] = useState(null);
-  const [draft, setDraft] = useState(() => quoteDraft.get(FREE_NEW));
+  const [drafts, setDrafts] = useState(() => quoteDraft.all(FREE_NEW));
+  const reDrafts = () => setDrafts(quoteDraft.all(FREE_NEW));
   const [ask, askBox] = useAsk();
   const load = useCallback(() => loadQuotes().then(setList).catch((e) => setFailed(e.message)), []);
   useEffect(() => { load(); }, [load]);
@@ -1103,7 +1145,12 @@ function Quotations({ me, onToast }) {
   }, [list, q, who, sort]);
   const by = (key) => setSort((o) => ({ key, dir: o.key === key ? -o.dir : key === 'date' || key === 'total' ? -1 : 1 }));
   // New: the draft again, or a fresh one. Edit keeps the number; Revise gives the next R.
-  const create = (tpl) => setMaking({ r: { free: true, id: FREE_NEW, folder: newId() }, start: draft ? { draft } : tpl ? { tpl } : null });
+  // New from a template: that template's own draft again, else a fresh one; other templates' drafts stay as they are.
+  const create = (tpl) => {
+    const id = quoteDraft.idFor(FREE_NEW, tpl); const d = quoteDraft.get(id);
+    setMaking({ r: { free: true, id, folder: newId() }, start: d ? { draft: d } : tpl ? { tpl } : null });
+  };
+  const openDraft = (x) => setMaking({ r: { free: true, id: x.id, folder: newId() }, start: { draft: x.d } });
   const [pickTpl, tplBox] = useTemplatePick(create);
   const edit = (x) => setMaking({ r: { free: true, id: `free-${x.id}`, folder: x.id, editing: true }, start: { doc: x.doc, path: x.path } });
   const revise = (x) => {
@@ -1112,17 +1159,17 @@ function Quotations({ me, onToast }) {
     const next = Math.max(0, ...(list ?? []).map((y) => { const k = /^(.*?) R(\d+)$/.exec(y.qtn_no ?? ''); return k && k[1] === base ? Number(k[2]) : 0; })) + 1;
     setMaking({ r: { free: true, id: `free-rev-${x.id}`, folder: newId() }, start: { doc: { ...x.doc, qtn_no: `${base} R${next}`, date: todayIst() } } });
   };
-  const close = () => { setMaking(null); setDraft(quoteDraft.get(FREE_NEW)); };
+  const close = () => { setMaking(null); reDrafts(); };
   const made = async (f) => {
     const r = making.r;
     await saveQuote({ id: r.folder, qtn_no: f.qtn_no, to: f.qtn_to, total: f.total, date: f.date, doc: f.doc, path: f.path, sha256: f.sha256 });
-    quoteDraft.drop(r.id); setMaking(null); setDraft(quoteDraft.get(FREE_NEW));
+    quoteDraft.drop(r.id); setMaking(null); reDrafts();
     onToast?.(`${f.qtn_no} saved.`); load();
   };
   const remove = (x) => ask({ title: `Delete quotation ${x.qtn_no}?`, lines: [x.to, money(x.total)].filter(Boolean), ok: 'Delete', tone: 'bad',
     run: async () => { await deleteQuote(x.id); load(); } });
-  const dropDraft = () => ask({ title: 'Delete the draft quotation?', lines: [draft?.qtn_no, draft?.to, money(docGrand(draft))].filter(Boolean), ok: 'Delete', tone: 'bad',
-    run: async () => { quoteDraft.drop(FREE_NEW); setDraft(null); } });
+  const dropDraft = ({ id, d }) => ask({ title: 'Delete the draft quotation?', lines: [d.tpl, d.qtn_no, d.to, money(docGrand(d))].filter(Boolean), ok: 'Delete', tone: 'bad',
+    run: async () => { quoteDraft.drop(id); reDrafts(); } });
   const cols = QUOTE_COLS.filter(([k]) => k !== 'by_name' || everyone);
   return (
     <div className="qt-qbook">
@@ -1131,16 +1178,7 @@ function Quotations({ me, onToast }) {
         {everyone && people.length > 2 && <Picker value={who} options={people} onChange={setWho} title="Made by" />}
         <button type="button" className="mt-go qt-qbook-new" data-role="engineer" onClick={pickTpl}><Icon d={I.doc} size={18} /><span>Create quotation</span></button>
       </div>
-      {draft && (
-        <div className="qt-qadd-row qt-qadd-draft qt-qbook-draft">
-          <button type="button" className="qt-qfile-ico" onClick={() => create()} aria-label="Continue the draft"><Icon d={I.pen} size={16} /></button>
-          <button type="button" className="qt-qadd-text" onClick={() => create()}>
-            <b>Draft{draft.qtn_no ? ` · ${draft.qtn_no}` : ''}</b>
-            <span>{[draft.to, `${draft.items?.length ?? 0} ${draft.items?.length === 1 ? 'item' : 'items'}`, money(docGrand(draft))].filter(Boolean).join(' · ')}</span>
-          </button>
-          <button type="button" className="qt-qadd-x" onClick={dropDraft} aria-label="Delete the draft" title="Delete the draft"><Icon d={I.x} size={14} /></button>
-        </div>
-      )}
+      {drafts.map((x) => <DraftRow key={x.id} d={x.d} className="qt-qbook-draft" onOpen={() => openDraft(x)} onDrop={() => dropDraft(x)} />)}
       {failed ? <p className="mt-err" role="alert">The quotations could not be loaded.</p>
         : list === null ? <div className="loader" aria-hidden="true" />
         : !shown.length ? <p className="empty-inline pm-empty">{list.length ? 'No quotation matches.' : 'No quotation yet.'}</p> : (
@@ -2512,7 +2550,8 @@ function CoordQuote({ r, onDone }) {
   const setFiles = (files) => setV((o) => ({ ...o, files, quote_date: o.quote_date || files.find((f) => f.date && f.date <= todayIst())?.date || '' }));
   // Create: the draft again, a fresh quotation, or the last one made for this request as its next revision (R1, R2…).
   const [making, setMaking] = useState(null);
-  const [draft, setDraft] = useState(() => quoteDraft.get(r.id));
+  const [drafts, setDrafts] = useState(() => quoteDraft.all(r.id));
+  const reDrafts = useCallback(() => setDrafts(quoteDraft.all(r.id)), [r.id]);
   const [ask, askBox] = useAsk();
   const lastMade = () => {
     const prev = [...(r.files ?? [])].reverse().find((f) => f.kind === 'quote' && f.doc);
@@ -2520,22 +2559,27 @@ function CoordQuote({ r, onDone }) {
     const m = /^(.*?)(?: R(\d+))?$/.exec(prev.doc.qtn_no ?? '');
     return { doc: { ...prev.doc, qtn_no: m && m[1] ? `${m[1]} R${Number(m[2] ?? 0) + 1}` : null, date: todayIst() } };
   };
-  // Editing a made one starts a new draft: an unsaved draft is not replaced without asking.
-  const askDraft = (go) => (draft
+  // Editing a made one starts a new draft of its template: that template's unsaved draft is not replaced without asking.
+  const askDraft = (id, go) => (quoteDraft.get(id)
     ? ask({ title: 'Replace the draft?', lines: ['The draft quotation not saved yet is deleted.'], ok: 'Replace', tone: 'bad', run: async () => { go(); } })
     : go());
-  const closeMaker = useCallback(() => { setMaking(null); setDraft(quoteDraft.get(r.id)); }, [r.id]);
-  const [pickTpl, tplBox] = useTemplatePick((tpl) => setMaking({ start: draft ? { draft } : tpl ? { tpl } : lastMade() }));
+  const closeMaker = useCallback(() => { setMaking(null); reDrafts(); }, [reDrafts]);
+  // A template: its own draft again, else the last one made from it as the next revision, else fresh; other templates' drafts stay.
+  const [pickTpl, tplBox] = useTemplatePick((tpl) => {
+    const id = quoteDraft.idFor(r.id, tpl); const d = quoteDraft.get(id);
+    const last = lastMade();
+    setMaking({ id, start: d ? { draft: d } : last && (!tpl || !last.doc.tplPath || last.doc.tplPath === tpl.path) ? last : tpl ? { tpl } : null });
+  });
   const { make } = useContext(QtCtx);
   const made = (f, path) => {
     setFiles(path ? v.files.map((x) => (x.path === path ? f : x)) : [...v.files, f]);
     if (path || !v.quote_date) set('quote_date', f.date);
-    quoteDraft.drop(r.id); setDraft(null);
+    quoteDraft.drop(making?.id ?? r.id); reDrafts();
     setMaking(null);
   };
   return (
     <>
-      {making && <QuoteMaker r={r} pick={pick} start={making.start} onClose={closeMaker} onMade={made} />}
+      {making && <QuoteMaker r={{ ...r, folder: r.folder ?? r.id, id: making.id ?? r.id }} pick={pick} start={making.start} onClose={closeMaker} onMade={made} />}
       {askBox}{tplBox}
       {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
       <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
@@ -2545,10 +2589,10 @@ function CoordQuote({ r, onDone }) {
           <div className="pm-in qt-wide"><span>Quotation</span>
             <QuoteAdd folder={r.id} files={v.files} onChange={setFiles}
               onCreate={make ? pickTpl : undefined}
-              onEdit={make ? (f) => askDraft(() => setMaking({ start: { doc: f.doc, path: f.path } })) : undefined}
-              draft={make ? draft : null} onDraft={() => setMaking({ start: { draft } })}
-              onDropDraft={() => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, draft?.to, money(docGrand(draft))].filter(Boolean), ok: 'Delete', tone: 'bad',
-                run: async () => { await releaseQtn(draft?.qtn_no).catch(() => false); quoteDraft.drop(r.id); setDraft(null); } })}
+              onEdit={make ? (f) => { const id = quoteDraft.idFor(r.id, { path: f.doc?.tplPath }); askDraft(id, () => setMaking({ id, start: { doc: f.doc, path: f.path } })); } : undefined}
+              drafts={make ? drafts : []} onDraft={(x) => setMaking({ id: x.id, start: { draft: x.d } })}
+              onDropDraft={(x) => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, x.d.tpl, x.d.to, money(docGrand(x.d))].filter(Boolean), ok: 'Delete', tone: 'bad',
+                run: async () => { await releaseQtn(x.d.qtn_no).catch(() => false); quoteDraft.drop(x.id); reDrafts(); } })}
               onRemove={(f) => (f.doc
                 // A made one: asked first, and its number goes back to the series (the user, 16 Nov: "we need that number back").
                 ? ask({ title: `Delete quotation ${f.qtn_no ?? ''}?`.replace(' ?', '?'), lines: [f.qtn_to, f.total != null && money(f.total)].filter(Boolean), ok: 'Delete', tone: 'bad',
@@ -4047,7 +4091,8 @@ function LayoutMaker({ r, start, onClose, onMade }) {
   const [preview, setPreview] = useState(null);
   const [pop, setPop] = useState(false);
   const [err, show, clear, at] = useErr();
-  useEffect(() => { quoteDraft.set(r.id, q); }, [r.id, q]);
+  const typed = useTyped(start?.draft);
+  useEffect(() => { if (typed.current) quoteDraft.set(r.id, q); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const lay = q.layout; const cols = lay.items?.cols ?? [];
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
   const settle = useHeldQtn(r, q, set);
@@ -4404,7 +4449,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
     const lines = String((to && f[to.key]) || (cl && f[cl.key]) || r.hospital || '').split('\n').map((x) => x.trim()).filter(Boolean);
     return (lines.find((x) => !PERSON_LINE.test(x)) ?? lines[0] ?? '').replace(/[\s,;:–—-]+$/, '');
   };
-  useEffect(() => { quoteDraft.set(r.id, { ...q, to: toOf(q.f) }); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const typed = useTyped(start?.draft);
+  useEffect(() => { if (typed.current) quoteDraft.set(r.id, { ...q, to: toOf(q.f) }); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
   // The signer: the signed-in person's name, designation and phone, unless already written.
   useEffect(() => {
