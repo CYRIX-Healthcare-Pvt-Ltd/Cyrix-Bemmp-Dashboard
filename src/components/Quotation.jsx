@@ -2156,7 +2156,8 @@ function CoordInitial({ r, onDone }) {
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const pick = (c) => { set('contract', c); setA(c === 'CAMC' ? 'camc_pr' : (x) => (x === 'camc_pr' ? 'to_purchase' : x)); };
   const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(both ? { contract: v.contract } : {}), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date } : {}) };
-  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.']]);
+  // Remarks on every action (the user, 19 Nov; 0074).
+  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the remarks.']]);
   return (
     <>
       {both && (
@@ -2166,8 +2167,8 @@ function CoordInitial({ r, onDone }) {
       )}
       <div className={both && !v.contract ? 'qt-faded' : undefined}>
       <Choice value={a} onChange={setA} options={camc
-        ? [['camc_pr', 'Send to PR', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]
-        : [['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
+        ? [['camc_pr', 'Send to PR', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]
+        : [['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
       </div>
       {a === 'sap' && (
         <div className="qt-grid qt-sap">
@@ -2185,17 +2186,18 @@ function CoordInitial({ r, onDone }) {
           <Field label="PR date"><input type="date" value={v.pr_date} max={todayIst()} onChange={(e) => set('pr_date', e.target.value)} /></Field>
         </div>
       )}
-      <Field label={a === 'close' ? 'Reason' : a === 'ask_tl' ? 'Question' : 'Remarks'} wide>
+      <Field label={a === 'close' ? 'Reason' : a === 'ask_tl' ? 'Question' : a === 'hold' ? 'Reason for the hold' : 'Remarks'} wide>
         <textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} />
       </Field>
+      {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Hold</button>}
       {a === 'camc_pr' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to PR?`, ['CAMC: no pricing, straight to PR.'], 'Send to PR', p, `${r.no} is at PR.`)}>Send to PR</button>}
       {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
       {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}
       {a === 'close' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([...(both ? [[v.contract, 'Choose the contract.']] : []), [v.note, 'Write the reason.']]) && s.go(`Close ${r.no}?`, [person(r.engineer_name, r.engineer_code), [both && v.contract, v.pr_no && `PR ${v.pr_no}`, v.pr_date && dayText(v.pr_date)].filter(Boolean).join(' · ') || null, v.note], 'Close', p, `${r.no} closed.`, 'bad')}>Close the request</button>}
       {a === 'sap' && (
         <div className="qt-two">
-          <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
-          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Convert to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Convert to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Convert to PR</button>
+          <button type="button" data-role="purchase" className="mt-btn" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the remarks.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Send the SAP rate to Purchase to confirm?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Send', { ...p, action: 'sap_confirm' }, `${r.no} sent to Purchase to confirm.`)}>Purchase to confirm</button>
+          <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the remarks.'], [v.item_code, 'Write the item code.'], [v.vendor, 'Write the vendor.'], [Number(v.rate) > 0, 'Write the rate.'], [v.tax, 'Choose the tax.']]) && s.go(`Convert to PR on the SAP rate?`, [`Item ${v.item_code} · ${v.vendor} · ${money(v.rate)} + ${v.tax || 0}%`], 'Convert to PR', { ...p, action: 'sap_pr' }, `${r.no} is at PR.`)}>Convert to PR</button>
         </div>
       )}
       <Err text={s.err} at={s.at} />
