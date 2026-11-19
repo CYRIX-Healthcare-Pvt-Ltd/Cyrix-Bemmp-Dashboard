@@ -4661,7 +4661,7 @@ function YellowCheck({ lay, onChange }) {
         <h3>Boxes · {Y.fields.filter((x) => x.kind !== 'words').length}</h3>
         <ul className="qt-yc-list">
           {Y.fields.map((x) => (
-            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.sample.split('\n').join(' · ')}</span>{x.places > 1 && <em>×{x.places}</em>}</li>
+            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.sample.split('\n').join(' · ')}</span>{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
           ))}
         </ul>
       </section>

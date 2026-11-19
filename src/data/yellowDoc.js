@@ -116,6 +116,9 @@ function writeNum(sample, v) {
 
 const DATE = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/;
 const PERIOD = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s*(to|-|–|till)\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})$/i;
+/** Words written before the date inside the same yellow ("Contract Period: - 03/11/2026 to …"): kept as they are. */
+const LEAD = /^([^\d]*[a-z][^\d]*?[:\-–]\s*)(?=\d)/i;
+const leadOf = (t) => LEAD.exec(t)?.[1] ?? '';
 const WORDS_AMOUNT = /^\s*(rupees|rs\.?|inr)\b.*\bonly\b/i;
 /** A date written as the sample wrote it: 02/11/2026, 02.11.2026 or 02-11-2026. */
 const dateLike = (sample, iso) => { if (!iso) return ''; const [y, m, d] = iso.split('-'); const sep = /[.-]/.exec(sample)?.[0] ?? '/'; return [d, m, y].join(sep); };
@@ -253,8 +256,9 @@ function keyOf(text) {
   const t = norm(text);
   if (WORDS_AMOUNT.test(t)) return { key: 'words', kind: 'words' };
   const n = numOf(t); if (n) return { key: `num:${n.n}`, kind: 'num' };
-  if (PERIOD.test(t)) return { key: `period:${t}`, kind: 'period' };
-  if (DATE.test(t)) return { key: `date:${t}`, kind: 'date' };
+  const d = t.slice(leadOf(t).length);
+  if (PERIOD.test(d)) return { key: `period:${t}`, kind: 'period' };
+  if (DATE.test(d)) return { key: `date:${t}`, kind: 'date' };
   return { key: `text:${t.toLowerCase()}`, kind: 'text' };
 }
 
@@ -344,6 +348,9 @@ export async function readYellow(file) {
       if (byKey.has(key)) { byKey.get(key).places++; continue; }
       const { before, after } = around(g);
       let label = kind === 'num' ? labelAfter(after) || labelBefore(before) : labelBefore(before);
+      // Its own name inside the yellow ("Contract Period: - 03/11/2026 to …": Contract period).
+      const own = !label && /^\s*([a-z][a-z .&/()]{1,40}?)\s*[:：]/i.exec(g.text);
+      if (own) label = nameOf(own[1]);
       // Alone on its line: named by the line above ("TO," then a yellow name: To).
       if (!label && it.heading) label = nameOf(it.heading);
       if (kind === 'words') label = 'Amount in words';
@@ -787,8 +794,8 @@ export async function fillYellow(file, Y, v) {
       const val = value(key);
       let text;
       if (kind === 'num') text = writeNum(g.text, val);
-      else if (kind === 'date') text = dateLike(g.text.trim(), val);
-      else if (kind === 'period') { const m = PERIOD.exec(norm(g.text)); text = `${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
+      else if (kind === 'date') { const t = g.text.trim(); const ld = leadOf(t); text = ld + dateLike(t.slice(ld.length).trim(), val); }
+      else if (kind === 'period') { const t = norm(g.text); const ld = leadOf(t); const m = PERIOD.exec(t.slice(ld.length)); text = `${ld}${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
       else if (kind === 'words') text = wordsLike(g.text, tot.with);
       else text = String(val ?? '');
       jobs.push({ g, text: `${/^\s*/.exec(g.text)[0]}${text}${/\s*$/.exec(g.text)[0]}` });
