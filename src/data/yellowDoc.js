@@ -119,6 +119,8 @@ const PERIOD = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s*(to|-|–|till)\s*(\d{1,2}[/.
 /** Words written before the date inside the same yellow ("Contract Period: - 03/11/2026 to …"): kept as they are. */
 const LEAD = /^([^\d]*[a-z][^\d]*?[:\-–]\s*)(?=\d)/i;
 const leadOf = (t) => LEAD.exec(t)?.[1] ?? '';
+/** A line that is only "TO," (or "To:"). */
+const TO_LINE = /^\s*to\s*[,:.-]?\s*$/i;
 const WORDS_AMOUNT = /^\s*(rupees|rs\.?|inr)\b.*\bonly\b/i;
 /** A date written as the sample wrote it: 02/11/2026, 02.11.2026 or 02-11-2026. */
 const dateLike = (sample, iso) => { if (!iso) return ''; const [y, m, d] = iso.split('-'); const sep = /[.-]/.exec(sample)?.[0] ?? '/'; return [d, m, y].join(sep); };
@@ -380,16 +382,25 @@ export async function readYellow(file) {
     const own = price.fields.filter((x) => !x.link);
     for (const x of own) { const col = x.key.replace(/g\d+$/, ''); if (own.filter((y) => y.key.startsWith(`${col}g`)).length === 1) x.label = x.label.replace(/ · line \d+$/, ''); }
   }
-  // Which box is the quotation number, the date, the address, CLIENT.
+  rolesOf(fields);
+  return { v: 2, fields, price, list };
+}
+
+/** Which box is the quotation number, the date, the address, CLIENT. Worked out again whenever a form opens, so a
+    template saved before a rule changed follows the new rule without being uploaded again. */
+export function rolesOf(fields) {
+  for (const f of fields) delete f.role;
   const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample)));
   if (ref) ref.role = 'ref';
   const date = fields.find((f) => f.kind === 'date' && /date/i.test(f.label)) ?? fields.find((f) => f.kind === 'date');
   if (date) date.role = 'date';
-  const to = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && /^to\b/i.test(f.label));
+  // The customer's address: named To or Address, or a whole yellow block starting "TO," (SUB AMC, the user, 19 Nov).
+  const to = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && /^to\b/i.test(f.label))
+    ?? fields.find((f) => f.kind === 'lines' && (/^address\b/i.test(f.label) || TO_LINE.test(f.sample.split('\n')[0])));
   if (to) to.role = 'to';
   const client = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && f !== to && /client|customer|second party|hospital/i.test(f.label));
   if (client) client.role = 'client';
-  return { v: 2, fields, price, list };
+  return fields;
 }
 
 /**
@@ -397,16 +408,14 @@ export async function readYellow(file) {
  * person; the usual terms as uploaded.
  */
 export function startValue(f, ctx = {}) {
+  // Nothing of the uploaded file's own customer shows when making one (the user, 19 Nov: "when we are creating, why
+  // uploaded data showing"): every box starts empty but today, the signed-in person and what a request knows.
   if (f.role === 'date') return ctx.today ?? '';
-  if (f.role === 'ref') return '';
   if (f.role === 'to') return ctx.hospital ?? '';
   if (f.role === 'client') return ctx.hospital ? clientFrom(ctx.hospital) : '';
   if (f.kind === 'signer') return ctx.signer ?? '';
   if (f.kind === 'period') return { from: '', upto: '' };
-  if (f.kind === 'date') return '';
-  if (f.kind === 'words') return '';
-  if (f.kind === 'num') return String(numOf(f.sample)?.n ?? '');
-  return f.sample;
+  return '';
 }
 
 /*
@@ -774,6 +783,9 @@ export async function fillYellow(file, Y, v) {
       if (it.type === 'block') {
         const b = it.block; const f = byKey.get(blockKey(b)); if (!f) continue;
         const lines = String(value(f.key) ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+        // The address box no longer holds the template's own "TO," line: put back above the customer.
+        const lead = f.sample.split('\n')[0];
+        if (f.role === 'to' && TO_LINE.test(lead) && !TO_LINE.test(lines[0] ?? '')) lines.unshift(lead.trim());
         const whole = b.slots.every((p) => norm(textOf(p)) === norm(groupsIn(p)[0]?.text));
         if (whole) {
           b.slots.forEach((p, i) => {

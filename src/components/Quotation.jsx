@@ -10,9 +10,9 @@ import {
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
-  loadBarcodeCounts, loadBarcodeHistory, loadSigner,
+  loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
-import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest } from '../data/yellowDoc.js';
+import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -4423,7 +4423,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
       const f = { ...d.f, ...(ref && d.qtn_no ? { [ref.key]: d.qtn_no } : {}), ...(day && d.date ? { [day.key]: d.date } : {}) };
       return { ...d, f, items: (d.items ?? []).map((it) => ({ key: Math.random(), ...it })), rows: d.rows ?? [], path: start.path ?? d.path ?? null };
     }
-    const Y = start.tpl.layout.yellow;
+    // The roles again by today's rules (a template saved before keeps working without being uploaded again).
+    const Y = { ...start.tpl.layout.yellow, fields: rolesOf(start.tpl.layout.yellow.fields.map((x) => ({ ...x }))) };
     const f = {};
     // From the request, into this template's own boxes only (fromRequest); a free quotation starts empty.
     const fr = r.free ? { to: '', item: {}, row: null } : fromRequest(Y, r);
@@ -4433,7 +4434,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     const own = (Y.price?.fields ?? []).filter((x) => !x.link);
     return {
       v: 2, tpl: start.tpl.name, tplPath: start.tpl.path, Y, f, gst: String(Y.price?.gst ?? 18), lump: Boolean(Y.price?.lump),
-      items: [{ key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, x.qty ? '' : x.sample])), ...fr.item }],
+      items: [{ key: Math.random(), price: '', ...Object.fromEntries(own.map((x) => [x.key, ''])), ...fr.item }],
       rows: fr.row ? [fr.row] : [], path: null, clientOwn: false, qtn_no: null,
     };
   });
@@ -4452,12 +4453,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
   const typed = useTyped(start?.draft);
   useEffect(() => { if (typed.current) quoteDraft.set(r.id, { ...q, to: toOf(q.f) }); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
-  // The signer: the signed-in person's name, designation and phone, unless already written.
-  useEffect(() => {
-    const sg = Y.fields.find((x) => x.kind === 'signer');
-    if (!sg || String(q.f[sg.key] ?? '').trim()) return;
-    loadSigner().then((v) => { if (v) setQ((o) => (String(o.f[sg.key] ?? '').trim() ? o : { ...o, f: { ...o.f, [sg.key]: v } })); }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The signer is the field staff member the quotation is made for, never the person typing it (the user, 19 Nov:
+  // "we are doing for field staff not our name"): written in the box.
   const setF = (k, v) => setQ((o) => {
     const f = { ...o.f, [k]: v };
     const to = roleOf('to'); const cl = roleOf('client');
@@ -4566,14 +4563,17 @@ function YellowMaker({ r, start, onClose, onMade }) {
       <Field key={`${x.key}-a`} label={`${x.label} from`}><input type="date" value={v?.from ?? ''} onChange={(e) => setF(x.key, { ...v, from: e.target.value })} /></Field>,
       <Field key={`${x.key}-b`} label={`${x.label} to`}><input type="date" value={v?.upto ?? ''} min={v?.from || undefined} onChange={(e) => setF(x.key, { ...v, upto: e.target.value })} /></Field>,
     ];
-    if (x.kind === 'num') return <Field key={x.key} label={x.label}><input inputMode="numeric" value={v ?? ''} onChange={(e) => setF(x.key, e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} placeholder={x.sample} /></Field>;
+    if (x.kind === 'num') return <Field key={x.key} label={x.label}><input inputMode="numeric" value={v ?? ''} onChange={(e) => setF(x.key, e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} placeholder="0" /></Field>;
     if (x.kind === 'lines' || x.kind === 'signer') {
       const n = Math.max(2, Math.min(8, Math.max(String(v ?? '').split('\n').length, x.sample.split('\n').length)));
-      return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={x.sample} /></Field>;
+      return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
     }
-    return <Field key={x.key} label={x.label} wide={x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={x.sample} /></Field>;
+    return <Field key={x.key} label={x.label} wide={x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
   };
-  const qtyName = (x) => (Y.list && q.rows.length ? `${q.rows.length}${/\s*nos?\.?\s*$/i.exec(x.sample)?.[0] ?? ''}` : x.sample);
+  const qtyName = (x) => (Y.list && q.rows.length ? `${q.rows.length}${/\s*nos?\.?\s*$/i.exec(x.sample)?.[0] ?? ''}` : '1');
+  // Our own hint for a box, never the uploaded file's customer.
+  const hintOf = (x) => (x.role === 'to' ? 'Hospital name\nAddress\nPlace' : x.role === 'client' ? 'Hospital name\nPlace'
+    : x.kind === 'signer' ? 'Name\nDesignation\nPhone' : x.role === 'ref' ? 'QTN number' : '');
 
   return createPortal(
     <div className={`mt-scrim qt-maker-scrim qt-app${r.free ? ' qt-maker-free' : ''}`}>
@@ -4599,12 +4599,12 @@ function YellowMaker({ r, start, onClose, onMade }) {
                       {own.map((x, k) => (
                         <label key={x.key} className={`pm-in${k === own.findIndex((y) => !y.qty) ? ' qt-lm-desc' : ''}`}><span>{x.label}</span>
                           {x.sample.length > 40
-                            ? <textarea rows={2} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.sample} />
-                            : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : x.sample} />}
+                            ? <textarea rows={2} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} />
+                            : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : undefined} />}
                         </label>
                       ))}
                       <label className="pm-in"><span>{Y.price.priceHead}</span>
-                        <input inputMode="decimal" value={it.price ?? ''} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder={Y.price.samplePrice} />
+                        <input inputMode="decimal" value={it.price ?? ''} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
                       </label>
                       {!q.lump && Y.price.qty != null && <p className="qt-mi-tot"><span>Amount</span><b>{money(totals.lines[i]) || '₹0'}</b></p>}
                     </div>
