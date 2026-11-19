@@ -383,11 +383,30 @@ export async function readYellow(file) {
     for (const x of own) { const col = x.key.replace(/g\d+$/, ''); if (own.filter((y) => y.key.startsWith(`${col}g`)).length === 1) x.label = x.label.replace(/ · line \d+$/, ''); }
   }
   rolesOf(fields);
-  return { v: 2, fields, price, list };
+  return { v: 2, fields, price: oneBoxPerCell(price), list };
 }
 
 /** Which box is the quotation number, the date, the address, CLIENT. Worked out again whenever a form opens, so a
     template saved before a rule changed follows the new rule without being uploaded again. */
+/** One box per cell of the price row (the user, 19 Nov: "something inside a box is single field"): a cell's yellow
+    lines become one box with a line each (parts: which yellow pieces they are); a piece linked to a box in the letter
+    (PM visits) stays linked. Run again on opening, so a template saved with a box per line follows. */
+export function oneBoxPerCell(price) {
+  if (!price?.fields) return price;
+  const out = []; const done = new Set();
+  for (const f of price.fields) {
+    const m = /^c(\d+)g(\d+)$/.exec(f.key);
+    if (!m || f.link || f.qty) { if (!done.has(f.key)) out.push(f); continue; }
+    const col = m[1]; if (done.has(`c${col}`)) continue;
+    const same = price.fields.filter((x) => !x.link && !x.qty && new RegExp(`^c${col}g\\d+$`).test(x.key));
+    if (same.length < 2) { out.push(f); continue; }
+    done.add(`c${col}`);
+    out.push({ key: `c${col}`, label: f.label.replace(/ · line \d+$/, ''), sample: same.map((x) => x.sample).join('\n'),
+      lines: same.length, parts: same.map((x) => Number(/g(\d+)$/.exec(x.key)[1])), qty: false });
+  }
+  return { ...price, fields: out };
+}
+
 export function rolesOf(fields) {
   for (const f of fields) delete f.role;
   const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample)));
@@ -694,6 +713,30 @@ export async function fillYellow(file, Y, v) {
           // Serial number and worked-out columns are worked out even when yellow (a whole table marked, Carmel).
           const worked = SERIAL.test(pr.cols[k] ?? '') || colKind(pr.cols, k, pr.price);
           if (gs.length && !worked) {
+            // One box for the cell's lines: line j into yellow piece j, in its own look; more lines go under the last
+            // piece as copies of its paragraph, fewer leave the extra pieces' paragraphs out.
+            const box = pr.fields.find((x) => x.key === `c${k}`);
+            if (box?.parts) {
+              const lines = String(it[box.key] ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+              const mine = box.parts.map((j) => gs[j]).filter(Boolean);
+              const paraOf = (g) => { let n = g.runs[0]; while (n && n.nodeName !== 'w:p') n = n.parentNode; return n; };
+              mine.forEach((g, j) => {
+                if (j < lines.length) { setGroup(g, `${/^\s*/.exec(g.text)[0]}${lines[j]}${/\s*$/.exec(g.text)[0]}`); return; }
+                const pa = paraOf(g);
+                if (pa && norm(textOf(pa)) === norm(g.text) && all(pa.parentNode, 'w:p').length > 1) pa.parentNode.removeChild(pa); else setGroup(g, '');
+              });
+              let last = mine.length ? paraOf(mine[mine.length - 1]) : null;
+              for (const line of lines.slice(mine.length)) {
+                if (!last) break;
+                const c = last.cloneNode(true); last.parentNode.insertBefore(c, last.nextSibling); setPara(doc, c, line); last = c;
+              }
+              gs.forEach((g, j) => {
+                if (box.parts.includes(j)) return;
+                const fd = pr.fields.find((x) => x.key === `c${k}g${j}`);
+                if (fd?.link) setGroup(g, writeNum(g.text, value(fd.link)));
+              });
+              return;
+            }
             gs.forEach((g, j) => {
               const fd = pr.fields.find((x) => x.key === `c${k}g${j}`);
               let val = fd?.link ? writeNum(g.text, value(fd.link)) : it[`c${k}g${j}`];

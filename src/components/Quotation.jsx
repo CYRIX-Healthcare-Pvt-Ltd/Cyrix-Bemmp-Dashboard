@@ -12,7 +12,7 @@ import {
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
-import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf } from '../data/yellowDoc.js';
+import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -4424,7 +4424,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
       return { ...d, f, items: (d.items ?? []).map((it) => ({ key: Math.random(), ...it })), rows: d.rows ?? [], path: start.path ?? d.path ?? null };
     }
     // The roles again by today's rules (a template saved before keeps working without being uploaded again).
-    const Y = { ...start.tpl.layout.yellow, fields: rolesOf(start.tpl.layout.yellow.fields.map((x) => ({ ...x }))) };
+    const Y0 = start.tpl.layout.yellow;
+    const Y = { ...Y0, fields: rolesOf(Y0.fields.map((x) => ({ ...x }))), price: oneBoxPerCell(Y0.price) };
     const f = {};
     // From the request, into this template's own boxes only (fromRequest); a free quotation starts empty.
     const fr = r.free ? { to: '', item: {}, row: null } : fromRequest(Y, r);
@@ -4598,8 +4599,8 @@ function YellowMaker({ r, start, onClose, onMade }) {
                     <div className="qt-lm-cells">
                       {own.map((x, k) => (
                         <label key={x.key} className={`pm-in${k === own.findIndex((y) => !y.qty) ? ' qt-lm-desc' : ''}`}><span>{x.label}</span>
-                          {x.sample.length > 40
-                            ? <textarea rows={2} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} />
+                          {x.lines > 1 || x.sample.length > 40
+                            ? <textarea rows={Math.max(2, Math.min(6, Math.max(x.lines ?? 2, String(it[x.key] ?? '').split('\n').length)))} value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} />
                             : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : undefined} />}
                         </label>
                       ))}
