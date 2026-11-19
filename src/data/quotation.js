@@ -28,6 +28,9 @@ export const loadTargets = () => rpc('qt_targets');
 export const loadEvents = (from, to) => rpc('qt_events_in', { p_from: from || null, p_to: to || null });
 
 export const raise = (p) => rpc('qt_raise', { p });
+/** Spares received before, by barcode (BEMMP 0071): counts for the cards, the list for one request. */
+export const loadBarcodeCounts = () => rpc('qt_barcode_counts');
+export const loadBarcodeHistory = (barcode, except) => rpc('qt_barcode_history', { p_barcode: barcode, p_except: except ?? null });
 export const raiseStock = (p) => rpc('qt_raise_stock', { p });
 export const accept = (ids) => rpc('qt_accept', { p_ids: ids });
 export const tlApprove = (ids, p = null) => rpc('qt_tl_approve', { p_ids: ids, p });

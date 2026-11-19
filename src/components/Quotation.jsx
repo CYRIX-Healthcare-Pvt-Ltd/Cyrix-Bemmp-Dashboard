@@ -10,6 +10,7 @@ import {
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
+  loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
@@ -31,7 +32,7 @@ const SEND_BY = ['Courier', 'Transport', 'Post', 'By hand'];
 const TAXES = [0, 5, 18]; // 12 and 28 not used (the user, 12 Nov)
 const PV_ABOVE = 40000;
 /** What every form may want from the app: past vendors, recent hospitals, who is signed in. */
-const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false, pools: {} });
+const QtCtx = createContext({ vendors: [], recent: [], code: '', lead: false, pools: {}, repeats: {}, openReq: null, role: '' });
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* the draft is only lost on reload */ } },
@@ -95,6 +96,9 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
   const code = profile?.code ?? '';
   // Who can accept a step nobody holds yet, by role (the user, 12 Nov: "accept pending" shows them).
   const [pools, setPools] = useState({});
+  /** Received spares per barcode (BEMMP 0071), fresh with the list. */
+  const [repeats, setRepeats] = useState({});
+  useEffect(() => { loadBarcodeCounts().then((x) => setRepeats(x ?? {})).catch(() => {}); }, [list]);
   useEffect(() => {
     loadPeople().then((x) => {
       const m = {};
@@ -108,8 +112,9 @@ export default function QuotationApp({ me, profile, narrow, switcher, onSignOut 
     const vendors = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([x]) => x);
     const seen = [...(store.get(`qt-recent-hosp:${code}`) ?? [])];
     if (me.role === 'engineer') for (const r of [...(list ?? [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) if (r.kind === 'request' && r.facility_id) seen.push(r.facility_id);
-    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead), pools };
-  }, [list, code, me.role, me.lead, pools]);
+    return { vendors, recent: [...new Set(seen)].slice(0, 5), code, lead: Boolean(me.lead), pools, repeats, openReq: open, role: me.role };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, code, me.role, me.lead, pools, repeats]);
   const tabs = tabsFor(me);
   const mine = list?.filter((r) => r.mine && !r.done) ?? [];
   const sub = `Quotation tracker · ${ROLE_NAME[me.role] ?? ''}${me.lead && me.role !== 'viewer' ? ' (lead)' : ''}${list ? ` · ${mine.length} to do` : ''}`;
@@ -174,6 +179,7 @@ const I = {
   pen: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></>,
   doc: <><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M10 12h5M10 16h5" /></>,
   back: <path d="M15 5l-7 7 7 7" />,
+  chevron: <path d="M9 5l7 7-7 7" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></>,
 };
 
@@ -1289,6 +1295,62 @@ function CardPhoto({ path }) {
   return <span className="qt-card-photo">{url && <img src={url} alt="" loading="lazy" onError={retry} />}</span>;
 }
 
+/** "3rd time": spares already received for this barcode, not counting this one (BEMMP 0071; the user, 19 Nov). */
+const nth = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+function RepeatTag({ r }) {
+  const { repeats } = useContext(QtCtx);
+  const b = r.barcode?.trim().toUpperCase();
+  if (!b || r.step === 'cancelled') return null;
+  const before = (repeats[b] ?? 0) - (r.received_on ? 1 : 0);
+  if (before < 1) return null;
+  return <span className="qt-repeat">{nth(before + 1)} time</span>;
+}
+
+/*
+  Spares received before for the same barcode, inside a request (BEMMP 0071; the user, 19 Nov). Many come as totals,
+  counts per spare and the latest three; Show all opens the rest with a search ("what if more than 10 comes?").
+*/
+function BarcodeHistory({ r }) {
+  const { role, openReq } = useContext(QtCtx);
+  const [rows, setRows] = useState(null);
+  const [all, setAll] = useState(false);
+  const [q, setQ] = useState('');
+  const sees = ['coordinator', 'team_lead', 'pv', 'purchase'].includes(role);
+  useEffect(() => {
+    if (!sees || !r.barcode) return;
+    loadBarcodeHistory(r.barcode, r.id).then((x) => setRows(x ?? [])).catch(() => setRows([]));
+  }, [sees, r.barcode, r.id]);
+  if (!sees || !rows?.length) return null;
+  const total = rows.reduce((t, x) => t + (Number(x.amount) || 0), 0);
+  const bySpare = new Map();
+  for (const x of rows) { const k = (x.spare ?? '').trim(); bySpare.set(k, (bySpare.get(k) ?? 0) + (Number(x.qty) || 0)); }
+  const chips = [...bySpare.entries()].sort((a, b) => b[1] - a[1]);
+  const shownChips = chips.slice(0, 4);
+  const list = all ? rows.filter((x) => !q.trim() || `${x.no} ${x.spare}`.toLowerCase().includes(q.trim().toLowerCase())) : rows.slice(0, 3);
+  return (
+    <section className="qt-history">
+      <p className="qt-history-head"><Icon d={I.clock} size={15} />Spares received before for this barcode · {rows.length}{total > 0 ? ` · ₹${total.toLocaleString('en-IN')}` : ''}</p>
+      {rows.length > 3 && (
+        <div className="qt-history-chips">
+          {shownChips.map(([k, n]) => <span key={k}>{k} <b>× {n}</b></span>)}
+          {chips.length > 4 && <span>+{chips.length - 4} more</span>}
+        </div>
+      )}
+      {all && <input className="qt-history-find" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Spare or request number" />}
+      <ul className="qt-history-list">
+        {list.map((x) => (
+          <li key={x.id}><button type="button" onClick={() => openReq?.(x.id)}>
+            <b>{x.no}</b><span>{x.spare} × {x.qty}</span><small>received {x.received_on ? new Date(x.received_on).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : ''}</small>
+            {Number(x.amount) > 0 && <em>₹{Number(x.amount).toLocaleString('en-IN')}</em>}
+            <Icon d={I.chevron} size={14} />
+          </button></li>
+        ))}
+      </ul>
+      {rows.length > 3 && <button type="button" className="qt-history-more" onClick={() => { setAll((v) => !v); setQ(''); }}>{all ? 'Show fewer' : `Show all ${rows.length}`}</button>}
+    </section>
+  );
+}
+
 function Card({ r, targets, now, onOpen, picked, onPick, children }) {
   const { pools } = useContext(QtCtx);
   return (
@@ -1299,7 +1361,7 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
         </button>
       )}
       <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
-        <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><PendingChip r={r} now={now} /><Clock r={r} targets={targets} now={now} /></span>
+        <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><RepeatTag r={r} /><PendingChip r={r} now={now} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
         <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
         {!r.mine && !r.done && (acceptPending(r)
@@ -1648,7 +1710,8 @@ function Facts({ r, now }) {
     <section className="mt-facts qt-facts">
       <Fact label={r.kind === 'stock' ? 'For' : 'Engineer'} sub={r.team_lead_name ? `Team Lead ${r.team_lead_name}` : null}>{person(r.engineer_name, r.engineer_code)}</Fact>
       <Fact label="Hospital" sub={[r.district, r.state, r.category].filter(Boolean).join(' · ')}>{r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)}</Fact>
-      <Fact label="Equipment" sub={[r.make, r.model, r.serial && `Serial ${r.serial}`, r.ticket_id && `Ticket ${r.ticket_id}`].filter(Boolean).join(' · ')}>{r.equipment}</Fact>
+      <Fact label="Equipment" sub={[r.make, r.model, r.serial && `Serial ${r.serial}`, r.barcode && `Barcode ${r.barcode}`, r.ticket_id && `Ticket ${r.ticket_id}`].filter(Boolean).join(' · ')}>{r.equipment}</Fact>
+      <BarcodeHistory r={r} />
       <Fact label="Spare" sub={[r.part_no && `Part ${r.part_no}`, r.item_code && `Item ${r.item_code}`].filter(Boolean).join(' · ')}>{r.spare} × {r.qty}{r.approved_qty && r.approved_qty !== r.qty ? ` (approved ${r.approved_qty})` : ''}</Fact>
       <Fact label="Raised" sub={r.raised_by_name && r.raised_by_name !== r.engineer_name ? `by ${r.raised_by_name}` : null}>{whenText(r.created_at)}</Fact>
       <Fact label="Delivery address">{r.delivery_address}</Fact>
@@ -2714,7 +2777,7 @@ function HospitalPick({ facilities, value, onChange, bad }) {
 }
 
 /** Raise in two steps (idea 6): hospital and equipment, then the spares, one request number each. */
-const BLANK_RAISE = { ticket: '', facility_id: '', equipment: '', make: '', model: '', serial: '', note: '' };
+const BLANK_RAISE = { ticket: '', barcode: '', facility_id: '', equipment: '', make: '', model: '', serial: '', note: '' };
 
 /*
   A Care 360 ticket ID fills the hospital and the equipment (BEMMP 0068; the user, 19 Nov: "when ticket id is entered
@@ -2742,7 +2805,7 @@ function TicketFind({ value, onChange, facilities, onFound }) {
     const t = data.ticket;
     const h = squash(t.hospital);
     const fac = h ? (facilities.find((x) => squash(x.name) === h) ?? facilities.find((x) => squash(x.name).includes(h) || h.includes(squash(x.name)))) : null;
-    onFound({ facility_id: fac?.id, equipment: t.equipment, make: t.make, model: t.model, serial: t.barcode });
+    onFound({ facility_id: fac?.id, barcode: t.barcode, equipment: t.equipment, make: t.make, model: t.model, serial: t.serial });
     setMsg(fac ? { bad: false, text: 'Filled from the ticket' } : { bad: true, text: `${t.hospital ?? 'The hospital'} is not in the list. Choose it below.` });
   };
   return (
@@ -2814,7 +2877,7 @@ function RaiseForm({ me, onDone }) {
       {step === 1 ? (
         <section className="pm-card pm-details">
           <TicketFind value={v.ticket ?? ''} onChange={(x) => set('ticket', x)} facilities={facilities}
-            onFound={(t) => setV((o) => ({ ...o, facility_id: t.facility_id ?? o.facility_id, equipment: t.equipment ?? o.equipment, make: t.make ?? o.make, model: t.model ?? o.model, serial: t.serial ?? o.serial }))} />
+            onFound={(t) => setV((o) => ({ ...o, facility_id: t.facility_id ?? o.facility_id, barcode: t.barcode ?? o.barcode, equipment: t.equipment ?? o.equipment, make: t.make ?? o.make, model: t.model ?? o.model, serial: t.serial ?? o.serial }))} />
           <HospitalPick facilities={facilities} value={v.facility_id} onChange={(x) => set('facility_id', x)} />
           {before.length > 0 && (
             <div className="qt-before">
@@ -2828,7 +2891,11 @@ function RaiseForm({ me, onDone }) {
               </div>
             </div>
           )}
-          <Field label="Equipment"><input value={v.equipment} onChange={(e) => set('equipment', e.target.value)} placeholder="Defibrillator" /></Field>
+          {/* Barcode and Equipment side by side (the user, 19 Nov). */}
+          <div className="pm-in-row">
+            <Field label="Barcode"><input value={v.barcode ?? ''} onChange={(e) => set('barcode', e.target.value)} /></Field>
+            <Field label="Equipment"><input value={v.equipment} onChange={(e) => set('equipment', e.target.value)} placeholder="Defibrillator" /></Field>
+          </div>
           <div className="pm-in-row">
             <Field label="Make"><input value={v.make} onChange={(e) => set('make', e.target.value)} /></Field>
             <Field label="Model"><input value={v.model} onChange={(e) => set('model', e.target.value)} /></Field>

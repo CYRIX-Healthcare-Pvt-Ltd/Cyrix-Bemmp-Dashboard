@@ -1265,3 +1265,19 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-ticket-go:disabled { opacity: 0.55; cursor: default; }
 .qt-ticket-bad { margin: 6px 0 0; font-size: 13px; color: var(--status-bad, #dc2626); }
 .qt-ticket-ok { margin: 6px 0 0; font-size: 13px; color: var(--status-good); }
+
+/* Spares received before for the same barcode (BEMMP 0071) */
+.qt-repeat { background: #fff3d6; color: #8a5a00; border: 1px solid #f0c66b; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.qt-history { margin: 8px 0; padding: 10px 12px; border: 1px solid #f0c66b; background: #fffaf0; border-radius: 12px; }
+.qt-history-head { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #8a5a00; }
+.qt-history-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.qt-history-chips span { background: #fff; border: 1px solid #f0c66b; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+.qt-history-find { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+.qt-history-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.qt-history-list button { width: 100%; display: grid; grid-template-columns: auto 1fr auto auto; grid-template-areas: "no spare amt go" "no when amt go"; align-items: center; column-gap: 8px; text-align: left; background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
+.qt-history-list b { grid-area: no; font-size: 12px; }
+.qt-history-list span { grid-area: spare; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.qt-history-list small { grid-area: when; font-size: 11px; color: #777; }
+.qt-history-list em { grid-area: amt; font-style: normal; font-weight: 700; font-size: 13px; }
+.qt-history-list svg { grid-area: go; color: #999; }
+.qt-history-more { margin-top: 8px; width: 100%; padding: 8px; border: 1px dashed #f0c66b; background: transparent; border-radius: 8px; color: #8a5a00; font-weight: 700; cursor: pointer; }
