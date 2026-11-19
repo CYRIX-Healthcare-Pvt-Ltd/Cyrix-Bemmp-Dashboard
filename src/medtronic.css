@@ -239,6 +239,8 @@
 .mt-views { padding: 4px; gap: 4px; }
 .mt-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .mt-search { flex: 1 1 260px; }
+.mt-range { display: flex; align-items: center; gap: 6px; }
+.mt-range input { min-width: 0; padding: 8px 10px; border-radius: 999px; border: 1px solid var(--border, #333); background: transparent; color: inherit; font: inherit; font-size: 16px; }
 .mt-pickall { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .mt-pickall input, .mt-col-pick input, .mt-card-pick { width: 18px; height: 18px; accent-color: var(--ink); cursor: pointer; }
 

@@ -392,6 +392,7 @@ function Dashboard({ tickets, role, team, onList, action }) {
 const SORTS = [
   ['created-desc', 'Newest first'],
   ['created-asc', 'Oldest first'],
+  ['closed-desc', 'Closed, newest first'],
   ['age-desc', 'Oldest open first'],
   ['wo-asc', 'Work order'],
   ['account-asc', 'Account'],
@@ -402,6 +403,7 @@ const PAGE = 150;
 function sortValue(t, key, today) {
   switch (key) {
     case 'created': return t.created_on ?? '';
+    case 'closed': return t.closed_on ?? '';
     case 'age': return ageDays(t, today) ?? -1;
     case 'wo': return t.wo;
     case 'account': return (t.account ?? '').toLowerCase();
@@ -427,6 +429,10 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   const [eng, setEng] = useState('');
   const [purpose, setPurpose] = useState('');
   const [sort, setSort] = useState('created-desc');
+  /** Closed date: All time / This month / Custom From – To (the user, 19 Nov: "need filters"). */
+  const [period, setPeriod] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [limit, setLimit] = useState(PAGE);
   const [picked, setPicked] = useState(() => new Set());
   const today = todayIst();
@@ -479,6 +485,10 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
       if (!inView(t)) return false;
       if (eng === '-' ? t.engineer_code : eng && t.engineer_code !== eng) return false;
       if (purpose && t.purpose !== purpose) return false;
+      if (view === 'closed' && period !== 'all') {
+        const d = t.closed_on ?? '';
+        if (period === 'month' ? d.slice(0, 7) !== today.slice(0, 7) : (!d || (from && d < from) || (to && d > to))) return false;
+      }
       if (!words.length) return true;
       const hay = [t.wo, t.account, t.site, t.city, t.product, t.sap_order, t.sap_notification, t.engineer_name]
         .join(' ').toLowerCase();
@@ -490,7 +500,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
       return (dir === 'asc' ? c : -c) || a.wo.localeCompare(b.wo);
     });
     return list;
-  }, [tickets, inView, eng, purpose, q, sort, today]);
+  }, [tickets, inView, eng, purpose, q, sort, today, view, period, from, to]);
 
   const canPick = (t) => manager && !t.closed_by;
   const pickable = shown.filter(canPick);
@@ -551,6 +561,21 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
             ...(purpose && !purposes.some(([p]) => p === purpose) ? [{ value: purpose, label: purpose, count: 0 }] : []),
           ]}
         />
+        {view === 'closed' && (
+          <Picker
+            title="Closed"
+            value={period}
+            onChange={(v) => { setPeriod(v); setLimit(PAGE); }}
+            options={[{ value: 'all', label: 'Closed: All time' }, { value: 'month', label: 'Closed: This month' }, { value: 'custom', label: 'Closed: Custom' }]}
+          />
+        )}
+        {view === 'closed' && period === 'custom' && (
+          <div className="mt-range">
+            <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
+            <span>–</span>
+            <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To" />
+          </div>
+        )}
         {narrow && (
           <Picker title="Sort" value={sort} onChange={setSort} options={SORTS.map(([id, label]) => ({ value: id, label }))} />
         )}
@@ -584,7 +609,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                   <span className="mt-card-line">{[t.city, t.product].filter(Boolean).join(' · ')}</span>
                   <span className="mt-card-foot">
                     <span className="mt-card-meta">
-                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{age != null ? ` · ${age} d` : ''}
+                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{t.status === 'closed' && t.closed_on ? ` · Closed ${dayOf(t.closed_on)}` : age != null ? ` · ${age} d` : ''}
                     </span>
                     <span className="mt-card-right">
                       {t.closed_by && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
@@ -610,6 +635,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                 <th>Product</th>
                 <th>Purpose</th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('created')}>Created{mark('created')}</button></th>
+                {view !== 'open' && view !== 'unassigned' && <th><button type="button" className="th-sort" onClick={() => sortBy('closed')}>Closed{mark('closed')}</button></th>}
                 <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('age')}>Age{mark('age')}</button></th>
                 <th>Order status</th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('engineer')}>Engineer{mark('engineer')}</button></th>
@@ -632,6 +658,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                     <td>{t.product ?? '—'}</td>
                     <td>{t.purpose ?? '—'}</td>
                     <td className="mt-nowrap">{dayOf(t.created_on)}</td>
+                    {view !== 'open' && view !== 'unassigned' && <td className="mt-nowrap">{t.status === 'closed' && t.closed_on ? dayOf(t.closed_on) : '—'}</td>}
                     <td className="mt-num">{age ?? '—'}</td>
                     <td>{t.order_status ?? '—'}</td>
                     <td>{t.engineer_name ?? <span className="mt-muted">Not assigned</span>}</td>
