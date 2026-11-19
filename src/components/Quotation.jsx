@@ -2783,6 +2783,8 @@ function RaiseForm({ me, onDone }) {
   const f = facilities.find((x) => x.id === v.facility_id);
 
   const next = () => {
+    // Required (the user, 19 Nov: "ticket id mandatory").
+    if (!(v.ticket ?? '').trim()) { show('Type the ticket ID.'); return; }
     if (!v.facility_id) { show('Choose the hospital.'); return; }
     if (!v.equipment.trim()) { show('Write the equipment name.'); return; }
     clear(); setStep(2); window.scrollTo({ top: 0, behavior: 'smooth' });
