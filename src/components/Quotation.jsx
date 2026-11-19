@@ -10,7 +10,7 @@ import {
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
-  loadBarcodeCounts, loadBarcodeHistory, wordToPdf, loadSigner, wakePdf,
+  loadBarcodeCounts, loadBarcodeHistory, loadSigner,
 } from '../data/quotation.js';
 import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
@@ -510,7 +510,13 @@ const isPdf = (p) => /\.pdf$/i.test(p ?? '');
 const isDocx = (p) => /\.docx$/i.test(p ?? '');
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const SomeViewer = ({ word, ...p }) => (word ? <DocxViewer {...p} /> : <PdfViewer {...p} />);
-const wordShown = async (blob) => { try { return { blob: await wordToPdf(blob) }; } catch { return { blob, word: true }; } };
+/*
+  The PDF beside the Word file, drawn here in the browser from the filled Word itself (its page, letterhead pictures, fonts,
+  sizes, tables and wording): close to Word, not a copy of it (the user, 19 Nov: on save "drew its own in browser and save
+  both word n pdf"). No server. When it cannot be drawn, the Word file is shown and kept alone.
+*/
+const drawnPdf = async (docx) => makeLayoutPdf({ items: [] }, (await readLayout(docx, { asIs: true })).layout, templateArt);
+const wordShown = async (blob) => { try { return { blob: await drawnPdf(blob) }; } catch { return { blob, word: true }; } };
 
 /*
   A Word quotation shown as Word lays it out (docx-preview), with Download; the customer's file itself is what is kept
@@ -3786,7 +3792,6 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
     setErr(null); setReading(true);
     try {
       // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
-      wakePdf();
       const [Y, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
       if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
       setFile(f); setLay({ v: 2, yellow: Y }); if (n) setName(n);
@@ -4399,7 +4404,6 @@ function YellowMaker({ r, start, onClose, onMade }) {
   };
   useEffect(() => { quoteDraft.set(r.id, { ...q, to: toOf(q.f) }); }, [r.id, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
-  useEffect(() => { wakePdf(); }, []);
   // The signer: the signed-in person's name, designation and phone, unless already written.
   useEffect(() => {
     const sg = Y.fields.find((x) => x.kind === 'signer');
