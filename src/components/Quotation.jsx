@@ -2284,6 +2284,9 @@ const editOf = (r) => ({ equipment: r.equipment, make: r.make, model: r.model, s
 function TlReview({ r, preset, onDone }) {
   const [v, setV] = useState(editOf(r));
   const [note, setNote] = useState('');
+  // The Team Lead may remove, replace or add photos (0075; the user, 20 Nov).
+  const [photos, setPhotos] = useState(r.photos ?? []);
+  const [eqPhotos, setEqPhotos] = useState(r.equipment_photos?.length ? r.equipment_photos : r.equipment_photo ? [r.equipment_photo] : []);
   const [ask, box] = useAsk();
   const [err, show, clear, at] = useErr();
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
@@ -2304,6 +2307,8 @@ function TlReview({ r, preset, onDone }) {
   return (
     <>
       <RequestEdit v={v} set={set} />
+      <div className="pm-in"><span>Equipment photos</span><PhotoAdd folder={r.id} paths={eqPhotos} onChange={setEqPhotos} /></div>
+      <div className="pm-in"><span>Spare photos</span><PhotoAdd folder={r.id} paths={photos} onChange={setPhotos} /></div>
       <Field label="Remarks" wide>
         <textarea rows={2} value={note} autoFocus={preset === 'send_back' || preset === 'reject'} onChange={(e) => { setNote(e.target.value); clear(); }} />
       </Field>
@@ -2312,7 +2317,7 @@ function TlReview({ r, preset, onDone }) {
         <button type="button" data-role="engineer" className="mt-btn" onClick={() => decline('send_back')}>Send back</button>
         <button type="button" data-role="coordinator" className="mt-go" onClick={() => { clear(); ask({
           title: `Approve ${r.no}?`, lines: [`${v.spare} × ${v.qty} · ${r.hospital}`, who, camc ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
-          run: () => tlApprove([r.id], { ...v, qty: Number(v.qty) }), after: () => onDone(`${r.no} approved.`),
+          run: () => tlApprove([r.id], { ...v, qty: Number(v.qty), photos, equipment_photos: eqPhotos }), after: () => onDone(`${r.no} approved.`),
         }); }}>Approve</button>
       </div>
       <Err text={err} at={at} />
@@ -3069,11 +3074,15 @@ function RaiseForm({ me, onDone }) {
     if (!(v.ticket ?? '').trim()) { show('Type the ticket ID.'); return; }
     if (!v.facility_id) { show('Choose the hospital.'); return; }
     if (!v.equipment.trim()) { show('Write the equipment name.'); return; }
+    // One equipment photo and two of each spare (the user, 20 Nov).
+    if (!eqPhotos.length) { show('Add a photo of the equipment.'); return; }
     clear(); setStep(2); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const send = () => {
     const bad = spares.findIndex((s) => !s.spare.trim() || !(Number(s.qty) >= 1));
     if (bad >= 0) { show(`Write the spare name and quantity of spare ${bad + 1}.`); return; }
+    const few = spares.findIndex((s) => s.photos.length < 2);
+    if (few >= 0) { show(`Add 2 photos of spare ${few + 1}.`); return; }
     ask({
       title: spares.length === 1 ? 'Send this request?' : `Send ${spares.length} requests?`,
       lines: [`${f?.name}`, `${v.equipment}${v.make ? ` · ${v.make}` : ''}`, ...spares.map((s) => `${s.spare} × ${s.qty}`),
@@ -3120,7 +3129,7 @@ function RaiseForm({ me, onDone }) {
             <Field label="Model"><input value={v.model} onChange={(e) => set('model', e.target.value)} /></Field>
           </div>
           <Field label="Serial no"><input value={v.serial} onChange={(e) => set('serial', e.target.value)} /></Field>
-          <div className="pm-in"><span>Equipment photos</span>
+          <div className="pm-in"><span>Equipment photos · 1 needed</span>
             <PhotoAdd folder={spares[0].id} paths={eqPhotos} onChange={setEqPhotos} />
           </div>
           <Field label="Remarks" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
@@ -3143,7 +3152,7 @@ function RaiseForm({ me, onDone }) {
                 <Field label="Part no"><input value={s.part_no} onChange={(e) => setSpare(i, 'part_no', e.target.value)} /></Field>
                 <Stepper label="Qty" value={s.qty} onChange={(x) => setSpare(i, 'qty', x)} />
               </div>
-              <div className="pm-in"><span>Photos</span><PhotoAdd folder={s.id} paths={s.photos} onChange={(p) => setSpare(i, 'photos', p)} /></div>
+              <div className="pm-in"><span>Photos · 2 needed</span><PhotoAdd folder={s.id} paths={s.photos} onChange={(p) => setSpare(i, 'photos', p)} /></div>
             </section>
           ))}
           <button type="button" className="mt-btn qt-another" onClick={() => setSpares((x) => [...x, blankSpare()])}><Icon d={I.plus} /> Another spare</button>
