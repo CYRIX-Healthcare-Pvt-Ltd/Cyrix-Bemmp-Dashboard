@@ -1,6 +1,7 @@
 import { startSessionGuard } from './data/sessionGuard.js'
 import { supabase } from './data/supabase.js'
 import { startErrorReporting } from './data/reportErrors.js'
+import { startMaintenance } from './data/maintenance.js'
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 // Bundled rather than fetched from a CDN, and bundled at all: the
@@ -25,6 +26,8 @@ document.addEventListener('keydown', e => {
 
 // Signed out within a minute when another device signs everybody out (0149).
 startSessionGuard()
+// "Cyra is under maintenance" when SW Admin or an Ops admin turns it on, or when the database stops answering.
+startMaintenance(supabase, 'bemmp')
 // Before React mounts, so an error during the first render is caught too (shared DB, KPI 0230).
 startErrorReporting(supabase, 'bemmp', import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA?.slice(0, 7))
 
