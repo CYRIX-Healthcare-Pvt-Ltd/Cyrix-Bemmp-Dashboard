@@ -1694,6 +1694,8 @@ function nextLabel(r) {
 /** One Requests tab (the user, 11 Nov): To accept · With you · With others · Closed · All. */
 function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone, view, setView }) {
   const isWaiting = (r) => !r.accepted_at && !NO_ACCEPT.has(r.step);
+  // Search on To accept and With you too (the user, 20 Nov: "we need search option in with you tab also").
+  const [q, setQ] = useState('');
   const nWait = mine.filter(isWaiting).length;
   const nWork = mine.length - nWait;
   // A Coordinator or Purchase person sees the role's own apart from everybody else's (the user, 12 Nov).
@@ -1724,7 +1726,8 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
       </div>
       {v === 'accept' || v === 'mine'
         ? <><div className="qt-views-pick">{pick}</div>
-            <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} /></>
+            <div className="mt-filters qt-filters"><Search value={q} onChange={setQ} placeholder="Request no, hospital, spare, engineer" /></div>
+            <Todo me={me} list={mine.filter((r) => (v === 'accept') === isWaiting(r) && (!q || matches(r, q)))} targets={targets} now={now} onOpen={onOpen} onDone={onDone} sub={v} /></>
         : <Requests list={list} targets={targets} now={now} onOpen={onOpen} show={v} viewPick={pick} myRole={split ? me.role : null} allTime={period.id === 'all'} />}
     </div>
   );
