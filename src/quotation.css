@@ -620,6 +620,9 @@
 
 /* One Requests tab, five views (the user, 11 Nov); scrolls sideways on a phone rather than squeezing */
 .qt-work { display: flex; flex-direction: column; gap: 14px; }
+/* The Requests tabs and the period on one row, the period at the end; the period goes under them when there is no room (the user, 20 Nov). */
+.qt-views-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.qt-views-row > .mt-period { margin: 0; }
 .qt-views { align-self: start; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
 .qt-views::-webkit-scrollbar { display: none; }
 .qt-views button { flex: 0 0 auto; white-space: nowrap; }
@@ -766,7 +769,7 @@ button.qt-tile:active { transform: scale(.98); }
 .qt-views-pick { display: none; }
 .qt-view-sort { display: none; }
 @media (max-width: 700px) {
-  .qt-work > .segmented.qt-views { display: none; }
+  .qt-views-row > .segmented.qt-views { display: none; }
   .qt-views-pick { display: block; }
   .qt-views-pick .mt-picker, .qt-view-sort .mt-picker { width: 100%; }
   .qt-view-sort { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }

@@ -1717,12 +1717,15 @@ function Work({ me, list, mine, targets, now, period, setPeriod, onOpen, onDone,
   );
   return (
     <div className="qt-work">
-      <PeriodBar period={period} setPeriod={setPeriod} />
-      <div className="segmented qt-views" role="tablist" aria-label="Requests">
-        {views.map(([id, label, n]) => (
-          <button key={id} type="button" role="tab" aria-selected={v === id} data-view={id} data-hot={n ? 'true' : undefined}
-                  onClick={() => setView(id)}><i aria-hidden="true" />{label}{n != null ? <b> {n}</b> : null}</button>
-        ))}
+      {/* The tabs, then the period at the end of the same row (the user, 20 Nov: "date filter come at end of sub tab"). */}
+      <div className="qt-views-row">
+        <div className="segmented qt-views" role="tablist" aria-label="Requests">
+          {views.map(([id, label, n]) => (
+            <button key={id} type="button" role="tab" aria-selected={v === id} data-view={id} data-hot={n ? 'true' : undefined}
+                    onClick={() => setView(id)}><i aria-hidden="true" />{label}{n != null ? <b> {n}</b> : null}</button>
+          ))}
+        </div>
+        <PeriodBar period={period} setPeriod={setPeriod} />
       </div>
       {v === 'accept' || v === 'mine'
         ? <><div className="qt-views-pick">{pick}</div>
