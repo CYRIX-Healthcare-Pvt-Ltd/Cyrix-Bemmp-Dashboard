@@ -2418,15 +2418,23 @@ function TlClarify({ r, onDone }) {
   const q = [...(r.events ?? [])].reverse().find((e) => e.action === 'ask');
   const [v, setV] = useState({ ...editOf(r), note: '' });
   const [fix, setFix] = useState(false);
+  // The photos can be changed while answering too (0076; the user, 21 Nov: QR-209 asked for images).
+  const [photos, setPhotos] = useState(r.photos ?? []);
+  const [eqPhotos, setEqPhotos] = useState(r.equipment_photos?.length ? r.equipment_photos : r.equipment_photo ? [r.equipment_photo] : []);
+  const [hadSpare] = useState(() => !!r.photos?.length);
+  const [hadEq] = useState(() => !!(r.equipment_photos?.length || r.equipment_photo));
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   return (
     <>
       {q && <p className="qt-question"><b>{q.by_name}:</b> {q.note}</p>}
       <Field label="Answer" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+      {/* Only a group the request has no photo of (the user, 21 Nov). */}
+      {!hadEq && <div className="pm-in"><span>Equipment photos</span><PhotoAdd folder={r.id} paths={eqPhotos} onChange={setEqPhotos} /></div>}
+      {!hadSpare && <div className="pm-in"><span>Spare photos</span><PhotoAdd folder={r.id} paths={photos} onChange={setPhotos} /></div>}
       <button type="button" className="pm-add-remark" onClick={() => setFix((f) => !f)}>{fix ? '− Keep the request as it is' : '+ Correct the request'}</button>
       {fix && <RequestEdit v={v} set={set} />}
-      <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go(`Send the answer on ${r.no}?`, [v.note], 'Send', fix ? { ...v, qty: Number(v.qty) } : { note: v.note }, 'Answer sent to the Coordinator.')}>Send answer</button>
+      <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.go(`Send the answer on ${r.no}?`, [v.note], 'Send', { ...(fix ? { ...v, qty: Number(v.qty) } : { note: v.note }), photos, equipment_photos: eqPhotos }, 'Answer sent to the Coordinator.')}>Send answer</button>
       <Err text={s.err} at={s.at} />
       {s.box}
     </>
