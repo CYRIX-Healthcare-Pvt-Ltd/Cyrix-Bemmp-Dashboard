@@ -51,8 +51,11 @@ function tmWhen(v) {
   if (m && mon >= 0) return `${Number(m[1])} ${MONTHS[mon]} ${m[3]}${time(s.slice(m[0].length))}`;
   return s;
 }
-/** The number people use: the SAP service order (the user, 23 Nov: "wo is not imp"), the work order when there is none. */
-const refOf = (t) => t.sap_order || t.wo;
+/**
+ * The number people use: the SAP notification (the user, 23 Nov: "this is the sap number they need"),
+ * then the SAP service order, then the work order ("wo is not imp").
+ */
+const refOf = (t) => t.sap_notification || t.sap_order || t.wo;
 const sameCode = (a, b) => String(a ?? '').toUpperCase() === String(b ?? '').toUpperCase();
 
 /** Where a work order stands on our side, in the words on its badge (0077). */
@@ -493,7 +496,7 @@ const SORTS = [
   ['created-asc', 'Oldest first'],
   ['closed-desc', 'Closed, newest first'],
   ['age-desc', 'Oldest open first'],
-  ['wo-asc', 'SAP order'],
+  ['wo-asc', 'SAP no'],
   ['account-asc', 'Account'],
   ['engineer-asc', 'Engineer'],
 ];
@@ -675,7 +678,7 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
       <div className="mt-filters">
         <div className="field-search mt-search">
           <input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
-                 placeholder="Search SAP order, account, city" aria-label="Search" />
+                 placeholder="Search SAP no, account, city" aria-label="Search" />
         </div>
         {!mineView && view !== 'unassigned' && (
           <Picker
@@ -801,7 +804,7 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
             <thead>
               <tr>
                 {manager && <th className="mt-col-pick" aria-label="Select" />}
-                <th><button type="button" className="th-sort" onClick={() => sortBy('wo')}>SAP order{mark('wo')}</button></th>
+                <th><button type="button" className="th-sort" onClick={() => sortBy('wo')}>SAP no{mark('wo')}</button></th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('account')}>Account{mark('account')}</button></th>
                 <th>Product</th>
                 <th>Purpose</th>
@@ -1032,8 +1035,8 @@ function TicketSheet({ t, role, lead, team, profile, onClose, onChanged }) {
           <section className="mt-card-block mt-all-details">
             <span className="mt-block-label">Ticket details</span>
             <dl className="dl">
-              <Row label="SAP service order">{t.sap_order}</Row>
               <Row label="SAP notification">{t.sap_notification}</Row>
+              <Row label="SAP service order">{t.sap_order}</Row>
               <Row label="Work order">{t.wo}</Row>
               <Row label="Assigned">{t.assigned_at ? `${dayOf(t.assigned_at)}, ${timeOf(t.assigned_at)}` : null}</Row>
               {t.spare_request && <Row label="PI / PO Number">{t.spare_request}</Row>}
