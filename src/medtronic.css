@@ -776,3 +776,5 @@
   .mt-alert-tab { padding: 8px; font-size: 12px; }
   .mt-alert-tab b { font-size: 20px; }
 }
+.mt-tickets ~ .mt-alert-tabs, .mt-dash > .mt-alert-tabs { margin-bottom: 16px; }
+.mt-alert-tab:hover { border-color: var(--c); }

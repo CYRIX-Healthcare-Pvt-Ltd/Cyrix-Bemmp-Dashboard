@@ -175,7 +175,7 @@ export default function MedtronicApp({ me, profile, narrow, switcher, onSignOut 
           {data && (
             <div className="tabview" key={tab}>
               {tab === 'dashboard'
-                ? <Dashboard tickets={own} tatTickets={tickets} lead={lead} role={role} team={data.team} onList={toList} onOpen={setOpenId} action={uploadBtn} />
+                ? <Dashboard tickets={own} tatTickets={tickets} lead={lead} role={role} team={data.team} onList={toList} action={uploadBtn} />
                 : (
                   <Tickets
                     key={view ?? 'list'}
@@ -276,10 +276,8 @@ function countBy(list, key) {
   return [...m].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
 }
 
-function Dashboard({ tickets, tatTickets, lead, role, team, onList, onOpen, action }) {
+function Dashboard({ tickets, tatTickets, lead, role, team, onList, action }) {
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
-  const [alert, setAlert] = useState('late');
-  const [alertAll, setAlertAll] = useState(false);
   const today = todayIst();
 
   const f = useMemo(() => {
@@ -369,38 +367,15 @@ function Dashboard({ tickets, tatTickets, lead, role, team, onList, onOpen, acti
               icon={<Ico d={<><path d="M6 3.5h12M6 20.5h12" /><path d="M7.5 3.5c0 4 9 5 9 8.5s-9 4.5-9 8.5M16.5 3.5c0 4-9 5-9 8.5s9 4.5 9 8.5" /></>} />} />
       </div>
 
+      {/* Counts only; a press opens Tickets with that filter (the user, 23 Nov: "what if 100 past date is there"). */}
       {(f.late.length + f.soon.length + f.ours.length > 0) && (
-        <section className="panel mt-alert">
-          <div className="mt-alert-tabs">
-            {[['late', 'Past Medtronic date'], ['soon', 'Medtronic date in 2 days'], ['ours', "Our date after Medtronic's"]].map(([id, label]) => (
-              <button key={id} type="button" className={`mt-alert-tab is-${id}`} aria-pressed={alert === id}
-                      onClick={() => { setAlert(id); setAlertAll(false); }}>
-                <span>{label}</span><b>{f[id].length}</b>
-              </button>
-            ))}
-          </div>
-          {!f[alert].length ? <p className="empty-inline">None</p> : (
-            <ul className="mt-alert-list">
-              {(alertAll ? f[alert] : f[alert].slice(0, 8)).map(([t, c]) => (
-                <li key={t.id}>
-                  <button type="button" onClick={() => onOpen(t.id)}>
-                    <span className="mt-alert-who">
-                      <b>{refOf(t)}</b> · {t.account ?? '—'}{manages || lead ? ` · ${t.engineer_name ?? 'Not assigned'}` : ''}
-                    </span>
-                    <span className={`mt-alert-when is-${alert}`}>
-                      {alert === 'ours' ? `Ours ${shortDay(t.due_on, today)} · by ${shortDay(c.by, today)}` : lateText(c)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {f[alert].length > 8 && (
-            <button type="button" className="mt-btn mt-more" onClick={() => setAlertAll((v) => !v)}>
-              {alertAll ? 'Show fewer' : `Show all ${f[alert].length}`}
+        <div className="mt-alert-tabs">
+          {[['late', 'Past Medtronic date'], ['soon', 'Medtronic date in 2 days'], ['ours', "Our date after Medtronic's"]].map(([id, label]) => (
+            <button key={id} type="button" className={`mt-alert-tab is-${id}`} onClick={() => onList(`all|${id}`)}>
+              <span>{label}</span><b>{f[id].length}</b>
             </button>
-          )}
-        </section>
+          ))}
+        </div>
       )}
 
       <div className="mt-panels">
@@ -634,9 +609,11 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
     ? [['all', 'All'], ['unassigned', 'Not assigned'], ['to_accept', 'To accept'], ['to_start', 'To start'],
       ['pending', 'Pending'], ['completed', 'Completed'], ['closed', 'Closed']]
     : [['to_accept', 'To accept'], ['to_start', 'To start'], ['pending', 'Pending'], ['completed', 'Completed'],
-      ...(lead ? [['team', 'My team']] : [])];
+      ['all', 'All'], ...(lead ? [['team', 'My team']] : [])];
+  // "all|late": a tab and a Close by filter, from the dashboard's cards.
+  const [startTab, startClose] = String(startView ?? '').split('|');
   const [view, setView] = useState(() => {
-    if (startView && views.some(([id]) => id === startView)) return startView;
+    if (startTab && views.some(([id]) => id === startTab)) return startTab;
     return views[0][0];
   });
   /** Medtronic's own state: all, still open there, or closed there. */
@@ -651,7 +628,7 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
   const [q, setQ] = useState('');
   const [eng, setEng] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [due, setDue] = useState('');
+  const [due, setDue] = useState(() => (CLOSES.some(([v]) => v === startClose) ? startClose : ''));
   const [sort, setSort] = useState('created-desc');
   /** Closed date: All time / This month / Custom From – To (the user, 19 Nov: "need filters"). */
   const [period, setPeriod] = useState('all');
