@@ -176,11 +176,26 @@ export function startMaintenanceFrom(app, source) {
         barText = text;
     };
     // ---- the check ----
+    // A phone opened after hours away: its network wakes a few seconds after the page does (the user, 23 Nov).
+    // Two failures must be 10 seconds apart, and a page coming back waits 4 seconds before it asks.
     let failures = 0;
+    let firstFail = 0;
+    let busy = false;
     let auto = false;
     let timer;
     const next = (ms) => { window.clearTimeout(timer); timer = window.setTimeout(() => { void check(false); }, ms); };
     const check = async (pressed) => {
+        if (busy)
+            return;
+        busy = true;
+        try {
+            await look(pressed);
+        }
+        finally {
+            busy = false;
+        }
+    };
+    const look = async (pressed) => {
         if (!await source.signedIn().catch(() => false)) {
             hideScreen();
             hideBar();
@@ -199,13 +214,16 @@ export function startMaintenanceFrom(app, source) {
             }
         }
         if (broken) {
-            failures++;
+            if (!failures)
+                firstFail = Date.now();
+            if (!failures || Date.now() - firstFail >= 10_000)
+                failures++;
             if (failures >= 2 || auto) {
                 auto = true;
                 hideBar();
                 showScreen('');
             }
-            next(30_000);
+            next(auto ? 30_000 : 12_000);
             return;
         }
         failures = 0;
@@ -265,8 +283,16 @@ export function startMaintenanceFrom(app, source) {
             showScreen(`Back by ${when(t, new Date())}`);
         return;
     }
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible')
-        void check(false); });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible')
+            return;
+        if (auto)
+            void check(false);
+        else {
+            failures = 0;
+            next(4_000);
+        }
+    });
     source.watch?.(() => { void check(false); });
     void check(false);
 }
