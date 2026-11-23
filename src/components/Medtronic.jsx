@@ -109,6 +109,11 @@ export default function MedtronicApp({ me, profile, narrow, switcher, onSignOut 
   }, [toast]);
 
   const tickets = data?.tickets ?? [];
+  // A lead (an engineer with people below him, 0082) works his own tickets as before
+  // and has My team for theirs (the user, 23 Nov: "he can also assign to reassign to his resp reportees").
+  const lead = role === 'engineer' && Boolean(me?.lead);
+  const own = lead ? tickets.filter((t) => sameCode(t.engineer_code, profile?.code)) : tickets;
+  const teamTickets = lead ? tickets.filter((t) => !sameCode(t.engineer_code, profile?.code)) : [];
   const last = data?.uploads?.[0];
   const opened = tickets.find((t) => t.id === openId);
   const done = (text) => { setToast(text); return reload(); };
@@ -167,11 +172,13 @@ export default function MedtronicApp({ me, profile, narrow, switcher, onSignOut 
           {data && (
             <div className="tabview" key={tab}>
               {tab === 'dashboard'
-                ? <Dashboard tickets={tickets} role={role} team={data.team} onList={toList} action={uploadBtn} />
+                ? <Dashboard tickets={own} tatTickets={tickets} lead={lead} role={role} team={data.team} onList={toList} action={uploadBtn} />
                 : (
                   <Tickets
                     key={view ?? 'list'}
-                    tickets={tickets}
+                    tickets={own}
+                    teamTickets={teamTickets}
+                    lead={lead}
                     role={role}
                     team={data.team}
                     startView={view}
@@ -199,6 +206,7 @@ export default function MedtronicApp({ me, profile, narrow, switcher, onSignOut 
         <TicketSheet
           t={opened}
           role={role}
+          lead={lead}
           team={data.team}
           profile={profile}
           onClose={() => setOpenId(null)}
@@ -265,7 +273,7 @@ function countBy(list, key) {
   return [...m].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
 }
 
-function Dashboard({ tickets, role, team, onList, action }) {
+function Dashboard({ tickets, tatTickets, lead, role, team, onList, action }) {
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
   const today = todayIst();
 
@@ -348,7 +356,7 @@ function Dashboard({ tickets, role, team, onList, action }) {
       </div>
 
       <div className="mt-panels">
-        <EngineerTat tickets={tickets} team={team} period={period} manages={manages} />
+        <EngineerTat tickets={tatTickets ?? tickets} team={team} period={period} manages={manages || lead} lead={lead} />
         <section className="panel mt-panel" style={{ '--i': 2 }}>
           <h2>Open by purpose of visit</h2>
           <Bars rows={f.purpose} tint="var(--series-1)" />
@@ -380,7 +388,7 @@ const TAT_COLS = [
 ];
 const istDayOf = (iso) => (iso ? new Date(Date.parse(iso) + 5.5 * 3600000).toISOString().slice(0, 10) : null);
 
-function EngineerTat({ tickets, team, period, manages }) {
+function EngineerTat({ tickets, team, period, manages, lead }) {
   const [sort, setSort] = useState(['name', 'asc']);
   const rows = useMemo(() => {
     const m = new Map();
@@ -434,7 +442,7 @@ function EngineerTat({ tickets, team, period, manages }) {
 
   return (
     <section className="panel mt-panel mt-panel-wide" style={{ '--i': 1 }}>
-      <h2>{manages ? 'TAT by engineer' : 'Your TAT'}</h2>
+      <h2>{lead ? 'TAT · you and your team' : manages ? 'TAT by engineer' : 'Your TAT'}</h2>
       {/* A phone gets a card per engineer; the table scrolls sideways there (the user, 23 Nov: "phone based module"). */}
       <ul className="mt-tat-cards">
         {shown.map((r) => (
@@ -527,7 +535,7 @@ function sortValue(t, key, today) {
   }
 }
 
-function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, action }) {
+function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, narrow, onOpen, onAssigned, action }) {
   const manager = role === 'manager';
   const manages = role !== 'engineer';
   // All first (the user, 31 Oct: "ALL, not assigned, open, closed").
@@ -535,7 +543,8 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   const views = manages
     ? [['all', 'All'], ['unassigned', 'Not assigned'], ['to_accept', 'To accept'], ['to_start', 'To start'],
       ['pending', 'Pending'], ['completed', 'Completed'], ['closed', 'Closed']]
-    : [['to_accept', 'To accept'], ['to_start', 'To start'], ['pending', 'Pending'], ['completed', 'Completed']];
+    : [['to_accept', 'To accept'], ['to_start', 'To start'], ['pending', 'Pending'], ['completed', 'Completed'],
+      ...(lead ? [['team', 'My team']] : [])];
   const [view, setView] = useState(() => {
     if (startView && views.some(([id]) => id === startView)) return startView;
     return views[0][0];
@@ -563,11 +572,15 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   const today = todayIst();
 
   const inMt = useCallback((t) => (mt === 'closed' ? Boolean(t.mt_closed_on) : mt === 'open' ? !t.mt_closed_on : true), [mt]);
-  const inView = useCallback((t) => inMt(t) && (view === 'all' || stageOf(t) === view), [view, inMt]);
+  const inView = useCallback((t) => inMt(t) && (view === 'all' || view === 'team' || stageOf(t) === view), [view, inMt]);
+  /** My team: the lead's people's tickets, every stage, read as a manager reads them. */
+  const tickets = view === 'team' ? teamTickets : own;
+  const mineView = !manages && view !== 'team';
 
   const counts = useMemo(() => Object.fromEntries(views.map(([id]) => [
-    id, tickets.filter((t) => inMt(t) && (id === 'all' || stageOf(t) === id)).length,
-  ])), [tickets, inMt]); // eslint-disable-line react-hooks/exhaustive-deps
+    id, id === 'team' ? teamTickets.filter(inMt).length
+      : own.filter((t) => inMt(t) && (id === 'all' || stageOf(t) === id)).length,
+  ])), [own, teamTickets, inMt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Purposes in this tab, with their counts, the same way as the engineers.
   const purposes = useMemo(() => {
@@ -596,7 +609,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
       if (!inView(t)) return false;
       if (eng === '-' ? t.engineer_code : eng && t.engineer_code !== eng) return false;
       if (purpose && t.purpose !== purpose) return false;
-      if (!manages && !dueMatch(t, due, today)) return false;
+      if (mineView && !dueMatch(t, due, today)) return false;
       if ((view === 'closed' || view === 'completed') && period !== 'all') {
         const d = t.closed_on ?? '';
         if (period === 'month' ? d.slice(0, 7) !== today.slice(0, 7) : (!d || (from && d < from) || (to && d > to))) return false;
@@ -664,7 +677,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
           <input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
                  placeholder="Search SAP order, account, city" aria-label="Search" />
         </div>
-        {manages && view !== 'unassigned' && (
+        {!mineView && view !== 'unassigned' && (
           <Picker
             title="Engineer"
             value={eng}
@@ -694,7 +707,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
           onChange={(v) => { setMt(v); setLimit(PAGE); }}
           options={[{ value: '', label: 'Medtronic: All' }, { value: 'open', label: 'Open in Medtronic' }, { value: 'closed', label: 'Closed in Medtronic' }]}
         />
-        {!manages && view !== 'to_accept' && (
+        {mineView && view !== 'to_accept' && (
           <Picker
             title="Expected closure"
             value={due}
@@ -748,25 +761,25 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                   </span>
                   <span className="mt-card-line mt-strong">{t.account ?? '—'}</span>
                   <span className="mt-card-line">{[t.city, t.product].filter(Boolean).join(' · ')}</span>
-                  {(t.mt_closed_on || (!manages && t.due_on)) && (
+                  {(t.mt_closed_on || (mineView && t.due_on)) && (
                     <span className="mt-card-tags">
-                      {!manages && t.due_on && <span className={`mt-tag${!t.closed_by && t.due_on < today ? ' is-mt-closed' : ''}`}>Due {dayOf(t.due_on)}</span>}
+                      {mineView && t.due_on && <span className={`mt-tag${!t.closed_by && t.due_on < today ? ' is-mt-closed' : ''}`}>Due {dayOf(t.due_on)}</span>}
                       {t.mt_closed_on && <span className="mt-tag is-mt-closed">Closed in Medtronic</span>}
                     </span>
                   )}
                   <span className="mt-card-foot">
                     <span className="mt-card-meta">
-                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{!manages ? (t.assigned_at ? ` · TAT ${fmtDur(runTat(t))}` : '') : t.closed_by || t.status === 'closed' ? (t.closed_on ? ` · ${t.closed_by ? 'Completed' : 'Closed'} ${dayOf(t.closed_on)}` : '') : age != null ? ` · ${age} d` : ''}
+                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{mineView ? (t.assigned_at ? ` · TAT ${fmtDur(runTat(t))}` : '') : t.closed_by || t.status === 'closed' ? (t.closed_on ? ` · ${t.closed_by ? 'Completed' : 'Closed'} ${dayOf(t.closed_on)}` : '') : age != null ? ` · ${age} d` : ''}
                     </span>
                     <span className="mt-card-right">
                       {t.closed_by && t.csat != null && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
-                      {!manages ? null : t.engineer_name
+                      {mineView ? null : t.engineer_name
                         ? <span className="mt-who">{t.engineer_name}</span>
                         : <span className="mt-muted">Not assigned</span>}
                     </span>
                   </span>
                 </button>
-                {!manages && (s.id === 'to_accept' || s.id === 'to_start') && (
+                {mineView && (s.id === 'to_accept' || s.id === 'to_start') && (
                   <div className="mt-card-act">
                     <button type="button" className={`mt-btn ${s.id === 'to_accept' ? 'mt-btn-primary' : 'mt-btn-go'}`} disabled={busyId === t.id}
                             onClick={() => (s.id === 'to_accept'
@@ -794,7 +807,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                 <th>Purpose</th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('created')}>Created{mark('created')}</button></th>
                 {(view === 'all' || view === 'completed' || view === 'closed') && <th><button type="button" className="th-sort" onClick={() => sortBy('closed')}>Closed{mark('closed')}</button></th>}
-                {manages ? <>
+                {!mineView ? <>
                   <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('age')}>Age{mark('age')}</button></th>
                   <th><button type="button" className="th-sort" onClick={() => sortBy('engineer')}>Engineer{mark('engineer')}</button></th>
                 </> : <>
@@ -824,7 +837,7 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                     <td>{t.purpose ?? '—'}</td>
                     <td className="mt-nowrap">{dayOf(t.created_on)}</td>
                     {(view === 'all' || view === 'completed' || view === 'closed') && <td className="mt-nowrap">{(t.closed_by || t.status === 'closed') && t.closed_on ? dayOf(t.closed_on) : '—'}</td>}
-                    {manages ? <>
+                    {!mineView ? <>
                       <td className="mt-num">{age ?? '—'}</td>
                       <td>{t.engineer_name ?? <span className="mt-muted">Not assigned</span>}</td>
                     </> : <>
@@ -950,13 +963,14 @@ function Row({ label, children }) {
   return <div className="dl-row"><dt>{label}</dt><dd>{children || '—'}</dd></div>;
 }
 
-function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
+function TicketSheet({ t, role, lead, team, profile, onClose, onChanged }) {
   const s = stateOf(t);
   const mine = sameCode(t.engineer_code, profile?.code) && !t.closed_by;
   const canClose = mine && Boolean(t.started_at);
   /** The Completed box opens only from its own button in the status list (the user, 23 Nov). */
   const [completing, setCompleting] = useState(false);
-  const canAssign = role === 'manager' && !t.closed_by;
+  // A lead moves a ticket between himself and his people (0082); never to nobody.
+  const canAssign = (role === 'manager' || lead) && !t.closed_by;
   const age = ageDays(t);
 
   useEffect(() => {
@@ -995,7 +1009,7 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
           {mine && <EngineerStep t={t} onChanged={onChanged} completing={completing} onComplete={setCompleting} />}
           {canClose && completing && <CloseForm t={t} onClosed={(text) => { onChanged(text); onClose(); }} />}
           {t.engineer_id && t.assigned_at && <TatBlock t={t} />}
-          {canAssign && <AssignOne t={t} team={team} onDone={onChanged} />}
+          {canAssign && <AssignOne t={t} team={team} lead={lead} onDone={onChanged} />}
 
           <section className="mt-facts">
             {!canAssign && (
@@ -1293,7 +1307,7 @@ function History({ t }) {
   );
 }
 
-function AssignOne({ t, team, onDone }) {
+function AssignOne({ t, team, lead, onDone }) {
   const [who, setWho] = useState(t.engineer_id ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -1317,7 +1331,7 @@ function AssignOne({ t, team, onDone }) {
           tone="lg"
           value={who}
           onChange={setWho}
-          options={[{ value: '', label: 'Not assigned' }, ...team.map((p) => ({ value: p.id, label: p.name }))]}
+          options={[...(lead ? [] : [{ value: '', label: 'Not assigned' }]), ...team.map((p) => ({ value: p.id, label: p.name }))]}
         />
         <button type="button" className="mt-btn mt-btn-primary mt-btn-lg" disabled={!changed || busy} onClick={save}>
           {busy ? 'Saving…' : 'Save'}

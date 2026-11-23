@@ -64,7 +64,8 @@ function tabsFor(me) {
 }
 
 export default function QuotationApp({ me: meIn, profile, narrow, switcher, onSignOut }) {
-  const me = useMemo(() => ({ ...meIn, make: canMakeQuotes(profile) }), [meIn, profile]);
+  // Every coordinator makes quotations again (the user, 23 Nov: "ok every coordinator"); makers and leads stay test-only.
+  const me = useMemo(() => ({ ...meIn, make: canMakeQuotes(profile) || meIn?.role === 'coordinator' }), [meIn, profile]);
   // The open tab rides in the address (?tab=), so a reload stays on it (the user, 19 Nov).
   const [tab, setTabRaw] = useState(() => {
     const t = new URL(window.location.href).searchParams.get('tab');
@@ -2713,7 +2714,7 @@ function OnHold({ r, onDone }) {
   return (
     <>
       {why?.note && <p className="qt-question"><b>On hold:</b> {why.note}</p>}
-      <button type="button" data-role="coordinator" className="mt-go" onClick={() => ask({ title: `Take ${r.no} off hold?`, lines: [`${r.spare} × ${r.qty}`], ok: 'Take off hold', run: () => resume(r.id), after: () => onDone(`${r.no} is back.`) })}>Take off hold</button>
+      <button type="button" data-role={r.step === 'on_hold_dispatch' ? 'purchase' : 'coordinator'} className="mt-go" onClick={() => ask({ title: `Take ${r.no} off hold?`, lines: [`${r.spare} × ${r.qty}`], ok: 'Take off hold', run: () => resume(r.id), after: () => onDone(`${r.no} is back.`) })}>Take off hold</button>
       {box}
     </>
   );
@@ -2782,7 +2783,7 @@ function PurchaseDispatch({ r, onDone }) {
   const p = { ...v, action: a };
   return (
     <>
-      <Choice value={a} onChange={setA} options={[['dispatch', 'PO and dispatch', 'good', 'engineer'], ['ask_hold', 'Ask to hold', 'good', 'coordinator'], ['ask_cancel', 'Ask to cancel', 'bad']]} />
+      <Choice value={a} onChange={setA} options={[['dispatch', 'PO and dispatch', 'good', 'engineer'], ['hold', 'Put on hold', 'good', 'purchase'], ['ask_cancel', 'Ask to cancel', 'bad']]} />
       {a === 'dispatch' && (
         <>
           <div className="qt-grid">
@@ -2805,7 +2806,9 @@ function PurchaseDispatch({ r, onDone }) {
           <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.po_no, 'Write the PO no.'], [v.po_date, 'Choose the PO date.'], [v.vendor, 'Write the vendor.'], [v.track_mode, 'Choose how it is sent.'], [v.track_no, v.track_mode === 'By hand' ? 'Write who it was handed to.' : 'Write the tracking no.']]) && s.go(`Dispatch ${r.no}?`, [`PO ${v.po_no} · ${v.track_mode} ${v.track_no}`, `To ${r.engineer_name}`], 'Dispatch', p, `${r.no} dispatched.`)}>Dispatch</button>
         </div>
       )}
-      {a !== 'dispatch' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(a === 'ask_hold' ? `Ask to hold ${r.no}?` : `Ask to cancel ${r.no}?`, [v.note, 'The Coordinator decides.'], 'Ask', p, 'Sent to the Coordinator.')}>Send to the Coordinator</button>}
+      {/* Purchase holds it itself and it stays with Purchase (the user, 23 Nov; 0083). Cancelling is still the Coordinator's call. */}
+      {a === 'hold' && <button type="button" data-role="purchase" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note, 'It stays with you until you take it off hold.'], 'Put on hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
+      {a === 'ask_cancel' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Ask to cancel ${r.no}?`, [v.note, 'The Coordinator decides.'], 'Ask', p, 'Sent to the Coordinator.')}>Send to the Coordinator</button>}
       <Err text={s.err} at={s.at} />
       {s.box}
     </>
