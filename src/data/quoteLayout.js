@@ -127,6 +127,8 @@ export async function readLayout(file, { asIs = false } = {}) {
       float: !!anchor, w: r2(num(attr(ext, 'cx')) / EMU), h: r2(num(attr(ext, 'cy')) / EMU),
       hRel: attr(ph, 'relativeFrom') ?? 'column', vRel: attr(pv, 'relativeFrom') ?? 'paragraph', x: r2(off(ph)), y: r2(off(pv)),
       hAlign: ph?.getElementsByTagName('wp:align')[0]?.textContent ?? null,
+      // Text kept above and below it (QTN046's seal between For Cyrix and Authorized Signatory, the user, 23 Nov).
+      tb: anchor?.getElementsByTagName('wp:wrapTopAndBottom').length ? r2(num(attr(anchor, 'distB')) / EMU) : null,
       rid: attr(d.getElementsByTagName('a:blip')[0], 'r:embed'),
       fill: attr(d.getElementsByTagName('a:srgbClr')[0], 'val'),
     };
@@ -254,7 +256,7 @@ export async function readLayout(file, { asIs = false } = {}) {
       if (tb) { for (const p of kids(tb, 'w:p')) { const b = pBlock(p); if (b.t.trim()) out.push({ ...b, br: undefined }); } continue; }
       if (g.rid) {
         const p = await picture(docRels, 'word/', g.rid); if (!p) continue;
-        out.push({ k: 'img', ...p, w: g.w, h: g.h, float: g.float ? 1 : 0, x: r2(g.hRel === 'page' ? g.x - page.ml : g.x), dy: r2(g.float && g.vRel === 'paragraph' ? g.y : 0) });
+        out.push({ k: 'img', ...p, w: g.w, h: g.h, float: g.float ? 1 : 0, x: r2(g.hRel === 'page' ? g.x - page.ml : g.x), dy: r2(g.float && g.vRel === 'paragraph' ? g.y : 0), ...(g.float && g.tb != null && g.vRel === 'paragraph' ? { tb: g.tb } : {}) });
       }
     }
     return out;
@@ -570,13 +572,20 @@ export async function makeLayoutPdf(q, layout, img) {
   };
 
   for (const b of q.blocks ?? layout.blocks) {
-    if ((b.br || b.wp) && y > TOP + 1) newPage();
+    // A page holding only empty lines run over from the last (Giri Pushp's, once its seal pushes SIGNATURE down) is the
+    // page the break goes to; no blank page between.
+    if ((b.br || b.wp) && y > TOP + 1) { if (inked) newPage(); else y = TOP; }
     if (b.k === 'p') { paraTop = y; para(b); }
     else if (b.k === 'items') items();
     else if (b.k === 'grid') grid(b.rows, b.cw, b.wd, b.border);
     else if (b.k === 'img') {
       const d = await pic(b).catch(() => null); if (!d) continue; inked = true;
-      if (b.float) { pdf.addImage(d, b.fmt, Math.max(0, L + b.x), Math.max(TOP - 6, paraTop + b.dy), b.w, b.h, b.key, 'FAST'); }
+      if (b.float) {
+        const top = Math.max(TOP - 6, paraTop + b.dy);
+        pdf.addImage(d, b.fmt, Math.max(0, L + b.x), top, b.w, b.h, b.key, 'FAST');
+        // Wrapped top and bottom: the lines after it start under it, as in Word.
+        if (b.tb != null) y = Math.max(y, top + b.h + b.tb);
+      }
       else { if (y + b.h > BOTTOM) newPage(); pdf.addImage(d, b.fmt, L + Math.max(0, b.x), y, b.w, b.h, b.key, 'FAST'); y += b.h + 2; }
     }
   }
