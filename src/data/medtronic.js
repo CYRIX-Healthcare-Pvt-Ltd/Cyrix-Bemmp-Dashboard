@@ -39,7 +39,7 @@ export const uploadTm = (rows, fileName) => rpc('mt_upload', { p_rows: rows, p_f
 export const assignTickets = (ids, engineerId) => rpc('mt_assign', { p_ids: ids, p_engineer: engineerId });
 
 /* The engineer's steps (0077): accept, start, a status while it is pending, complete. */
-export const acceptTickets = (ids, due) => rpc('mt_accept', { p_ids: ids, p_due: due || null });
+export const acceptTickets = (ids, due, reason) => rpc('mt_accept', { p_ids: ids, p_due: due || null, p_reason: reason || null });
 /** Every step of one ticket, oldest first (mt_events, read through mt_sees). */
 export async function loadEvents(ticketId) {
   const { data, error } = await supabase.from('mt_events').select('id, at, kind, detail').eq('ticket_id', ticketId).order('at');

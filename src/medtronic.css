@@ -738,3 +738,41 @@
   .mt-work { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mt-work-btn.is-completed { grid-column: 1 / -1; }
 }
+
+/* Medtronic's close-by day (0084): late rows red, within 2 days amber, our later date marked. */
+.mt-due.is-soon { color: var(--status-warning); font-weight: 600; }
+.mt-ours-later { color: var(--status-critical); }
+.mt-table tbody tr.is-late td { background: color-mix(in srgb, var(--status-critical) 7%, transparent); }
+.mt-table tbody tr.is-late td:first-child { box-shadow: inset 3px 0 0 var(--status-critical); }
+.mt-card.is-late { box-shadow: inset 3px 0 0 var(--status-critical); background: color-mix(in srgb, var(--status-critical) 6%, var(--surface)); }
+.mt-tag.is-soon { color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 15%, transparent); }
+.mt-by { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+  padding: 9px 12px; border-radius: 10px; font-size: 14px;
+  color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 13%, transparent); }
+.mt-by.is-late { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+.mt-why span { color: var(--status-critical); }
+.mt-why textarea { font-size: 16px; resize: vertical; min-height: 60px; }
+.mt-alert { margin-bottom: 16px; padding: 14px; }
+.mt-alert-tabs { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 10px; }
+.mt-alert-tab { --c: var(--text-secondary); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  padding: 10px 12px; border-radius: 10px; border: 1.5px solid transparent; color: var(--c);
+  background: color-mix(in srgb, var(--c) 10%, transparent); cursor: pointer; font-size: 13px; }
+.mt-alert-tab b { font-size: 24px; line-height: 1.1; }
+.mt-alert-tab.is-late { --c: var(--status-critical); }
+.mt-alert-tab.is-soon { --c: var(--status-warning); }
+.mt-alert-tab[aria-pressed='true'] { border-color: var(--c); }
+.mt-alert-list { list-style: none; margin: 0; padding: 0; }
+.mt-alert-list li + li { border-top: 1px solid var(--border); }
+.mt-alert-list button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px 2px;
+  background: none; border: 0; color: var(--text-primary); text-align: left; cursor: pointer; font-size: 13.5px; }
+.mt-alert-list button:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.mt-alert-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-alert-when { flex: none; font-weight: 600; }
+.mt-alert-when.is-late { color: var(--status-critical); }
+.mt-alert-when.is-soon { color: var(--status-warning); }
+.mt-alert-when.is-ours { color: var(--text-secondary); font-weight: 500; }
+@media (max-width: 640px) {
+  .mt-alert-tabs { gap: 6px; }
+  .mt-alert-tab { padding: 8px; font-size: 12px; }
+  .mt-alert-tab b { font-size: 20px; }
+}

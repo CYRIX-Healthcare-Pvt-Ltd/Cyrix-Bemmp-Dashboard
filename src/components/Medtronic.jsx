@@ -175,7 +175,7 @@ export default function MedtronicApp({ me, profile, narrow, switcher, onSignOut 
           {data && (
             <div className="tabview" key={tab}>
               {tab === 'dashboard'
-                ? <Dashboard tickets={own} tatTickets={tickets} lead={lead} role={role} team={data.team} onList={toList} action={uploadBtn} />
+                ? <Dashboard tickets={own} tatTickets={tickets} lead={lead} role={role} team={data.team} onList={toList} onOpen={setOpenId} action={uploadBtn} />
                 : (
                   <Tickets
                     key={view ?? 'list'}
@@ -276,8 +276,10 @@ function countBy(list, key) {
   return [...m].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
 }
 
-function Dashboard({ tickets, tatTickets, lead, role, team, onList, action }) {
+function Dashboard({ tickets, tatTickets, lead, role, team, onList, onOpen, action }) {
   const [period, setPeriod] = useState({ id: 'month', from: '', to: '' });
+  const [alert, setAlert] = useState('late');
+  const [alertAll, setAlertAll] = useState(false);
   const today = todayIst();
 
   const f = useMemo(() => {
@@ -299,6 +301,15 @@ function Dashboard({ tickets, tatTickets, lead, role, team, onList, action }) {
       purpose: countBy(open, 'purpose'),
       status: countBy(open, 'order_status'),
       ages,
+      // Against Medtronic's close-by day (the user, 23 Nov: "that ticket should be in alert").
+      ...(() => {
+        const cbs = open.map((t) => [t, closeBy(t, today)]);
+        return {
+          late: cbs.filter(([, c]) => c.late).sort((a, b) => b[1].late - a[1].late),
+          soon: cbs.filter(([, c]) => c.soon).sort((a, b) => a[1].left - b[1].left),
+          ours: cbs.filter(([, c]) => c.oursLater),
+        };
+      })(),
     };
   }, [tickets, period, today]);
 
@@ -358,6 +369,40 @@ function Dashboard({ tickets, tatTickets, lead, role, team, onList, action }) {
               icon={<Ico d={<><path d="M6 3.5h12M6 20.5h12" /><path d="M7.5 3.5c0 4 9 5 9 8.5s-9 4.5-9 8.5M16.5 3.5c0 4-9 5-9 8.5s9 4.5 9 8.5" /></>} />} />
       </div>
 
+      {(f.late.length + f.soon.length + f.ours.length > 0) && (
+        <section className="panel mt-alert">
+          <div className="mt-alert-tabs">
+            {[['late', 'Past Medtronic date'], ['soon', 'Medtronic date in 2 days'], ['ours', "Our date after Medtronic's"]].map(([id, label]) => (
+              <button key={id} type="button" className={`mt-alert-tab is-${id}`} aria-pressed={alert === id}
+                      onClick={() => { setAlert(id); setAlertAll(false); }}>
+                <span>{label}</span><b>{f[id].length}</b>
+              </button>
+            ))}
+          </div>
+          {!f[alert].length ? <p className="empty-inline">None</p> : (
+            <ul className="mt-alert-list">
+              {(alertAll ? f[alert] : f[alert].slice(0, 8)).map(([t, c]) => (
+                <li key={t.id}>
+                  <button type="button" onClick={() => onOpen(t.id)}>
+                    <span className="mt-alert-who">
+                      <b>{refOf(t)}</b> · {t.account ?? '—'}{manages || lead ? ` · ${t.engineer_name ?? 'Not assigned'}` : ''}
+                    </span>
+                    <span className={`mt-alert-when is-${alert}`}>
+                      {alert === 'ours' ? `Ours ${shortDay(t.due_on, today)} · by ${shortDay(c.by, today)}` : lateText(c)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {f[alert].length > 8 && (
+            <button type="button" className="mt-btn mt-more" onClick={() => setAlertAll((v) => !v)}>
+              {alertAll ? 'Show fewer' : `Show all ${f[alert].length}`}
+            </button>
+          )}
+        </section>
+      )}
+
       <div className="mt-panels">
         <EngineerTat tickets={tatTickets ?? tickets} team={team} period={period} manages={manages || lead} lead={lead} />
         <section className="panel mt-panel" style={{ '--i': 2 }}>
@@ -387,7 +432,7 @@ const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.lengt
 const TAT_COLS = [
   ['name', 'Engineer'], ['assigned', 'Assigned'], ['completed', 'Completed'], ['accept', 'Accept TAT'],
   ['start', 'Start TAT'], ['job', 'Job TAT'], ['spare', 'Waiting for spare'],
-  ['toAccept', 'To accept'], ['toStart', 'To start'], ['pending', 'Pending'], ['mtClosed', 'Closed in Medtronic'],
+  ['lateDone', 'After Medtronic date'], ['toAccept', 'To accept'], ['toStart', 'To start'], ['pending', 'Pending'], ['mtClosed', 'Closed in Medtronic'],
 ];
 const istDayOf = (iso) => (iso ? new Date(Date.parse(iso) + 5.5 * 3600000).toISOString().slice(0, 10) : null);
 
@@ -397,7 +442,7 @@ function EngineerTat({ tickets, team, period, manages, lead }) {
     const m = new Map();
     const row = (code, name) => m.get(code) ?? m.set(code, {
       code, name, assigned: 0, completed: 0, a: [], s: [], j: [], sp: [], yes: 0,
-      toAccept: 0, toStart: 0, pending: 0, mtClosed: 0,
+      lateDone: 0, toAccept: 0, toStart: 0, pending: 0, mtClosed: 0,
     }).get(code);
     for (const p of team) row(p.ecode, p.name);
     for (const t of tickets) {
@@ -413,6 +458,7 @@ function EngineerTat({ tickets, team, period, manages, lead }) {
         if (tat.job != null) r.j.push(tat.job);
         r.sp.push(tat.spare);
         if (t.csat) r.yes += 1;
+        if (closeBy(t, t.closed_on).closedLate) r.lateDone += 1;
       }
       if (st === 'to_accept') r.toAccept += 1;
       if (st === 'to_start') r.toStart += 1;
@@ -507,18 +553,59 @@ const runTat = (t) => (t.assigned_at
   ? Math.max(0, ((t.closed_by && t.closed_at ? Date.parse(t.closed_at) : Date.now()) - Date.parse(t.assigned_at)) / 1000) : null);
 const When = ({ at }) => (at ? <>{dayOf(at)}<div className="mt-muted">{timeOf(at)}</div></> : '—');
 
-/** Expected closure, red once it has passed and the call is not completed. */
-const Due = ({ t, today }) => (t.due_on
-  ? <span className={!t.closed_by && t.due_on < today ? 'mt-due is-late' : 'mt-due'}>{dayOf(t.due_on)}</span> : '—');
-const DUES = [['', 'Due: All'], ['late', 'Overdue'], ['today', 'Due today'], ['week', 'Due in 7 days'], ['none', 'No due date']];
-function dueMatch(t, f, today) {
+/*
+ * Medtronic's close-by day: the TM's Preferred Start Time (the user, 23 Nov: "this is actually eng should
+ * close the call on or before this date"). Day first, as every TM so far: "05/11/2026, 11:30 am".
+ */
+const pad2 = (n) => String(n).padStart(2, '0');
+function mtBy(t) {
+  const s = String(t.preferred_start ?? '').trim();
+  let m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m) {
+    const d = Number(m[1]); const mo = Number(m[2]);
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${m[3]}-${pad2(mo)}-${pad2(d)}` : null;
+  }
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})/);
+  const mon = m ? MONTHS.findIndex((x) => x.toLowerCase() === m[2].slice(0, 3).toLowerCase()) : -1;
+  return mon >= 0 ? `${m[3]}-${pad2(mon + 1)}-${pad2(Number(m[1]))}` : null;
+}
+const daysFrom = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+const isOpenWork = (t) => !t.closed_by && t.status === 'open';
+/** Where a ticket stands against Medtronic's day: late (days past, open), soon (within 2 days), closed late, our date later. */
+function closeBy(t, today) {
+  const by = mtBy(t);
+  if (!by) return { by: null, late: 0, soon: false, left: null, closedLate: 0, oursLater: false };
+  const open = isOpenWork(t);
+  const left = open && by >= today ? daysFrom(today, by) : null;
+  return {
+    by,
+    late: open && by < today ? daysFrom(by, today) : 0,
+    soon: left != null && left <= 2,
+    left,
+    closedLate: t.closed_by && t.closed_on && t.closed_on > by ? daysFrom(by, t.closed_on) : 0,
+    oursLater: open && Boolean(t.due_on) && t.due_on > by,
+  };
+}
+const shortDay = (d, today) => (d.slice(0, 4) === today.slice(0, 4) ? dayOf(d).replace(/\s\d{4}$/, '') : dayOf(d));
+const lateText = (c) => (c.late ? `${c.late} d late` : c.closedLate ? `closed ${c.closedLate} d late`
+  : c.soon ? (c.left === 0 ? 'today' : `in ${c.left} ${c.left === 1 ? 'day' : 'days'}`) : '');
+/** One column for both dates (the user, 23 Nov): Medtronic's on top, ours under it. */
+function CloseBy({ t, today }) {
+  const c = closeBy(t, today);
+  const ours = t.due_on && <div className={`mt-muted${c.oursLater ? ' mt-ours-later' : ''}`}>Ours {shortDay(t.due_on, today)}</div>;
+  if (!c.by) return ours || '—';
+  const tone = c.late || c.closedLate ? ' is-late' : c.soon ? ' is-soon' : '';
+  const note = lateText(c);
+  return <><span className={`mt-due${tone}`}>{shortDay(c.by, today)}{note ? ` · ${note}` : ''}</span>{ours}</>;
+}
+const CLOSES = [['', 'Close by: All'], ['late', 'Late'], ['soon', 'In 2 days'], ['ours', 'Our date later'], ['none', 'No Medtronic date']];
+function closeMatch(t, f, today) {
   if (!f) return true;
-  if (f === 'none') return !t.due_on;
-  if (!t.due_on || t.closed_by) return false;
-  if (f === 'late') return t.due_on < today;
-  if (f === 'today') return t.due_on === today;
-  const wk = new Date(Date.parse(today) + 7 * 864e5).toISOString().slice(0, 10);
-  return t.due_on >= today && t.due_on <= wk;
+  const c = closeBy(t, today);
+  if (f === 'none') return !c.by;
+  if (f === 'late') return c.late > 0;
+  if (f === 'soon') return c.soon;
+  return c.oursLater;
 }
 
 function sortValue(t, key, today) {
@@ -529,7 +616,7 @@ function sortValue(t, key, today) {
     case 'accepted': return t.accepted_at ?? '';
     case 'started': return t.started_at ?? '';
     case 'tat': return runTat(t) ?? -1;
-    case 'due': return t.due_on ?? '9999';
+    case 'due': return mtBy(t) ?? '9999';
     case 'wo': return refOf(t);
     case 'account': return (t.account ?? '').toLowerCase();
     case 'engineer': return (t.engineer_name ?? '~').toLowerCase();
@@ -612,7 +699,7 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
       if (!inView(t)) return false;
       if (eng === '-' ? t.engineer_code : eng && t.engineer_code !== eng) return false;
       if (purpose && t.purpose !== purpose) return false;
-      if (mineView && !dueMatch(t, due, today)) return false;
+      if (!closeMatch(t, due, today)) return false;
       if ((view === 'closed' || view === 'completed') && period !== 'all') {
         const d = t.closed_on ?? '';
         if (period === 'month' ? d.slice(0, 7) !== today.slice(0, 7) : (!d || (from && d < from) || (to && d > to))) return false;
@@ -710,12 +797,12 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
           onChange={(v) => { setMt(v); setLimit(PAGE); }}
           options={[{ value: '', label: 'Medtronic: All' }, { value: 'open', label: 'Open in Medtronic' }, { value: 'closed', label: 'Closed in Medtronic' }]}
         />
-        {mineView && view !== 'to_accept' && (
+        {view !== 'closed' && (
           <Picker
-            title="Expected closure"
+            title="Close by"
             value={due}
             onChange={(v) => { setDue(v); setLimit(PAGE); }}
-            options={DUES.map(([value, label]) => ({ value, label, count: tickets.filter((t) => inView(t) && dueMatch(t, value, today)).length }))}
+            options={CLOSES.map(([value, label]) => ({ value, label, count: tickets.filter((t) => inView(t) && closeMatch(t, value, today)).length }))}
           />
         )}
         {(view === 'closed' || view === 'completed') && (
@@ -750,8 +837,9 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
           {shown.slice(0, limit).map((t) => {
             const s = stateOf(t);
             const age = ageDays(t, today);
+            const cb = closeBy(t, today);
             return (
-              <li key={t.id} className={`mt-card${picked.has(t.id) ? ' is-picked' : ''}`} data-state={s.id}>
+              <li key={t.id} className={`mt-card${picked.has(t.id) ? ' is-picked' : ''}${cb.late ? ' is-late' : ''}`} data-state={s.id}>
                 {canPick(t) && (
                   <input type="checkbox" className="mt-card-pick" checked={picked.has(t.id)}
                          onChange={() => toggle(t.id)} aria-label={`Select ${refOf(t)}`} />
@@ -764,9 +852,10 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
                   </span>
                   <span className="mt-card-line mt-strong">{t.account ?? '—'}</span>
                   <span className="mt-card-line">{[t.city, t.product].filter(Boolean).join(' · ')}</span>
-                  {(t.mt_closed_on || (mineView && t.due_on)) && (
+                  {(t.mt_closed_on || cb.by || t.due_on) && (
                     <span className="mt-card-tags">
-                      {mineView && t.due_on && <span className={`mt-tag${!t.closed_by && t.due_on < today ? ' is-mt-closed' : ''}`}>Due {dayOf(t.due_on)}</span>}
+                      {cb.by && <span className={`mt-tag${cb.late || cb.closedLate ? ' is-mt-closed' : cb.soon ? ' is-soon' : ''}`}>By {shortDay(cb.by, today)}{lateText(cb) ? ` · ${lateText(cb)}` : ''}</span>}
+                      {t.due_on && <span className={`mt-tag${cb.oursLater ? ' is-soon' : ''}`}>Ours {shortDay(t.due_on, today)}</span>}
                       {t.mt_closed_on && <span className="mt-tag is-mt-closed">Closed in Medtronic</span>}
                     </span>
                   )}
@@ -810,13 +899,13 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
                 <th>Purpose</th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('created')}>Created{mark('created')}</button></th>
                 {(view === 'all' || view === 'completed' || view === 'closed') && <th><button type="button" className="th-sort" onClick={() => sortBy('closed')}>Closed{mark('closed')}</button></th>}
+                <th><button type="button" className="th-sort" onClick={() => sortBy('due')}>Close by{mark('due')}</button></th>
                 {!mineView ? <>
                   <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('age')}>Age{mark('age')}</button></th>
                   <th><button type="button" className="th-sort" onClick={() => sortBy('engineer')}>Engineer{mark('engineer')}</button></th>
                 </> : <>
                   {showAcc && <th><button type="button" className="th-sort" onClick={() => sortBy('accepted')}>Accepted{mark('accepted')}</button></th>}
                   {showStart && <th><button type="button" className="th-sort" onClick={() => sortBy('started')}>Started{mark('started')}</button></th>}
-                  {showAcc && <th><button type="button" className="th-sort" onClick={() => sortBy('due')}>Due{mark('due')}</button></th>}
                   <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('tat')}>TAT{mark('tat')}</button></th>
                 </>}
                 <th><button type="button" className="th-sort" onClick={() => sortBy('status')}>Status{mark('status')}</button></th>
@@ -828,7 +917,7 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
                 const s = stateOf(t);
                 const age = ageDays(t, today);
                 return (
-                  <tr key={t.id} className={picked.has(t.id) ? 'is-picked' : ''} data-state={s.id} onClick={() => onOpen(t.id)}>
+                  <tr key={t.id} className={`${picked.has(t.id) ? 'is-picked' : ''}${closeBy(t, today).late ? ' is-late' : ''}`} data-state={s.id} onClick={() => onOpen(t.id)}>
                     {manager && (
                       <td className="mt-col-pick" onClick={(e) => e.stopPropagation()}>
                         {canPick(t) && <input type="checkbox" checked={picked.has(t.id)} onChange={() => toggle(t.id)} aria-label={`Select ${refOf(t)}`} />}
@@ -840,13 +929,13 @@ function Tickets({ tickets: own, teamTickets = [], lead, role, team, startView, 
                     <td>{t.purpose ?? '—'}</td>
                     <td className="mt-nowrap">{dayOf(t.created_on)}</td>
                     {(view === 'all' || view === 'completed' || view === 'closed') && <td className="mt-nowrap">{(t.closed_by || t.status === 'closed') && t.closed_on ? dayOf(t.closed_on) : '—'}</td>}
+                    <td className="mt-nowrap"><CloseBy t={t} today={today} /></td>
                     {!mineView ? <>
                       <td className="mt-num">{age ?? '—'}</td>
                       <td>{t.engineer_name ?? <span className="mt-muted">Not assigned</span>}</td>
                     </> : <>
                       {showAcc && <td className="mt-nowrap"><When at={t.accepted_at} /></td>}
                       {showStart && <td className="mt-nowrap"><When at={t.started_at} /></td>}
-                      {showAcc && <td className="mt-nowrap"><Due t={t} today={today} /></td>}
                       <td className="mt-num mt-nowrap">{fmtDur(runTat(t))}</td>
                     </>}
                     <td className="mt-nowrap">
@@ -975,6 +1064,7 @@ function TicketSheet({ t, role, lead, team, profile, onClose, onChanged }) {
   // A lead moves a ticket between himself and his people (0082); never to nobody.
   const canAssign = (role === 'manager' || lead) && !t.closed_by;
   const age = ageDays(t);
+  const sheetCb = closeBy(t, todayIst());
 
   useEffect(() => {
     const esc = (e) => { if (e.key === 'Escape') onClose(); };
@@ -1025,9 +1115,12 @@ function TicketSheet({ t, role, lead, team, profile, onClose, onChanged }) {
             <Fact icon="calendar" label="Created" sub={age != null ? `${age} ${age === 1 ? 'day' : 'days'}` : null}>
               {t.created_on ? dayOf(t.created_on) : null}
             </Fact>
-            <Fact icon="clock" label="Preferred start">{tmWhen(t.preferred_start)}</Fact>
+            <Fact icon="clock" label="Medtronic by" tone={sheetCb.late || sheetCb.closedLate ? 'danger' : undefined}
+                  sub={sheetCb.late || sheetCb.closedLate ? lateText(sheetCb) : null}>{tmWhen(t.preferred_start)}</Fact>
             <Fact icon="status" label="Order status">{t.order_status}</Fact>
-            {t.due_on && <Fact icon="calendar" label="Expected closure" tone={!t.closed_by && t.due_on < todayIst() ? 'danger' : undefined}>{dayOf(t.due_on)}</Fact>}
+            {t.due_on && <Fact icon="calendar" label="Expected closure" tone={sheetCb.oursLater || (!t.closed_by && t.due_on < todayIst()) ? 'danger' : undefined}
+                  sub={sheetCb.by && t.due_on > sheetCb.by ? `${daysFrom(sheetCb.by, t.due_on)} d after Medtronic's date` : null}>{dayOf(t.due_on)}</Fact>}
+            {t.due_reason && <Fact icon="status" label="Why later">{t.due_reason}</Fact>}
             {t.mt_closed_on && <Fact icon="lock" label="Closed in Medtronic" tone="danger">{dayOf(t.mt_closed_on)}</Fact>}
           </section>
 
@@ -1112,7 +1205,10 @@ function Reports({ paths }) {
 function EngineerStep({ t, onChanged, completing, onComplete }) {
   const [busy, setBusy] = useState(null);
   const [due, setDue] = useState('');
+  const [why, setWhy] = useState('');
   const [err, setErr] = useState(null);
+  const by = mtBy(t);
+  const needWhy = Boolean(by && due && due > by);
   const run = async (key, fn, text) => {
     setBusy(key); setErr(null);
     try { await fn(); await onChanged(text); } catch (e) { setErr(e.message); }
@@ -1121,11 +1217,24 @@ function EngineerStep({ t, onChanged, completing, onComplete }) {
   if (!t.accepted_at) {
     return (
       <section className="mt-card-block mt-step-block">
+        {by && (
+          <div className={`mt-by${by < todayIst() ? ' is-late' : ''}`}>
+            <span>Medtronic by</span><b>{tmWhen(t.preferred_start)}</b>
+          </div>
+        )}
         <label className="mt-field mt-due-field"><span>Expected closure</span>
           <input type="date" className="mt-input" value={due} min={todayIst()} onChange={(e) => { setDue(e.target.value); setErr(null); }} />
         </label>
+        {needWhy && (
+          <label className="mt-field mt-due-field mt-why"><span>Why after {dayOf(by)}?</span>
+            <textarea className="mt-input" rows={2} value={why} placeholder="Spare comes from Mumbai"
+                      onChange={(e) => { setWhy(e.target.value); setErr(null); }} />
+          </label>
+        )}
         <button type="button" className="mt-go" disabled={Boolean(busy)}
-                onClick={() => (due ? run('a', () => acceptTickets([t.id], due), `${refOf(t)} accepted`) : setErr('Choose the expected closure date'))}>
+                onClick={() => (!due ? setErr('Choose the expected closure date')
+                  : needWhy && !why.trim() ? setErr(`Say why it will be after ${dayOf(by)}`)
+                    : run('a', () => acceptTickets([t.id], due, needWhy ? why.trim() : null), `${refOf(t)} accepted`))}>
           <Svg d={I.check} size={22} />{busy ? 'Accepting…' : 'Accept'}
         </button>
         {err && <p className="mt-err">{err}</p>}
@@ -1250,7 +1359,10 @@ function TatBlock({ t }) {
 function eventLabel(e) {
   const d = e.detail ?? '';
   if (e.kind === 'assigned') return ['Assigned', null];
-  if (e.kind === 'accepted') return ['Accepted', d.startsWith('due: ') ? `Expected closure ${dayOf(d.slice(5))}` : null];
+  if (e.kind === 'accepted') {
+    const [dd, w] = d.split(' | why: ');
+    return ['Accepted', dd.startsWith('due: ') ? `Expected closure ${dayOf(dd.slice(5, 15))}${w ? ` · ${w}` : ''}` : null];
+  }
   if (e.kind === 'completed') return ['Completed', null];
   if (e.kind === 'started') return ['Started', null];
   if (e.kind === 'status') {
