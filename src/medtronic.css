@@ -531,3 +531,210 @@
 
 /* The dev server's own sign-in (App.jsx DevSignIn); never in a Vercel build. */
 .dev-signin { display: grid; gap: 10px; max-width: 280px; margin: 12vh auto 0; }
+
+/* ---- 0077: the engineer's steps, the Medtronic tag, TAT (23 Nov 2026) ---- */
+.mt-tiles.is-stages { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.mt-badge.is-to_accept { color: var(--series-2); background: color-mix(in srgb, var(--series-2) 14%, transparent); }
+.mt-badge.is-to_start { color: var(--series-1); background: color-mix(in srgb, var(--series-1) 13%, transparent); }
+.mt-badge.is-pending { color: var(--series-4); background: color-mix(in srgb, var(--series-4) 14%, transparent); }
+.mt-badge.is-completed { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
+.mt-views button[data-tone='to_accept'] { --tone: var(--series-2); }
+.mt-views button[data-tone='to_start'] { --tone: var(--series-1); }
+.mt-views button[data-tone='pending'] { --tone: var(--series-4); }
+.mt-views button[data-tone='completed'] { --tone: var(--status-good); }
+.mt-card[data-state='to_accept'], .mt-table tbody tr[data-state='to_accept'] { --tone: var(--series-2); }
+.mt-card[data-state='pending'], .mt-table tbody tr[data-state='pending'] { --tone: var(--series-4); }
+.mt-card[data-state='completed'], .mt-table tbody tr[data-state='completed'] { --tone: var(--status-good); }
+
+.mt-tag {
+  display: inline-block; padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11.5px; font-weight: 600;
+  white-space: nowrap; color: var(--text-secondary); border: 1px solid var(--border);
+}
+.mt-tag.is-mt-closed { color: var(--status-critical); border-color: transparent; background: color-mix(in srgb, var(--status-critical) 13%, transparent); }
+.mt-tag.is-work { color: var(--series-4); border-color: transparent; background: color-mix(in srgb, var(--series-4) 13%, transparent); }
+.mt-tag.is-waiting_spare { color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 16%, transparent); }
+.mt-card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mt-table td .mt-tag { margin-top: 4px; }
+.mt-sheet-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.mt-card-main { flex: 1; min-width: 0; }
+.mt-card-act { margin-top: 10px; }
+.mt-card-act .mt-btn { width: 100%; justify-content: center; min-height: 42px; font-size: 15px; }
+.mt-btn-go { color: #fff; background: var(--status-good); border-color: var(--status-good); }
+
+.mt-step-block .mt-go { width: 100%; }
+.mt-go.is-start { background: var(--status-good); }
+.mt-work { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mt-work-btn {
+  min-height: 44px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border);
+  background: transparent; color: inherit; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.mt-work-btn[aria-pressed='true'] { color: var(--series-4); border: 1.5px solid var(--series-4); background: color-mix(in srgb, var(--series-4) 12%, transparent); }
+.mt-work-btn.is-waiting_spare[aria-pressed='true'] { color: var(--status-warning); border-color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 14%, transparent); }
+
+.mt-tat-steps { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.mt-tat-steps li { display: grid; grid-template-columns: 12px 84px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-muted); }
+.mt-tat-steps li.is-done { color: var(--text-primary); }
+.mt-tat-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border); }
+.mt-tat-steps li.is-done .mt-tat-dot { background: var(--status-good); border-color: var(--status-good); }
+.mt-tat-label { font-weight: 600; }
+.mt-tat-at { color: var(--text-secondary); font-size: 12.5px; }
+.mt-tat-d { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mt-tat-spare { margin: 8px 0 0; font-size: 13px; color: var(--status-warning); font-weight: 600; }
+.mt-tat-total { margin: 6px 0 0; font-size: 13.5px; font-weight: 700; }
+.mt-tat td, .mt-tat th { white-space: nowrap; }
+.mt-tat-row { cursor: default; }
+
+.mt-files { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.mt-files li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; font-size: 13.5px; }
+.mt-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-file-x { border: 0; background: none; color: var(--text-secondary); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.mt-camera-sm { min-height: 56px; flex-direction: row; gap: 10px; }
+.mt-reports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mt-report-link { border: 1px solid var(--border); background: transparent; color: inherit; border-radius: var(--radius-pill); padding: 4px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.mt-work-ask { display: grid; gap: 8px; margin-top: 10px; }
+.mt-input { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: inherit; font: inherit; font-size: 16px; }
+.mt-input.is-bad, .mt-note.is-bad { border-color: var(--status-critical); }
+.mt-work-said { margin: 10px 0 0; display: grid; gap: 6px; font-size: 13.5px; }
+.mt-work-said div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; }
+.mt-work-said dt { color: var(--text-secondary); }
+.mt-work-said dd { margin: 0; overflow-wrap: anywhere; }
+.mt-tat-obs { margin: 6px 0 0; font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* Each step's dot in its stage colour (the user, 23 Nov). */
+.mt-tat-steps li.is-assigned { --dot: var(--status-warning); }
+.mt-tat-steps li.is-accepted { --dot: var(--series-2); }
+.mt-tat-steps li.is-started { --dot: var(--series-4); }
+.mt-tat-steps li.is-completed { --dot: var(--status-good); }
+.mt-tat-steps li .mt-tat-dot { border-color: color-mix(in srgb, var(--dot) 45%, var(--border)); }
+.mt-tat-steps li.is-done .mt-tat-dot { background: var(--dot); border-color: var(--dot); }
+.mt-badge.is-pending.is-waiting_spare { color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 16%, transparent); }
+.mt-tat-cards { display: none; list-style: none; margin: 0; padding: 0; gap: 10px; }
+.mt-tat-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+.mt-tat-card-name { display: block; font-weight: 700; margin-bottom: 8px; }
+.mt-tat-card dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.mt-tat-card dl div { min-width: 0; }
+.mt-tat-card dt { font-size: 11.5px; color: var(--text-secondary); }
+.mt-tat-card dd { margin: 1px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) {
+  .mt-tat-cards { display: grid; }
+  .mt-tat-wrap { display: none; }
+}
+.mt-work-btn.is-completed { color: var(--status-good); border-color: color-mix(in srgb, var(--status-good) 55%, var(--border)); }
+.mt-work-btn.is-completed[aria-pressed='true'] { color: #fff; background: var(--status-good); border-color: var(--status-good); }
+.mt-fact.is-danger .mt-fact-icon { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 14%, transparent); }
+.mt-fact.is-danger .mt-fact-value { color: var(--status-critical); }
+/* The status cell: badge, then the Medtronic tag under it, never spilling out (23 Nov). */
+.mt-table td:last-child { min-width: 150px; }
+.mt-table .mt-tag { white-space: normal; line-height: 1.35; padding: 3px 9px; }
+.mt-table .mt-badge + .mt-csat { display: inline-block; }
+.mt-table td:last-child > div { margin-top: 4px; }
+
+/* Medtronic's own state in the table: one word, no date (the user, 23 Nov). */
+.mt-mt-state { font-weight: 600; color: var(--text-secondary, inherit); }
+.mt-mt-state.is-closed { color: var(--status-critical, #e5484d); }
+
+/* The panel's own padding made the table wider than its box, so the scroll bar
+   showed with nothing hidden (the user, 23 Nov: "only when exceeded"). */
+.panel.mt-table-wrap { padding: 0; }
+.panel.mt-table-wrap .mt-table th:first-child,
+.panel.mt-table-wrap .mt-table td:first-child { padding-left: 20px; }
+.panel.mt-table-wrap .mt-table th:last-child,
+.panel.mt-table-wrap .mt-table td:last-child { padding-right: 20px; }
+/* The app-wide table rule keeps cells on one line and the last cell 150px wide;
+   here long names wrap so the table fits before it scrolls. */
+.mt-table td { white-space: normal; }
+.mt-table td.mt-nowrap, .mt-table td.mt-wo, .mt-table td.mt-num { white-space: nowrap; }
+.mt-table td:last-child { min-width: 0; }
+
+/* Expected closure (0079). */
+.mt-due-field { display: grid; gap: 6px; margin-bottom: 12px; }
+.mt-due-field input { font-size: 16px; }
+.mt-due.is-late { color: var(--status-critical, #e5484d); font-weight: 600; }
+
+/* History: every step with its time and how long it lasted. */
+.mt-hist { list-style: none; margin: 10px 0 0; padding: 0; display: grid; }
+.mt-hist li { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 0 0 14px 22px; }
+.mt-hist li::before { content: ''; position: absolute; left: 5px; top: 14px; bottom: -2px; width: 2px; background: var(--border); }
+.mt-hist li:last-child { padding-bottom: 0; }
+.mt-hist li:last-child::before { display: none; }
+.mt-hist-dot { position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); }
+.mt-hist li.is-now .mt-hist-dot { background: var(--accent, var(--series-4)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent, var(--series-4)) 22%, transparent); }
+.mt-hist-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.mt-hist-label { font-weight: 600; }
+.mt-hist-at { font-size: 13px; color: var(--text-muted); }
+.mt-hist-note { font-size: 13px; overflow-wrap: anywhere; }
+.mt-hist-d { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Ticket page: details left, history right, like Revive Lab (the user, 23 Nov). */
+.mt-sheet-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.mt-sheet-main > * { flex: none; }
+.mt-sheet-side { min-width: 0; }
+@media (min-width: 900px) {
+  .mt-sheet.is-wide { width: min(1120px, 100%); max-height: min(92vh, 1000px); }
+  .mt-sheet.is-wide .mt-sheet-body { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); align-items: start; gap: 16px; }
+  .mt-sheet.is-wide .mt-sheet-side { position: sticky; top: 0; }
+}
+
+/* History dots by status; the time between two steps sits on the line (the user, 23 Nov). */
+.mt-hist li { --dot: var(--text-muted); }
+.mt-hist li.is-assigned { --dot: var(--status-warning); }
+.mt-hist li.is-accepted { --dot: var(--series-2); }
+.mt-hist li.is-started { --dot: var(--series-4); }
+.mt-hist li.is-under_repair { --dot: var(--series-1); }
+.mt-hist li.is-observation { --dot: var(--series-3); }
+.mt-hist li.is-waiting_spare { --dot: var(--status-critical); }
+.mt-hist li.is-waiting_customer { --dot: var(--series-5); }
+.mt-hist li.is-completed { --dot: var(--status-good); }
+.mt-hist .mt-hist-dot { background: var(--dot); }
+.mt-hist li.is-now .mt-hist-dot { background: var(--dot); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 25%, transparent); }
+.mt-hist li.mt-hist-gap { padding: 0 0 12px 22px; min-height: 0; }
+.mt-hist li.mt-hist-gap::before { top: -2px; bottom: -2px; background: color-mix(in srgb, var(--dot) 55%, var(--border)); }
+.mt-hist li.mt-hist-gap.is-running::before { display: block; background: none; border-left: 2px dashed color-mix(in srgb, var(--dot) 55%, var(--border)); width: 0; }
+.mt-hist-time {
+  display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650;
+  font-variant-numeric: tabular-nums; color: var(--dot);
+  background: color-mix(in srgb, var(--dot) 13%, transparent);
+}
+/* An item followed by a gap keeps its line; the last real item before nothing loses it. */
+.mt-hist li:not(.mt-hist-gap) { padding-bottom: 10px; }
+/* The time sits in the middle of the line, centred on it (the user, 23 Nov). */
+.mt-hist { padding-left: 26px; }
+.mt-hist li.mt-hist-gap { position: relative; height: 34px; padding: 0; }
+.mt-hist li.mt-hist-gap .mt-hist-time {
+  position: absolute; left: 6px; top: 50%; transform: translate(-50%, -50%); z-index: 1; white-space: nowrap;
+  background: color-mix(in srgb, var(--dot) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--dot) 40%, transparent);
+}
+/* No colour fill in the time pill: the card colour only, to hide the line behind it (the user, 23 Nov). */
+.mt-hist li.mt-hist-gap .mt-hist-time { background: var(--surface); }
+/* Four statuses and Completed in two rows: three, then two with Completed wider. */
+.mt-work { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mt-work-btn { white-space: normal; line-height: 1.2; }
+.mt-work-btn.is-completed { grid-column: span 2; }
+/* Time on the line: small, no border (the user, 23 Nov). */
+.mt-hist li.mt-hist-gap .mt-hist-time { border: 0; padding: 1px 4px; font-size: 11px; font-weight: 600; }
+
+/* Hover on the status buttons, each in its own colour (the user, 23 Nov). */
+.mt-work-btn { --c: var(--series-4); transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.15s; }
+.mt-work-btn.is-under_repair { --c: var(--series-1); }
+.mt-work-btn.is-waiting_spare { --c: var(--status-critical); }
+.mt-work-btn.is-waiting_customer { --c: var(--series-5); }
+.mt-work-btn.is-observation { --c: var(--series-3); }
+.mt-work-btn.is-completed { --c: var(--status-good); }
+@media (hover: hover) {
+  .mt-work-btn:not(:disabled):hover {
+    color: var(--c); border-color: color-mix(in srgb, var(--c) 70%, transparent);
+    background: color-mix(in srgb, var(--c) 10%, transparent); transform: translateY(-1px);
+  }
+}
+.mt-work-btn:not(:disabled):active { transform: scale(0.98); }
+/* Observation is yellow, apart from Completed's green (the user, 23 Nov). */
+.mt-work-btn.is-observation { --c: var(--status-warning); }
+.mt-hist li.is-observation { --dot: var(--status-warning); }
+.mt-views-pick { flex: 1; min-width: 0; display: grid; }
+.mt-views-pick > * { width: 100%; max-width: none; }
+/* On a phone: two a row, Completed across the bottom, so no name breaks in two. */
+@media (max-width: 560px) {
+  .mt-work { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mt-work-btn.is-completed { grid-column: 1 / -1; }
+}

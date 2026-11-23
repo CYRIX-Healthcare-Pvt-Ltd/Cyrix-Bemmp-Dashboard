@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SideNav from './SideNav.jsx';
-import Avatar from './Avatar.jsx';
 import Picker from './Picker.jsx';
 import { ProjectMasthead } from './ProjectHome.jsx';
 import {
   roleOf, loadMtData, readTm, uploadTm, assignTickets, closeCall, proofUrl, todayIst, ageDays, AGE_BANDS,
+  acceptTickets, startTicket, setWorkStatus, WORK, WORK_DETAIL, workLabel, stageOf, STAGE_LABEL, tatOf, fmtDur, loadEvents,
 } from '../data/medtronic.js';
 import '../medtronic.css';
 
@@ -51,12 +51,23 @@ function tmWhen(v) {
   if (m && mon >= 0) return `${Number(m[1])} ${MONTHS[mon]} ${m[3]}${time(s.slice(m[0].length))}`;
   return s;
 }
+/** The number people use: the SAP service order (the user, 23 Nov: "wo is not imp"), the work order when there is none. */
+const refOf = (t) => t.sap_order || t.wo;
 const sameCode = (a, b) => String(a ?? '').toUpperCase() === String(b ?? '').toUpperCase();
 
-/** Where a work order stands, in the words on its badge. */
+/** Where a work order stands on our side, in the words on its badge (0077). */
 function stateOf(t) {
-  if (t.status === 'open') return t.engineer_id ? { id: 'open', label: 'Open' } : { id: 'unassigned', label: 'Not assigned' };
-  return { id: 'closed', label: 'Closed' };
+  const id = stageOf(t);
+  // Pending says only its status ("Started", not "Pending" and "Started": the user, 23 Nov).
+  if (id === 'pending' && t.work_status) return { id, label: workLabel(t.work_status), work: t.work_status };
+  return { id, label: STAGE_LABEL[id] };
+}
+
+/** Medtronic's own state, separate from ours: closed there shows as a tag (the user, 23 Nov). */
+function MtTag({ t, full }) {
+  if (t.mt_closed_on) return <span className="mt-tag is-mt-closed">Closed in Medtronic · {dayOf(t.mt_closed_on)}</span>;
+  if (full && t.closed_by) return <span className="mt-tag">Open in Medtronic</span>;
+  return null;
 }
 
 const UploadIcon = () => (
@@ -259,23 +270,10 @@ function Dashboard({ tickets, role, team, onList, action }) {
   const today = todayIst();
 
   const f = useMemo(() => {
-    const open = tickets.filter((t) => t.status === 'open');
-    const unassigned = open.filter((t) => !t.engineer_id);
-    const closed = tickets.filter((t) => t.status === 'closed' && inPeriod(t.closed_on, period));
-    const byEngineer = closed.filter((t) => t.closed_by);
-    const yes = byEngineer.filter((t) => t.csat).length;
+    const stage = (id) => tickets.filter((t) => stageOf(t) === id);
+    const open = tickets.filter((t) => !t.closed_by && t.status === 'open');
+    const completed = tickets.filter((t) => t.closed_by && inPeriod(t.closed_on, period));
 
-    const people = new Map();
-    for (const m of team) people.set(m.ecode, { name: m.name, code: m.ecode, open: 0, closed: 0, yes: 0, of: 0 });
-    for (const t of tickets) {
-      if (!t.engineer_code) continue;
-      const p = people.get(t.engineer_code)
-        ?? people.set(t.engineer_code, { name: t.engineer_name, code: t.engineer_code, open: 0, closed: 0, yes: 0, of: 0 }).get(t.engineer_code);
-      if (t.status === 'open') p.open += 1;
-      if (t.status === 'closed' && t.closed_by && inPeriod(t.closed_on, period)) {
-        p.closed += 1; p.of += 1; if (t.csat) p.yes += 1;
-      }
-    }
     const ages = AGE_BANDS.map((b) => ({ label: b.label, n: 0, tint: null }));
     for (const t of open) {
       const a = ageDays(t, today);
@@ -285,17 +283,20 @@ function Dashboard({ tickets, role, team, onList, action }) {
     ages.forEach((a, i) => { a.tint = ['var(--series-3)', 'var(--series-1)', 'var(--status-warning)', 'var(--series-2)', 'var(--status-critical)'][i]; });
 
     return {
-      open, unassigned, closed, byEngineer, yes,
-      people: [...people.values()].sort((a, b) => b.open - a.open || b.closed - a.closed || a.name.localeCompare(b.name)),
+      unassigned: stage('unassigned'), toAccept: stage('to_accept'), toStart: stage('to_start'),
+      pending: stage('pending'), completed,
       purpose: countBy(open, 'purpose'),
       status: countBy(open, 'order_status'),
       ages,
     };
-  }, [tickets, team, period, today]);
+  }, [tickets, period, today]);
 
-  const csat = f.byEngineer.length ? `${Math.round((f.yes * 100) / f.byEngineer.length)}%` : '—';
   const manages = role !== 'engineer';
-  const peopleMax = Math.max(1, ...f.people.map((p) => p.open + p.closed));
+  const spare = f.pending.filter((t) => t.work_status === 'waiting_spare').length;
+  // Completion TAT: assigned → completed, averaged over the period's completions (the user, 23 Nov).
+  const mean = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+  const totalTat = mean(f.completed.map((t) => tatOf(t).total).filter((v) => v != null));
+  const jobTat = mean(f.completed.map((t) => tatOf(t).job).filter((v) => v != null));
 
   return (
     <div className="mt-dash">
@@ -321,55 +322,33 @@ function Dashboard({ tickets, role, team, onList, action }) {
         {action}
       </div>
 
-      <div className={`mt-tiles${manages ? '' : ' is-three'}`}>
-        <Tile i={0} label="Open" value={f.open.length} tint="var(--series-1)"
-              note={manages ? `${f.open.length - f.unassigned.length} assigned` : null}
-              onClick={() => onList('open')}
-              icon={<Ico d={<><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M7.5 9h9M7.5 13h6" /></>} />} />
+      <div className="mt-tiles is-stages">
         {manages && (
-          <Tile i={1} label="Not assigned" value={f.unassigned.length} tint="var(--status-warning)"
+          <Tile i={0} label="Not assigned" value={f.unassigned.length} tint="var(--status-warning)"
                 onClick={() => onList('unassigned')}
                 icon={<Ico d={<><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /><path d="M18 4l4 4M22 4l-4 4" /></>} />} />
         )}
-        <Tile i={2} label="Closed" value={f.closed.length} tint="var(--status-good)"
-              note={f.closed.length - f.byEngineer.length > 0 ? `${f.closed.length - f.byEngineer.length} without CSAT` : null}
-              onClick={() => onList('closed')}
+        <Tile i={1} label="To accept" value={f.toAccept.length} tint="var(--series-2)"
+              onClick={() => onList('to_accept')}
+              icon={<Ico d={<><path d="M4 12.5l4.5 4.5L20 6.5" /></>} />} />
+        <Tile i={2} label="To start" value={f.toStart.length} tint="var(--series-1)"
+              onClick={() => onList('to_start')}
+              icon={<Ico d={<><circle cx="12" cy="12" r="8.5" /><path d="M10 8.5v7l6-3.5z" /></>} />} />
+        <Tile i={3} label="Pending" value={f.pending.length} tint="var(--series-4)"
+              note={spare ? `${spare} waiting for spare` : null}
+              onClick={() => onList('pending')}
+              icon={<Ico d={<><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>} />} />
+        <Tile i={4} label="Completed" value={f.completed.length} tint="var(--status-good)"
+              onClick={() => onList('completed')}
               icon={<Ico d={<><circle cx="12" cy="12" r="8.5" /><path d="M8 12.5l2.7 2.7L16.5 9.5" /></>} />} />
-        <Tile i={3} label="CSAT" value={csat} tint="var(--series-5)"
-              note={f.byEngineer.length ? `${f.yes} of ${f.byEngineer.length}` : null}
-              onClick={() => onList('closed')}
-              icon={<Ico d={<><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></>} />} />
+        <Tile i={5} label="Completion TAT" value={fmtDur(totalTat)} tint="var(--series-5)"
+              note={jobTat != null ? `Job ${fmtDur(jobTat)}` : null}
+              onClick={() => onList('completed')}
+              icon={<Ico d={<><path d="M6 3.5h12M6 20.5h12" /><path d="M7.5 3.5c0 4 9 5 9 8.5s-9 4.5-9 8.5M16.5 3.5c0 4-9 5-9 8.5s9 4.5 9 8.5" /></>} />} />
       </div>
 
       <div className="mt-panels">
-        {manages && (
-          <section className="panel mt-panel mt-panel-wide" style={{ '--i': 1 }}>
-            <h2>By engineer</h2>
-            {!f.people.length ? <p className="empty-inline">None</p> : (
-              <ul className="mt-people">
-                {f.people.map((p) => (
-                  <li key={p.code} className="mt-person">
-                    <Avatar name={p.name} className="mt-person-face" />
-                    <div className="mt-person-main">
-                      <div className="mt-person-top">
-                        <span className="mt-person-name">{p.name}</span>
-                        <span className="mt-person-csat">{p.of ? `CSAT ${p.yes} of ${p.of}` : ''}</span>
-                      </div>
-                      <div className="mt-stack" aria-hidden="true">
-                        <span className="mt-stack-open" style={{ width: `${(p.open / peopleMax) * 100}%` }} />
-                        <span className="mt-stack-closed" style={{ width: `${(p.closed / peopleMax) * 100}%` }} />
-                      </div>
-                      <div className="mt-person-nums">
-                        <span><i className="mt-dot is-open" />{p.open} open</span>
-                        <span><i className="mt-dot is-closed" />{p.closed} closed</span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
+        <EngineerTat tickets={tickets} team={team} period={period} manages={manages} />
         <section className="panel mt-panel" style={{ '--i': 2 }}>
           <h2>Open by purpose of visit</h2>
           <Bars rows={f.purpose} tint="var(--series-1)" />
@@ -387,6 +366,118 @@ function Dashboard({ tickets, role, team, onList, action }) {
   );
 }
 
+/*
+ * Each engineer's TAT for the period, for scoring their KPI (the user, 23 Nov:
+ * "make them easy for analysis"). A step counts in the period it was done in:
+ * accept TAT by the accept day, start TAT by the start day, job TAT, spare and
+ * CSAT by the completion day. The last four columns are as they stand now.
+ */
+const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+const TAT_COLS = [
+  ['name', 'Engineer'], ['assigned', 'Assigned'], ['completed', 'Completed'], ['accept', 'Accept TAT'],
+  ['start', 'Start TAT'], ['job', 'Job TAT'], ['spare', 'Waiting for spare'],
+  ['toAccept', 'To accept'], ['toStart', 'To start'], ['pending', 'Pending'], ['mtClosed', 'Closed in Medtronic'],
+];
+const istDayOf = (iso) => (iso ? new Date(Date.parse(iso) + 5.5 * 3600000).toISOString().slice(0, 10) : null);
+
+function EngineerTat({ tickets, team, period, manages }) {
+  const [sort, setSort] = useState(['name', 'asc']);
+  const rows = useMemo(() => {
+    const m = new Map();
+    const row = (code, name) => m.get(code) ?? m.set(code, {
+      code, name, assigned: 0, completed: 0, a: [], s: [], j: [], sp: [], yes: 0,
+      toAccept: 0, toStart: 0, pending: 0, mtClosed: 0,
+    }).get(code);
+    for (const p of team) row(p.ecode, p.name);
+    for (const t of tickets) {
+      if (!t.engineer_code) continue;
+      const r = row(t.engineer_code, t.engineer_name);
+      const tat = tatOf(t);
+      const st = stageOf(t);
+      if (inPeriod(istDayOf(t.assigned_at), period)) r.assigned += 1;
+      if (tat.accept != null && inPeriod(istDayOf(t.accepted_at), period)) r.a.push(tat.accept);
+      if (tat.start != null && inPeriod(istDayOf(t.started_at), period)) r.s.push(tat.start);
+      if (t.closed_by && inPeriod(t.closed_on, period)) {
+        r.completed += 1;
+        if (tat.job != null) r.j.push(tat.job);
+        r.sp.push(tat.spare);
+        if (t.csat) r.yes += 1;
+      }
+      if (st === 'to_accept') r.toAccept += 1;
+      if (st === 'to_start') r.toStart += 1;
+      if (st === 'pending') r.pending += 1;
+      if (t.mt_closed_on && !t.closed_by) r.mtClosed += 1;
+    }
+    return [...m.values()].map((r) => ({
+      ...r, accept: avg(r.a), start: avg(r.s), job: avg(r.j), spare: avg(r.sp),
+      csat: r.completed ? Math.round((r.yes * 100) / r.completed) : null,
+    }));
+  }, [tickets, team, period]);
+
+  const [key, dir] = sort;
+  const shown = [...rows].sort((a, b) => {
+    const x = a[key]; const y = b[key];
+    if (x == null && y == null) return a.name.localeCompare(b.name);
+    if (x == null) return 1;
+    if (y == null) return -1;
+    const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
+    return (dir === 'asc' ? c : -c) || a.name.localeCompare(b.name);
+  });
+  const by = (k) => setSort(([k0, d]) => [k, k0 === k && d === 'asc' ? 'desc' : 'asc']);
+  const cell = (r, k) => {
+    if (['accept', 'start', 'job', 'spare'].includes(k)) return fmtDur(r[k]);
+    if (k === 'csat') return r.csat == null ? '—' : `${r.csat}%`;
+    return r[k];
+  };
+  const cols = TAT_COLS.filter(([k]) => manages || k !== 'name');
+  if (!rows.length) return null;
+
+  return (
+    <section className="panel mt-panel mt-panel-wide" style={{ '--i': 1 }}>
+      <h2>{manages ? 'TAT by engineer' : 'Your TAT'}</h2>
+      {/* A phone gets a card per engineer; the table scrolls sideways there (the user, 23 Nov: "phone based module"). */}
+      <ul className="mt-tat-cards">
+        {shown.map((r) => (
+          <li key={r.code} className="mt-tat-card">
+            {manages && <span className="mt-tat-card-name">{r.name} <span className="mt-muted">({r.code})</span></span>}
+            <dl>
+              {cols.filter(([k]) => k !== 'name').map(([k, label]) => (
+                <div key={k}><dt>{label}</dt><dd>{cell(r, k)}</dd></div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-table-wrap mt-tat-wrap">
+        <table className="mt-table mt-tat">
+          <thead>
+            <tr>
+              {cols.map(([k, label]) => (
+                <th key={k} className={k === 'name' ? '' : 'mt-num'}>
+                  <button type="button" className="th-sort" onClick={() => by(k)}>
+                    {label}{key === k && <span className="sort-mark">{dir === 'asc' ? '▲' : '▼'}</span>}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.code} className="mt-tat-row">
+                {cols.map(([k]) => (
+                  <td key={k} className={k === 'name' ? 'mt-strong' : 'mt-num'}>
+                    {k === 'name' ? <>{r.name} <span className="mt-muted">({r.code})</span></> : cell(r, k)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 /* ============================================================== tickets == */
 
 const SORTS = [
@@ -394,18 +485,41 @@ const SORTS = [
   ['created-asc', 'Oldest first'],
   ['closed-desc', 'Closed, newest first'],
   ['age-desc', 'Oldest open first'],
-  ['wo-asc', 'Work order'],
+  ['wo-asc', 'SAP order'],
   ['account-asc', 'Account'],
   ['engineer-asc', 'Engineer'],
 ];
 const PAGE = 150;
 
+/** The engineer's TAT on the list: assigned to completed, or to now while open (the user, 23 Nov). */
+const runTat = (t) => (t.assigned_at
+  ? Math.max(0, ((t.closed_by && t.closed_at ? Date.parse(t.closed_at) : Date.now()) - Date.parse(t.assigned_at)) / 1000) : null);
+const When = ({ at }) => (at ? <>{dayOf(at)}<div className="mt-muted">{timeOf(at)}</div></> : '—');
+
+/** Expected closure, red once it has passed and the call is not completed. */
+const Due = ({ t, today }) => (t.due_on
+  ? <span className={!t.closed_by && t.due_on < today ? 'mt-due is-late' : 'mt-due'}>{dayOf(t.due_on)}</span> : '—');
+const DUES = [['', 'Due: All'], ['late', 'Overdue'], ['today', 'Due today'], ['week', 'Due in 7 days'], ['none', 'No due date']];
+function dueMatch(t, f, today) {
+  if (!f) return true;
+  if (f === 'none') return !t.due_on;
+  if (!t.due_on || t.closed_by) return false;
+  if (f === 'late') return t.due_on < today;
+  if (f === 'today') return t.due_on === today;
+  const wk = new Date(Date.parse(today) + 7 * 864e5).toISOString().slice(0, 10);
+  return t.due_on >= today && t.due_on <= wk;
+}
+
 function sortValue(t, key, today) {
   switch (key) {
     case 'created': return t.created_on ?? '';
-    case 'closed': return t.closed_on ?? '';
+    case 'closed': return (t.closed_by || t.status === 'closed') ? (t.closed_on ?? '') : '';
     case 'age': return ageDays(t, today) ?? -1;
-    case 'wo': return t.wo;
+    case 'accepted': return t.accepted_at ?? '';
+    case 'started': return t.started_at ?? '';
+    case 'tat': return runTat(t) ?? -1;
+    case 'due': return t.due_on ?? '9999';
+    case 'wo': return refOf(t);
     case 'account': return (t.account ?? '').toLowerCase();
     case 'engineer': return (t.engineer_name ?? '~').toLowerCase();
     case 'status': return stateOf(t).label;
@@ -417,17 +531,28 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   const manager = role === 'manager';
   const manages = role !== 'engineer';
   // All first (the user, 31 Oct: "ALL, not assigned, open, closed").
+  // The engineer's four steps (the user, 23 Nov: "to accept, to start, pending, completed").
   const views = manages
-    ? [['all', 'All'], ['unassigned', 'Not assigned'], ['open', 'Open'], ['closed', 'Closed']]
-    : [['all', 'All'], ['todo', 'To close'], ['closed', 'Closed']];
+    ? [['all', 'All'], ['unassigned', 'Not assigned'], ['to_accept', 'To accept'], ['to_start', 'To start'],
+      ['pending', 'Pending'], ['completed', 'Completed'], ['closed', 'Closed']]
+    : [['to_accept', 'To accept'], ['to_start', 'To start'], ['pending', 'Pending'], ['completed', 'Completed']];
   const [view, setView] = useState(() => {
-    if (startView === 'open' && !manages) return 'todo';
     if (startView && views.some(([id]) => id === startView)) return startView;
-    return 'all';
+    return views[0][0];
   });
+  /** Medtronic's own state: all, still open there, or closed there. */
+  const [mt, setMt] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [cardErr, setCardErr] = useState(null);
+  const step = async (t, fn, text) => {
+    setBusyId(t.id); setCardErr(null);
+    try { await fn(); await onAssigned(text); } catch (e) { setCardErr({ id: t.id, text: e.message }); }
+    setBusyId(null);
+  };
   const [q, setQ] = useState('');
   const [eng, setEng] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [due, setDue] = useState('');
   const [sort, setSort] = useState('created-desc');
   /** Closed date: All time / This month / Custom From – To (the user, 19 Nov: "need filters"). */
   const [period, setPeriod] = useState('all');
@@ -437,26 +562,12 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   const [picked, setPicked] = useState(() => new Set());
   const today = todayIst();
 
-  const inView = useCallback((t) => {
-    switch (view) {
-      case 'unassigned': return t.status === 'open' && !t.engineer_id;
-      case 'open': return t.status === 'open';
-      case 'todo': return !t.closed_by;
-      case 'closed': return manages ? t.status === 'closed' : Boolean(t.closed_by);
-      default: return true;
-    }
-  }, [view, manages]);
+  const inMt = useCallback((t) => (mt === 'closed' ? Boolean(t.mt_closed_on) : mt === 'open' ? !t.mt_closed_on : true), [mt]);
+  const inView = useCallback((t) => inMt(t) && (view === 'all' || stageOf(t) === view), [view, inMt]);
 
-  const counts = useMemo(() => Object.fromEntries(views.map(([id]) => {
-    const fn = {
-      unassigned: (t) => t.status === 'open' && !t.engineer_id,
-      open: (t) => t.status === 'open',
-      todo: (t) => !t.closed_by,
-      closed: (t) => (manages ? t.status === 'closed' : Boolean(t.closed_by)),
-      all: () => true,
-    }[id];
-    return [id, tickets.filter(fn).length];
-  })), [tickets, manages]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => Object.fromEntries(views.map(([id]) => [
+    id, tickets.filter((t) => inMt(t) && (id === 'all' || stageOf(t) === id)).length,
+  ])), [tickets, inMt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Purposes in this tab, with their counts, the same way as the engineers.
   const purposes = useMemo(() => {
@@ -485,7 +596,8 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
       if (!inView(t)) return false;
       if (eng === '-' ? t.engineer_code : eng && t.engineer_code !== eng) return false;
       if (purpose && t.purpose !== purpose) return false;
-      if (view === 'closed' && period !== 'all') {
+      if (!manages && !dueMatch(t, due, today)) return false;
+      if ((view === 'closed' || view === 'completed') && period !== 'all') {
         const d = t.closed_on ?? '';
         if (period === 'month' ? d.slice(0, 7) !== today.slice(0, 7) : (!d || (from && d < from) || (to && d > to))) return false;
       }
@@ -500,9 +612,12 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
       return (dir === 'asc' ? c : -c) || a.wo.localeCompare(b.wo);
     });
     return list;
-  }, [tickets, inView, eng, purpose, q, sort, today, view, period, from, to]);
+  }, [tickets, inView, eng, purpose, due, manages, q, sort, today, view, period, from, to]);
 
   const canPick = (t) => manager && !t.closed_by;
+  // Only the steps a tab has reached (the user, 23 Nov: none in To accept, no Started in To start).
+  const showAcc = view !== 'to_accept';
+  const showStart = showAcc && view !== 'to_start';
   const pickable = shown.filter(canPick);
   const allPicked = pickable.length > 0 && pickable.every((t) => picked.has(t.id));
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -521,6 +636,17 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
   return (
     <div className="mt-tickets">
       <div className="mt-head-row">
+      {/* On a phone the tabs are one dropdown, not a strip that scrolls sideways (the user, 23 Nov). */}
+      {narrow ? (
+        <div className="mt-views-pick">
+          <Picker
+            title="Tickets"
+            value={view}
+            onChange={(id) => { setView(id); setLimit(PAGE); setPicked(new Set()); if (id === 'unassigned') setEng(''); }}
+            options={views.map(([id, label]) => ({ value: id, label, count: counts[id] }))}
+          />
+        </div>
+      ) : (
       <div className="mt-views segmented" role="tablist" aria-label="Tickets">
         {views.map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={view === id} data-tone={id}
@@ -529,13 +655,14 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
           </button>
         ))}
       </div>
+      )}
       {action}
       </div>
 
       <div className="mt-filters">
         <div className="field-search mt-search">
           <input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }}
-                 placeholder="Search work order, account, site, city" aria-label="Search" />
+                 placeholder="Search SAP order, account, city" aria-label="Search" />
         </div>
         {manages && view !== 'unassigned' && (
           <Picker
@@ -561,15 +688,29 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
             ...(purpose && !purposes.some(([p]) => p === purpose) ? [{ value: purpose, label: purpose, count: 0 }] : []),
           ]}
         />
-        {view === 'closed' && (
+        <Picker
+          title="Medtronic"
+          value={mt}
+          onChange={(v) => { setMt(v); setLimit(PAGE); }}
+          options={[{ value: '', label: 'Medtronic: All' }, { value: 'open', label: 'Open in Medtronic' }, { value: 'closed', label: 'Closed in Medtronic' }]}
+        />
+        {!manages && view !== 'to_accept' && (
           <Picker
-            title="Closed"
-            value={period}
-            onChange={(v) => { setPeriod(v); setLimit(PAGE); }}
-            options={[{ value: 'all', label: 'Closed: All time' }, { value: 'month', label: 'Closed: This month' }, { value: 'custom', label: 'Closed: Custom' }]}
+            title="Expected closure"
+            value={due}
+            onChange={(v) => { setDue(v); setLimit(PAGE); }}
+            options={DUES.map(([value, label]) => ({ value, label, count: tickets.filter((t) => inView(t) && dueMatch(t, value, today)).length }))}
           />
         )}
-        {view === 'closed' && period === 'custom' && (
+        {(view === 'closed' || view === 'completed') && (
+          <Picker
+            title={view === 'completed' ? 'Completed' : 'Closed'}
+            value={period}
+            onChange={(v) => { setPeriod(v); setLimit(PAGE); }}
+            options={[{ value: 'all', label: 'All time' }, { value: 'month', label: 'This month' }, { value: 'custom', label: 'Custom' }]}
+          />
+        )}
+        {(view === 'closed' || view === 'completed') && period === 'custom' && (
           <div className="mt-range">
             <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
             <span>–</span>
@@ -597,28 +738,45 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
               <li key={t.id} className={`mt-card${picked.has(t.id) ? ' is-picked' : ''}`} data-state={s.id}>
                 {canPick(t) && (
                   <input type="checkbox" className="mt-card-pick" checked={picked.has(t.id)}
-                         onChange={() => toggle(t.id)} aria-label={`Select ${t.wo}`} />
+                         onChange={() => toggle(t.id)} aria-label={`Select ${refOf(t)}`} />
                 )}
                 <div className="mt-card-main">
                 <button type="button" className="mt-card-body" onClick={() => onOpen(t.id)}>
                   <span className="mt-card-top">
-                    <span className="mt-wo">{t.wo}</span>
-                    <span className={`mt-badge is-${s.id}`}>{s.label}</span>
+                    <span className="mt-wo">{refOf(t)}</span>
+                    <span className={`mt-badge is-${s.id}${s.work ? ` is-${s.work}` : ''}`}>{s.label}</span>
                   </span>
                   <span className="mt-card-line mt-strong">{t.account ?? '—'}</span>
                   <span className="mt-card-line">{[t.city, t.product].filter(Boolean).join(' · ')}</span>
+                  {(t.mt_closed_on || (!manages && t.due_on)) && (
+                    <span className="mt-card-tags">
+                      {!manages && t.due_on && <span className={`mt-tag${!t.closed_by && t.due_on < today ? ' is-mt-closed' : ''}`}>Due {dayOf(t.due_on)}</span>}
+                      {t.mt_closed_on && <span className="mt-tag is-mt-closed">Closed in Medtronic</span>}
+                    </span>
+                  )}
                   <span className="mt-card-foot">
                     <span className="mt-card-meta">
-                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{t.status === 'closed' && t.closed_on ? ` · Closed ${dayOf(t.closed_on)}` : age != null ? ` · ${age} d` : ''}
+                      {t.purpose ?? '—'} · {dayOf(t.created_on)}{!manages ? (t.assigned_at ? ` · TAT ${fmtDur(runTat(t))}` : '') : t.closed_by || t.status === 'closed' ? (t.closed_on ? ` · ${t.closed_by ? 'Completed' : 'Closed'} ${dayOf(t.closed_on)}` : '') : age != null ? ` · ${age} d` : ''}
                     </span>
                     <span className="mt-card-right">
-                      {t.closed_by && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
-                      {t.engineer_name
-                        ? <span className="mt-who"><Avatar name={t.engineer_name} className="mt-who-face" />{t.engineer_name}</span>
+                      {t.closed_by && t.csat != null && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
+                      {!manages ? null : t.engineer_name
+                        ? <span className="mt-who">{t.engineer_name}</span>
                         : <span className="mt-muted">Not assigned</span>}
                     </span>
                   </span>
                 </button>
+                {!manages && (s.id === 'to_accept' || s.id === 'to_start') && (
+                  <div className="mt-card-act">
+                    <button type="button" className={`mt-btn ${s.id === 'to_accept' ? 'mt-btn-primary' : 'mt-btn-go'}`} disabled={busyId === t.id}
+                            onClick={() => (s.id === 'to_accept'
+                              ? onOpen(t.id)
+                              : step(t, () => startTicket(t.id), `${refOf(t)} started`))}>
+                      {busyId === t.id ? '…' : s.id === 'to_accept' ? 'Accept' : 'Start'}
+                    </button>
+                    {cardErr?.id === t.id && <p className="mt-err">{cardErr.text}</p>}
+                  </div>
+                )}
                 </div>
               </li>
             );
@@ -630,16 +788,23 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
             <thead>
               <tr>
                 {manager && <th className="mt-col-pick" aria-label="Select" />}
-                <th><button type="button" className="th-sort" onClick={() => sortBy('wo')}>Work order{mark('wo')}</button></th>
+                <th><button type="button" className="th-sort" onClick={() => sortBy('wo')}>SAP order{mark('wo')}</button></th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('account')}>Account{mark('account')}</button></th>
                 <th>Product</th>
                 <th>Purpose</th>
                 <th><button type="button" className="th-sort" onClick={() => sortBy('created')}>Created{mark('created')}</button></th>
-                {view !== 'open' && view !== 'unassigned' && <th><button type="button" className="th-sort" onClick={() => sortBy('closed')}>Closed{mark('closed')}</button></th>}
-                <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('age')}>Age{mark('age')}</button></th>
-                <th>Order status</th>
-                <th><button type="button" className="th-sort" onClick={() => sortBy('engineer')}>Engineer{mark('engineer')}</button></th>
+                {(view === 'all' || view === 'completed' || view === 'closed') && <th><button type="button" className="th-sort" onClick={() => sortBy('closed')}>Closed{mark('closed')}</button></th>}
+                {manages ? <>
+                  <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('age')}>Age{mark('age')}</button></th>
+                  <th><button type="button" className="th-sort" onClick={() => sortBy('engineer')}>Engineer{mark('engineer')}</button></th>
+                </> : <>
+                  {showAcc && <th><button type="button" className="th-sort" onClick={() => sortBy('accepted')}>Accepted{mark('accepted')}</button></th>}
+                  {showStart && <th><button type="button" className="th-sort" onClick={() => sortBy('started')}>Started{mark('started')}</button></th>}
+                  {showAcc && <th><button type="button" className="th-sort" onClick={() => sortBy('due')}>Due{mark('due')}</button></th>}
+                  <th className="mt-num"><button type="button" className="th-sort" onClick={() => sortBy('tat')}>TAT{mark('tat')}</button></th>
+                </>}
                 <th><button type="button" className="th-sort" onClick={() => sortBy('status')}>Status{mark('status')}</button></th>
+                <th>Medtronic</th>
               </tr>
             </thead>
             <tbody>
@@ -650,22 +815,29 @@ function Tickets({ tickets, role, team, startView, narrow, onOpen, onAssigned, a
                   <tr key={t.id} className={picked.has(t.id) ? 'is-picked' : ''} data-state={s.id} onClick={() => onOpen(t.id)}>
                     {manager && (
                       <td className="mt-col-pick" onClick={(e) => e.stopPropagation()}>
-                        {canPick(t) && <input type="checkbox" checked={picked.has(t.id)} onChange={() => toggle(t.id)} aria-label={`Select ${t.wo}`} />}
+                        {canPick(t) && <input type="checkbox" checked={picked.has(t.id)} onChange={() => toggle(t.id)} aria-label={`Select ${refOf(t)}`} />}
                       </td>
                     )}
-                    <td className="mt-wo">{t.wo}</td>
+                    <td className="mt-wo">{refOf(t)}</td>
                     <td><div className="mt-strong">{t.account ?? '—'}</div><div className="mt-muted">{[t.site !== t.account ? t.site : null, t.city].filter(Boolean).join(' · ')}</div></td>
                     <td>{t.product ?? '—'}</td>
                     <td>{t.purpose ?? '—'}</td>
                     <td className="mt-nowrap">{dayOf(t.created_on)}</td>
-                    {view !== 'open' && view !== 'unassigned' && <td className="mt-nowrap">{t.status === 'closed' && t.closed_on ? dayOf(t.closed_on) : '—'}</td>}
-                    <td className="mt-num">{age ?? '—'}</td>
-                    <td>{t.order_status ?? '—'}</td>
-                    <td>{t.engineer_name ?? <span className="mt-muted">Not assigned</span>}</td>
+                    {(view === 'all' || view === 'completed' || view === 'closed') && <td className="mt-nowrap">{(t.closed_by || t.status === 'closed') && t.closed_on ? dayOf(t.closed_on) : '—'}</td>}
+                    {manages ? <>
+                      <td className="mt-num">{age ?? '—'}</td>
+                      <td>{t.engineer_name ?? <span className="mt-muted">Not assigned</span>}</td>
+                    </> : <>
+                      {showAcc && <td className="mt-nowrap"><When at={t.accepted_at} /></td>}
+                      {showStart && <td className="mt-nowrap"><When at={t.started_at} /></td>}
+                      {showAcc && <td className="mt-nowrap"><Due t={t} today={today} /></td>}
+                      <td className="mt-num mt-nowrap">{fmtDur(runTat(t))}</td>
+                    </>}
                     <td className="mt-nowrap">
-                      <span className={`mt-badge is-${s.id}`}>{s.label}</span>
-                      {t.closed_by && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
+                      <span className={`mt-badge is-${s.id}${s.work ? ` is-${s.work}` : ''}`}>{s.label}</span>
+                      {t.closed_by && t.csat != null && <span className={`mt-csat ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>}
                     </td>
+                    <td className="mt-nowrap">{t.mt_closed_on ? <span className="mt-mt-state is-closed">Closed</span> : <span className="mt-mt-state">Open</span>}</td>
                   </tr>
                 );
               })}
@@ -750,6 +922,9 @@ const I = {
   down: <><path d="M7 13V4H4v9z" /><path d="M7 13l4 7a2 2 0 0 0 2-2v-4h5.5a2 2 0 0 0 2-2.3l-1.2-6A2 2 0 0 0 17.3 4H7" /></>,
   camera: <><path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3v11H4z" /><circle cx="12" cy="13.5" r="3.5" /></>,
   check: <><path d="M5 12.5l4.5 4.5L19 7.5" /></>,
+  lock: <><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>,
+  play: <><circle cx="12" cy="12" r="8.5" /><path d="M10 8.5v7l6-3.5z" /></>,
+  file: <><path d="M6 3.5h8l4 4v13H6z" /><path d="M14 3.5v4h4" /></>,
   user: <><circle cx="12" cy="8" r="3.6" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
 };
 const Svg = ({ d, size = 20 }) => (
@@ -757,10 +932,10 @@ const Svg = ({ d, size = 20 }) => (
        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>
 );
 
-function Fact({ icon, label, children, sub }) {
+function Fact({ icon, label, children, sub, tone }) {
   if (!children) return null;
   return (
-    <div className="mt-fact">
+    <div className={`mt-fact${tone ? ` is-${tone}` : ''}`}>
       <span className="mt-fact-icon"><Svg d={I[icon]} size={18} /></span>
       <span className="mt-fact-text">
         <span className="mt-fact-label">{label}</span>
@@ -777,7 +952,10 @@ function Row({ label, children }) {
 
 function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
   const s = stateOf(t);
-  const canClose = sameCode(t.engineer_code, profile?.code) && !t.closed_by;
+  const mine = sameCode(t.engineer_code, profile?.code) && !t.closed_by;
+  const canClose = mine && Boolean(t.started_at);
+  /** The Completed box opens only from its own button in the status list (the user, 23 Nov). */
+  const [completing, setCompleting] = useState(false);
   const canAssign = role === 'manager' && !t.closed_by;
   const age = ageDays(t);
 
@@ -794,12 +972,15 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
 
   return (
     <div className="mt-scrim" onClick={onClose}>
-      <div className="mt-sheet" role="dialog" aria-modal="true" aria-label={t.wo} onClick={(e) => e.stopPropagation()}>
+      <div className={`mt-sheet${t.engineer_id && t.assigned_at ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label={refOf(t)} onClick={(e) => e.stopPropagation()}>
         <header className="mt-sheet-head">
           <span className="mt-sheet-grab" aria-hidden="true" />
           <div className="mt-sheet-title">
-            <span className={`mt-badge is-${s.id}`}>{s.label}</span>
-            <h2>{t.wo}</h2>
+            <span className="mt-sheet-badges">
+              <span className={`mt-badge is-${s.id}${s.work ? ` is-${s.work}` : ''}`}>{s.label}</span>
+              <MtTag t={t} full />
+            </span>
+            <h2>{refOf(t)}</h2>
             <p>{[t.account, t.city].filter(Boolean).join(' · ')}</p>
           </div>
           <button type="button" className="mt-sheet-x" onClick={onClose} aria-label="Close">
@@ -809,8 +990,11 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
         </header>
 
         <div className="mt-sheet-body">
-          {t.status === 'closed' && <Closure t={t} />}
-          {canClose && <CloseForm t={t} onClosed={(text) => { onChanged(text); onClose(); }} />}
+         <div className="mt-sheet-main">
+          {(t.closed_by || t.status === 'closed') && <Closure t={t} />}
+          {mine && <EngineerStep t={t} onChanged={onChanged} completing={completing} onComplete={setCompleting} />}
+          {canClose && completing && <CloseForm t={t} onClosed={(text) => { onChanged(text); onClose(); }} />}
+          {t.engineer_id && t.assigned_at && <TatBlock t={t} />}
           {canAssign && <AssignOne t={t} team={team} onDone={onChanged} />}
 
           <section className="mt-facts">
@@ -826,20 +1010,29 @@ function TicketSheet({ t, role, team, profile, onClose, onChanged }) {
             </Fact>
             <Fact icon="clock" label="Preferred start">{tmWhen(t.preferred_start)}</Fact>
             <Fact icon="status" label="Order status">{t.order_status}</Fact>
+            {t.due_on && <Fact icon="calendar" label="Expected closure" tone={!t.closed_by && t.due_on < todayIst() ? 'danger' : undefined}>{dayOf(t.due_on)}</Fact>}
+            {t.mt_closed_on && <Fact icon="lock" label="Closed in Medtronic" tone="danger">{dayOf(t.mt_closed_on)}</Fact>}
           </section>
 
-          <details className="mt-more-details">
-            <summary>More details</summary>
+          {/* Every detail on show (the user, 23 Nov: "full details like revive lab has"). */}
+          <section className="mt-card-block mt-all-details">
+            <span className="mt-block-label">Ticket details</span>
             <dl className="dl">
               <Row label="SAP service order">{t.sap_order}</Row>
               <Row label="SAP notification">{t.sap_notification}</Row>
+              <Row label="Work order">{t.wo}</Row>
+              <Row label="Assigned">{t.assigned_at ? `${dayOf(t.assigned_at)}, ${timeOf(t.assigned_at)}` : null}</Row>
+              {t.spare_request && <Row label="PI / PO Number">{t.spare_request}</Row>}
+              {t.observation && <Row label="Observation">{t.observation}</Row>}
               <Row label="Technician in TM">{t.technician}</Row>
               <Row label="PM planned">{tmWhen(t.pm_planned)}</Row>
               <Row label="Scheduled">{tmWhen(t.scheduled)}</Row>
               <Row label="Manager">{t.manager_name}</Row>
               <Row label="In the TM">{t.first_seen === t.last_seen ? dayOf(t.first_seen) : `${dayOf(t.first_seen)} – ${dayOf(t.last_seen)}`}</Row>
             </dl>
-          </details>
+          </section>
+         </div>
+          {t.engineer_id && t.assigned_at && <aside className="mt-sheet-side"><History t={t} /></aside>}
         </div>
       </div>
     </div>
@@ -858,12 +1051,13 @@ function Closure({ t }) {
     <section className={`mt-closure${byEngineer ? '' : ' is-tm'}`}>
       <span className="mt-closure-mark"><Svg d={I.check} size={22} /></span>
       <div className="mt-closure-text">
-        <strong>{byEngineer ? 'Call closed' : 'Not in the TM any more'}</strong>
+        <strong>{byEngineer ? 'Completed' : 'Not in the TM any more'}</strong>
         <span>{dayOf(t.closed_on)}{byEngineer ? ` · ${t.closed_by_name}` : ''}</span>
-        {byEngineer && (
+        {byEngineer && t.csat != null && (
           <span className={`mt-chip ${t.csat ? 'is-yes' : 'is-no'}`}>CSAT {t.csat ? 'Yes' : 'No'}</span>
         )}
         {t.close_note && <p className="mt-closure-note">“{t.close_note}”</p>}
+        {t.report_paths?.length > 0 && <Reports paths={t.report_paths} />}
       </div>
       {t.proof_path && (
         proof
@@ -874,6 +1068,227 @@ function Closure({ t }) {
           )
           : <span className="mt-closure-proof is-loading" />
       )}
+    </section>
+  );
+}
+
+/** The service report files, each opened through a short-lived link. */
+function Reports({ paths }) {
+  const open = async (path) => {
+    try { window.open(await proofUrl(path), '_blank', 'noopener'); } catch { /* the link failed; nothing to open */ }
+  };
+  return (
+    <span className="mt-reports">
+      {paths.map((path, i) => (
+        <button key={path} type="button" className="mt-report-link" onClick={() => open(path)}>
+          Service report{paths.length > 1 ? ` ${i + 1}` : ''}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/*
+ * The engineer's next step (0077): Accept, then Start, then a status while it
+ * is pending. Completing is the form below it.
+ */
+function EngineerStep({ t, onChanged, completing, onComplete }) {
+  const [busy, setBusy] = useState(null);
+  const [due, setDue] = useState('');
+  const [err, setErr] = useState(null);
+  const run = async (key, fn, text) => {
+    setBusy(key); setErr(null);
+    try { await fn(); await onChanged(text); } catch (e) { setErr(e.message); }
+    setBusy(null);
+  };
+  if (!t.accepted_at) {
+    return (
+      <section className="mt-card-block mt-step-block">
+        <label className="mt-field mt-due-field"><span>Expected closure</span>
+          <input type="date" className="mt-input" value={due} min={todayIst()} onChange={(e) => { setDue(e.target.value); setErr(null); }} />
+        </label>
+        <button type="button" className="mt-go" disabled={Boolean(busy)}
+                onClick={() => (due ? run('a', () => acceptTickets([t.id], due), `${refOf(t)} accepted`) : setErr('Choose the expected closure date'))}>
+          <Svg d={I.check} size={22} />{busy ? 'Accepting…' : 'Accept'}
+        </button>
+        {err && <p className="mt-err">{err}</p>}
+      </section>
+    );
+  }
+  if (!t.started_at) {
+    return (
+      <section className="mt-card-block mt-step-block">
+        <button type="button" className="mt-go is-start" disabled={Boolean(busy)}
+                onClick={() => run('s', () => startTicket(t.id), `${refOf(t)} started`)}>
+          <Svg d={I.play} size={22} />{busy ? 'Starting…' : 'Start'}
+        </button>
+        {err && <p className="mt-err">{err}</p>}
+      </section>
+    );
+  }
+  return <StatusPicker t={t} busy={busy} err={err} setErr={setErr} run={run} completing={completing} onComplete={onComplete} />;
+}
+
+/*
+ * The pending status. Observation and Waiting for spare open a box that must
+ * be filled (0078); the rest switch on the press.
+ */
+function StatusPicker({ t, busy, err, setErr, run, completing, onComplete }) {
+  const [asking, setAsking] = useState(null);
+  const [text, setText] = useState('');
+  const box = useRef(null);
+  useEffect(() => { if (asking) box.current?.focus(); }, [asking]);
+  const press = (id, label) => {
+    setErr(null); onComplete(false);
+    if (WORK_DETAIL[id]) {
+      setAsking(id);
+      setText(id === 'waiting_spare' ? (t.spare_request ?? '') : '');
+      return;
+    }
+    setAsking(null);
+    if (t.work_status !== id) run(id, () => setWorkStatus(t.id, id), `${refOf(t)}: ${label}`);
+  };
+  const save = () => {
+    if (!text.trim()) { setErr(`Enter the ${asking === 'waiting_spare' ? 'PI / PO number' : 'observation'}`); return; }
+    const label = workLabel(asking);
+    run(asking, () => setWorkStatus(t.id, asking, text.trim()), `${refOf(t)}: ${label}`).then(() => setAsking(null));
+  };
+  return (
+    <section className="mt-card-block">
+      <span className="mt-block-label">Status</span>
+      <div className="mt-work">
+        {/* Started is where Start leaves it, not a choice (the user, 23 Nov). */}
+        {/* Row 1: Under repair, Waiting for spare, Waiting for customer; row 2: Observation beside Completed (the user, 23 Nov). */}
+        {['under_repair', 'waiting_spare', 'waiting_customer', 'observation'].map((id) => WORK.find(([w]) => w === id)).map(([id, label]) => (
+          <button key={id} type="button" className={`mt-work-btn is-${id}`}
+                  aria-pressed={completing ? false : asking ? asking === id : t.work_status === id}
+                  disabled={Boolean(busy)} onClick={() => press(id, label)}>
+            {busy === id && !asking ? '…' : label}
+          </button>
+        ))}
+        <button type="button" className="mt-work-btn is-completed" aria-pressed={completing}
+                disabled={Boolean(busy)} onClick={() => { setAsking(null); setErr(null); onComplete(!completing); }}>
+          Completed
+        </button>
+      </div>
+      {asking && (
+        <div className="mt-work-ask">
+          {asking === 'observation'
+            ? <textarea ref={box} className={`mt-note${err ? ' is-bad' : ''}`} rows={3} value={text}
+                        placeholder={WORK_DETAIL[asking]} maxLength={1000}
+                        onChange={(e) => { setText(e.target.value); setErr(null); }} />
+            : <input ref={box} className={`mt-input${err ? ' is-bad' : ''}`} value={text}
+                     placeholder={WORK_DETAIL[asking]} maxLength={100}
+                     onChange={(e) => { setText(e.target.value); setErr(null); }} />}
+          <button type="button" className="mt-btn mt-btn-primary mt-btn-lg" disabled={Boolean(busy)} onClick={save}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      )}
+      {err && <p className="mt-err">{err}</p>}
+      {!asking && (t.spare_request || t.observation) && (
+        <dl className="mt-work-said">
+          {t.spare_request && <div><dt>PI / PO Number</dt><dd>{t.spare_request}</dd></div>}
+          {t.observation && <div><dt>Observation</dt><dd>{t.observation}</dd></div>}
+        </dl>
+      )}
+    </section>
+  );
+}
+
+/** When each step happened and how long it took: the KPI's TAT. */
+function TatBlock({ t }) {
+  const tat = tatOf(t);
+  const when = (iso) => (iso ? `${dayOf(iso)}, ${timeOf(iso)}` : null);
+  const rows = [
+    ['Assigned', when(t.assigned_at), null],
+    ['Accepted', when(t.accepted_at), tat.accept],
+    ['Started', when(t.started_at), tat.start],
+    ['Completed', t.closed_by ? when(t.closed_at) : null, tat.job],
+  ];
+  return (
+    <section className="mt-card-block mt-tat-block">
+      <span className="mt-block-label">TAT</span>
+      <ul className="mt-tat-steps">
+        {rows.map(([label, at, d]) => (
+          <li key={label} className={`is-${label.toLowerCase()}${at ? ' is-done' : ''}`}>
+            <span className="mt-tat-dot" aria-hidden="true" />
+            <span className="mt-tat-label">{label}</span>
+            <span className="mt-tat-at">{at ?? '—'}</span>
+            {d != null && <span className="mt-tat-d">{fmtDur(d)}</span>}
+          </li>
+        ))}
+      </ul>
+      {tat.spare > 0 && <p className="mt-tat-spare">Waiting for spare {fmtDur(tat.spare)}{t.spare_request ? ` · ${t.spare_request}` : ''}</p>}
+      {t.observation && <p className="mt-tat-obs">Observation: {t.observation}</p>}
+      {tat.total != null && <p className="mt-tat-total">Total {fmtDur(tat.total)}</p>}
+    </section>
+  );
+}
+
+/*
+ * Every change with its date and time, and how long it lasted (the user, 23 Nov:
+ * "they cant see the status changed date to time, like in revive lab history").
+ */
+function eventLabel(e) {
+  const d = e.detail ?? '';
+  if (e.kind === 'assigned') return ['Assigned', null];
+  if (e.kind === 'accepted') return ['Accepted', d.startsWith('due: ') ? `Expected closure ${dayOf(d.slice(5))}` : null];
+  if (e.kind === 'completed') return ['Completed', null];
+  if (e.kind === 'started') return ['Started', null];
+  if (e.kind === 'status') {
+    const i = d.indexOf(': ');
+    const code = i < 0 ? d : d.slice(0, i);
+    return [workLabel(code), i < 0 ? null : (code === 'waiting_spare' ? `PI / PO ${d.slice(i + 2)}` : d.slice(i + 2))];
+  }
+  return [e.kind, d || null];
+}
+function History({ t }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(null);
+  const stamp = `${t.assigned_at}|${t.accepted_at}|${t.started_at}|${t.work_status_at}|${t.closed_at}`;
+  useEffect(() => {
+    let on = true;
+    loadEvents(t.id).then((x) => on && setRows(x)).catch((e) => on && setErr(e.message));
+    return () => { on = false; };
+  }, [t.id, stamp]);
+  if (err) return <section className="mt-card-block"><p className="mt-err">{err}</p></section>;
+  if (!rows?.length) return null;
+  // From the latest assignment only: an earlier engineer's steps are not this one's.
+  const from = rows.map((e) => e.kind).lastIndexOf('assigned');
+  const list = rows.slice(Math.max(0, from));
+  const end = t.closed_by ? null : Date.now();
+  return (
+    <section className="mt-card-block mt-history">
+      <span className="mt-block-label">History</span>
+      <ol className="mt-hist">
+        {list.flatMap((e, i) => {
+          const [label, note] = eventLabel(e);
+          const last = i === list.length - 1;
+          const next = list[i + 1] ? Date.parse(list[i + 1].at) : e.kind === 'completed' ? null : end;
+          const lasted = next != null ? (next - Date.parse(e.at)) / 1000 : null;
+          // The dot takes the colour of what it was set to; the time it lasted sits on the line to the next.
+          const tone = e.kind === 'status' ? (e.detail ?? '').split(': ')[0] : e.kind;
+          const out = [(
+            <li key={e.id} className={`is-${tone}${last ? ' is-now' : ''}`}>
+              <span className="mt-hist-dot" aria-hidden="true" />
+              <span className="mt-hist-main">
+                <span className="mt-hist-label">{label}</span>
+                <span className="mt-hist-at">{dayOf(e.at)}, {timeOf(e.at)}</span>
+                {note && <span className="mt-hist-note">{note}</span>}
+              </span>
+            </li>
+          )];
+          if (lasted != null) {
+            out.push(
+              <li key={`${e.id}-gap`} className={`mt-hist-gap is-${tone}${last ? ' is-running' : ''}`}>
+                <span className="mt-hist-time">{fmtDur(lasted)}</span>
+              </li>,
+            );
+          }
+          return out;
+        })}
+      </ol>
     </section>
   );
 }
@@ -889,7 +1304,7 @@ function AssignOne({ t, team, onDone }) {
     try {
       await assignTickets([t.id], who || null);
       const name = team.find((p) => p.id === who)?.name;
-      await onDone(name ? `${t.wo} assigned to ${name}` : `${t.wo} is not assigned now`);
+      await onDone(name ? `${refOf(t)} assigned to ${name}` : `${refOf(t)} is not assigned now`);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -914,82 +1329,63 @@ function AssignOne({ t, team, onDone }) {
 }
 
 function CloseForm({ t, onClosed }) {
-  const [csat, setCsat] = useState(null);
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
   const [note, setNote] = useState('');
+  const [reports, setReports] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const input = useRef(null);
-
-  useEffect(() => {
-    if (!file || !file.type.startsWith('image/')) { setPreview(null); return undefined; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+  const reportInput = useRef(null);
+  const addReports = (list) => {
+    const files = [...(list ?? [])];
+    if (files.some((f) => f.size > 10 * 1024 * 1024)) { setErr({ at: 'report', text: 'A file is over 10 MB' }); return; }
+    setReports((r) => [...r, ...files].slice(0, 5)); setErr(null);
+  };
 
   const submit = async () => {
-    if (csat === null) { setErr({ at: 'csat', text: 'Choose Yes or No' }); return; }
-    if (csat && !file) { setErr({ at: 'proof', text: 'Add the CSAT photo' }); return; }
-    if (file && file.size > 10 * 1024 * 1024) { setErr({ at: 'proof', text: 'The file is over 10 MB' }); return; }
     setBusy(true); setErr(null);
     try {
-      await closeCall(t.id, csat, csat ? file : null, note.trim());
-      onClosed(`${t.wo} closed`);
+      await closeCall(t.id, null, null, note.trim(), reports);
+      onClosed(`${refOf(t)} completed`);
     } catch (e) {
       setErr({ at: 'button', text: e.message }); setBusy(false);
     }
   };
 
-  const late = t.status === 'closed';
-
   return (
     <section className="mt-close-card">
-      <span className="mt-block-label">{late ? 'Add the CSAT' : 'Close this call'}</span>
 
       <div className="mt-step">
-        <span className="mt-step-q">Was the CSAT taken?</span>
-        <div className={`mt-thumbs${err?.at === 'csat' ? ' is-bad' : ''}`}>
-          <button type="button" className="is-yes" aria-pressed={csat === true} onClick={() => { setCsat(true); setErr(null); }}>
-            <Svg d={I.up} size={26} /><span>Yes</span>
+        <span className="mt-step-q">Service report</span>
+        <input ref={reportInput} type="file" multiple hidden
+               onChange={(e) => { addReports(e.target.files); e.target.value = ''; }} />
+        {reports.length > 0 && (
+          <ul className="mt-files">
+            {reports.map((f, i) => (
+              <li key={`${f.name}-${i}`}>
+                <Svg d={I.file} size={16} /><span className="mt-file-name">{f.name}</span>
+                <button type="button" className="mt-file-x" aria-label={`Remove ${f.name}`}
+                        onClick={() => setReports((r) => r.filter((_, j) => j !== i))}>×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {reports.length < 5 && (
+          <button type="button" className="mt-camera mt-camera-sm" onClick={() => reportInput.current?.click()}>
+            <span className="mt-camera-icon"><Svg d={I.file} size={22} /></span>
+            <span>{reports.length ? 'Add another file' : 'Add a file'}</span>
           </button>
-          <button type="button" className="is-no" aria-pressed={csat === false} onClick={() => { setCsat(false); setErr(null); }}>
-            <Svg d={I.down} size={26} /><span>No</span>
-          </button>
-        </div>
-        {err?.at === 'csat' && <p className="mt-err">{err.text}</p>}
+        )}
+        {err?.at === 'report' && <p className="mt-err">{err.text}</p>}
       </div>
 
-      {csat && (
-        <div className="mt-step">
-          <span className="mt-step-q">CSAT photo</span>
-          <input ref={input} type="file" accept="image/*,application/pdf" hidden
-                 onChange={(e) => { setFile(e.target.files?.[0] ?? null); setErr(null); }} />
-          {file ? (
-            <div className="mt-photo">
-              {preview ? <img src={preview} alt="CSAT" /> : <span className="mt-photo-file">{file.name}</span>}
-              <button type="button" className="mt-photo-change" onClick={() => input.current?.click()}>Change</button>
-            </div>
-          ) : (
-            <button type="button" className={`mt-camera${err?.at === 'proof' ? ' is-bad' : ''}`} onClick={() => input.current?.click()}>
-              <span className="mt-camera-icon"><Svg d={I.camera} size={28} /></span>
-              <span>Take a photo or choose a file</span>
-            </button>
-          )}
-          {err?.at === 'proof' && <p className="mt-err">{err.text}</p>}
-        </div>
-      )}
-
       <label className="mt-step">
-        <span className="mt-step-q">Note <span className="mt-muted">(optional)</span></span>
+        <span className="mt-step-q">Remarks</span>
         <textarea className="mt-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
 
       <div className="mt-close-foot">
         <button type="button" className="mt-go" onClick={submit} disabled={busy}>
           <Svg d={I.check} size={22} />
-          {busy ? 'Closing…' : late ? 'Save CSAT' : 'Close call'}
+          {busy ? 'Saving…' : 'Submit'}
         </button>
         {err?.at === 'button' && <p className="mt-err">{err.text}</p>}
       </div>
@@ -1028,8 +1424,8 @@ function UploadSheet({ tickets, team, profile, onClose, onDone }) {
       rows: inFile.size,
       added: [...inFile].filter((wo) => !known.has(wo)).length,
       refreshed: [...inFile].filter((wo) => known.has(wo)).length,
-      closing: mine.filter((t) => t.status === 'open' && !inFile.has(t.wo)).length,
-      back: mine.filter((t) => t.status === 'closed' && !t.closed_by && inFile.has(t.wo)).length,
+      closing: mine.filter((t) => !t.mt_closed_on && !inFile.has(t.wo)).length,
+      back: mine.filter((t) => t.mt_closed_on && inFile.has(t.wo)).length,
     };
   }, [rows, tickets, team, profile]);
 
@@ -1056,8 +1452,8 @@ function UploadSheet({ tickets, team, profile, onClose, onDone }) {
               <li><b>{result.rows}</b> tickets in the file</li>
               <li><b>{result.added}</b> new, not assigned</li>
               <li><b>{result.refreshed}</b> already here, updated</li>
-              {result.reopened > 0 && <li><b>{result.reopened}</b> back in the TM, open again</li>}
-              <li className={result.closed ? 'is-closing' : ''}><b>{result.closed}</b> not in the file, closed</li>
+              {result.reopened > 0 && <li><b>{result.reopened}</b> back in the TM, open in Medtronic again</li>}
+              <li className={result.closed ? 'is-closing' : ''}><b>{result.closed}</b> not in the file, marked Closed in Medtronic</li>
               {result.assigned > 0 && <li><b>{result.assigned}</b> assigned from the Assign to column</li>}
               {result.unknown?.length > 0 && <li className="is-closing">Not in your team, left unassigned: {result.unknown.join(', ')}</li>}
             </ul>
@@ -1074,8 +1470,8 @@ function UploadSheet({ tickets, team, profile, onClose, onDone }) {
                   <li><b>{plan.rows}</b> tickets in the file</li>
                   <li><b>{plan.added}</b> new, not assigned</li>
                   <li><b>{plan.refreshed}</b> already here, updated</li>
-                  {plan.back > 0 && <li><b>{plan.back}</b> back in the TM, open again</li>}
-                  <li className={plan.closing ? 'is-closing' : ''}><b>{plan.closing}</b> not in the file, will be closed</li>
+                  {plan.back > 0 && <li><b>{plan.back}</b> back in the TM, open in Medtronic again</li>}
+                  <li className={plan.closing ? 'is-closing' : ''}><b>{plan.closing}</b> not in the file, will be marked Closed in Medtronic</li>
                   {plan.assigning > 0 && <li><b>{plan.assigning}</b> assigned from the Assign to column</li>}
                   {plan.unknown.length > 0 && <li className="is-closing">Not in your team, left unassigned: {plan.unknown.join(', ')}</li>}
                 </ul>

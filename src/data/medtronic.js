@@ -38,17 +38,83 @@ export const loadMtData = () => rpc('mt_data');
 export const uploadTm = (rows, fileName) => rpc('mt_upload', { p_rows: rows, p_file: fileName });
 export const assignTickets = (ids, engineerId) => rpc('mt_assign', { p_ids: ids, p_engineer: engineerId });
 
-/** The proof goes up first, into the work order's own folder; the close then names it. */
-export async function closeCall(ticketId, csat, file, note) {
-  let path = null;
-  if (csat && file) {
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-    path = `${ticketId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('mt-proof')
-      .upload(path, file, { contentType: file.type || undefined, upsert: false });
-    if (error) throw new Error(error.message);
-  }
-  await rpc('mt_close', { p_id: ticketId, p_csat: csat, p_proof: path, p_note: note || null });
+/* The engineer's steps (0077): accept, start, a status while it is pending, complete. */
+export const acceptTickets = (ids, due) => rpc('mt_accept', { p_ids: ids, p_due: due || null });
+/** Every step of one ticket, oldest first (mt_events, read through mt_sees). */
+export async function loadEvents(ticketId) {
+  const { data, error } = await supabase.from('mt_events').select('id, at, kind, detail').eq('ticket_id', ticketId).order('at');
+  if (error) throw error;
+  return data ?? [];
+}
+export const startTicket = (id) => rpc('mt_start', { p_id: id });
+export const setWorkStatus = (id, status, detail = null) => rpc('mt_set_status', { p_id: id, p_status: status, p_detail: detail });
+
+/** Pending statuses, in the order the user gave them (23 Nov). Completed is its own step. */
+export const WORK = [
+  ['started', 'Started'],
+  ['under_repair', 'Under repair'],
+  ['observation', 'Observation'],
+  ['waiting_spare', 'Waiting for spare'],
+  ['waiting_customer', 'Waiting for customer'],
+];
+/** These two ask what (0078): the box's placeholder. */
+export const WORK_DETAIL = { observation: 'Observation', waiting_spare: 'PI / PO Number' };
+export const workLabel = (s) => WORK.find(([id]) => id === s)?.[1] ?? null;
+
+/** Where the ticket is on our side: the tab it sits in. */
+export function stageOf(t) {
+  if (t.closed_by) return 'completed';
+  if (!t.engineer_id) return t.status === 'closed' ? 'closed' : 'unassigned';
+  if (!t.accepted_at) return 'to_accept';
+  if (!t.started_at) return 'to_start';
+  return 'pending';
+}
+export const STAGE_LABEL = {
+  unassigned: 'Not assigned', to_accept: 'To accept', to_start: 'To start',
+  pending: 'Pending', completed: 'Completed', closed: 'Closed',
+};
+
+const secs = (a, b) => (a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000)) : null);
+/** Seconds waiting for spare, the running wait included. */
+export const spareSecs = (t, now = Date.now()) => (t.spare_secs ?? 0)
+  + (t.work_status === 'waiting_spare' && !t.closed_by && t.work_status_at
+    ? Math.max(0, Math.round((now - Date.parse(t.work_status_at)) / 1000)) : 0);
+/** Accept, start and job TAT, and the whole, in seconds; null until that step is done. */
+export function tatOf(t) {
+  return {
+    accept: secs(t.assigned_at, t.accepted_at),
+    start: secs(t.accepted_at, t.started_at),
+    job: t.closed_by ? secs(t.started_at, t.closed_at) : null,
+    total: t.closed_by ? secs(t.assigned_at, t.closed_at) : null,
+    spare: spareSecs(t),
+  };
+}
+/** 420 → "7 min", 5280 → "1 h 28 min", 104400 → "1 d 5 h". */
+export function fmtDur(s) {
+  if (s == null) return '—';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d} d ${h % 24} h` : `${d} d`;
+}
+
+async function putFile(ticketId, file, kind) {
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  const path = `${ticketId}/${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const { error } = await supabase.storage.from('mt-proof')
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+/** The files go up first, into the work order's own folder; completing then names them. */
+export async function closeCall(ticketId, csat, file, note, reports = []) {
+  const path = csat && file ? await putFile(ticketId, file, 'csat') : null;
+  const reportPaths = [];
+  for (const r of reports) reportPaths.push(await putFile(ticketId, r, 'report'));
+  await rpc('mt_close', { p_id: ticketId, p_csat: csat, p_proof: path, p_note: note || null, p_reports: reportPaths });
 }
 
 export async function proofUrl(path) {
@@ -223,7 +289,8 @@ export const todayIst = () => new Date(Date.now() + 5.5 * 3600000).toISOString()
 export function ageDays(t, today = todayIst()) {
   if (!t.created_on) return null;
   const from = new Date(new Date(t.created_on).getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
-  const to = t.status === 'closed' && t.closed_on ? t.closed_on : today;
+  const to = t.closed_by && t.closed_on ? t.closed_on
+    : t.status === 'closed' && t.closed_on ? t.closed_on : today;
   return Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86400000));
 }
 
