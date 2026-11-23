@@ -116,8 +116,11 @@ function writeNum(sample, v) {
 
 const DATE = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$/;
 const PERIOD = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s*(to|-|–|till)\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})$/i;
-/** Words written before the date inside the same yellow ("Contract Period: - 03/11/2026 to …"): kept as they are. */
-const LEAD = /^([^\d]*[a-z][^\d]*?[:\-–]\s*)(?=\d)/i;
+/**
+ * Words written before the date inside the same yellow ("Contract Period: - 03/11/2026 to …"), or only its colon
+ * (QTN046 Manima: ": 03/11/2026", the user, 23 Nov): kept as they are, so the rest is still a date.
+ */
+const LEAD = /^([^\d]*[a-z][^\d]*?[:\-–]\s*|[\s:\-–]+)(?=\d)/i;
 const leadOf = (t) => LEAD.exec(t)?.[1] ?? '';
 /** A line that is only "TO," (or "To:"). */
 const TO_LINE = /^\s*to\s*[,:.-]?\s*$/i;
@@ -183,7 +186,18 @@ function tablesOf(doc) {
       return kids(rows[yrow], 'w:tc').some((tc, k) => PRICE_HEAD.test(heads[k] ?? '') && !/%/.test(heads[k] ?? '')
         && all(tc, 'w:p').flatMap(groupsIn).some((g) => /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i.test(g.text)));
     };
-    if (!price && yrow > 0 && (tot > yrow || priced())) { price = { t, rows, item: yrow }; continue; }
+    if (!price && yrow > 0 && (tot > yrow || priced())) {
+      // More sample item rows under the first (QTN046 Manima: two power adapters, the user, 23 Nov): rows shaped like it,
+      // numbered or wholly yellow, before the totals. Not boxes; they go when the quotation is filled.
+      const n = kids(rows[yrow], 'w:tc').length;
+      const extra = rows.slice(yrow + 1, tot > yrow ? tot : rows.length).filter((tr) => {
+        const tcs = kids(tr, 'w:tc'); if (tcs.length !== n) return false;
+        if (/total|gst|tax/i.test(textOf(tcs[0]))) return false;
+        const runs = all(tr, 'w:r').filter((x) => textOf(x).trim());
+        return /^\s*\d+\.?\s*$/.test(textOf(tcs[0])) || (runs.length > 0 && runs.every(isYellow));
+      });
+      price = { t, rows, item: yrow, extra }; continue;
+    }
     const head = rows[0];
     const cells = head ? kids(head, 'w:tc') : [];
     const runs = head ? all(head, 'w:r').filter((r) => textOf(r).trim()) : [];
@@ -278,7 +292,7 @@ function scan(doc) {
     // rows of it keep their boxes (Giri Pushp's "Contract Period: 03/11/2026 to 02/11/2027").
     if (price && tbl === price.t) {
       const tr = up(p, 'w:tr');
-      if (tr === price.rows[0] || tr === price.rows[price.item]) return true;
+      if (tr === price.rows[0] || tr === price.rows[price.item] || price.extra.includes(tr)) return true;
       if (/total|gst|tax/i.test(textOf(kids(tr, 'w:tc')[0] ?? tr))) return true;
     }
     return false;
@@ -761,6 +775,7 @@ export async function fillYellow(file, Y, v) {
         pt.t.insertBefore(tr, model);
       });
       pt.t.removeChild(model);
+      for (const tr of pt.extra) if (tr.parentNode === pt.t) pt.t.removeChild(tr);
       // Totals rows: the figure in each worked out; "GST 18%" says the GST chosen.
       for (const tr of kids(pt.t, 'w:tr')) {
         const tcs = kids(tr, 'w:tc'); if (tcs.length < 2) continue;
