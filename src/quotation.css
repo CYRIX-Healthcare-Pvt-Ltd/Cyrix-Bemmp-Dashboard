@@ -1375,3 +1375,8 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-yl-terms-head svg { margin-left: auto; color: var(--text-secondary); transition: transform .2s ease; }
 .qt-yl-terms.is-open .qt-yl-terms-head svg { transform: rotate(90deg); }
 .qt-yl-terms.is-open .qt-yl-terms-head { margin-bottom: 6px; }
+
+/* For a ticket | For my stock (0085, 24 Nov). */
+.qt-for { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; margin-bottom: 12px; border-radius: 14px; background: var(--track-bg); }
+.qt-for button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.qt-for button[data-on='true'] { background: var(--ink); color: var(--page); }

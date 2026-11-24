@@ -200,6 +200,7 @@ const I = {
   down: <><path d="M12 4v11M8 11l4 4 4-4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></>,
   x: <path d="M6 6l12 12M18 6L6 18" />,
   pen: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></>,
+  box: <><path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z" /><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9" /></>,
   doc: <><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M10 12h5M10 16h5" /></>,
   back: <path d="M15 5l-7 7 7 7" />,
   chevron: <path d="M9 5l7 7-7 7" />,
@@ -1562,7 +1563,7 @@ function Card({ r, targets, now, onOpen, picked, onPick, children }) {
       <button type="button" className="qt-card-body" onClick={() => onOpen(r.id)}>
         <span className="qt-card-top"><span className="qt-no">{r.no}{r.ref_no && <small className="qt-ref">{r.ref_no}</small>}</span><StepBadge r={r} /><RepeatTag r={r} /><PendingChip r={r} now={now} /><Clock r={r} targets={targets} now={now} /></span>
         <span className="qt-card-spare">{r.spare} <b>× {r.approved_qty ?? r.qty}</b></span>
-        <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
+        <span className="qt-card-line"><span className="qt-card-step">{statusOf(r)} · </span>{[r.equipment, r.for_stock ? `Stock · ${r.hospital ?? ''}` : r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)].filter(Boolean).join(' · ')}</span>
         {!r.mine && !r.done && (acceptPending(r)
           ? <span className="qt-card-with">Waiting for <b>{orNames(acceptBy(r, pools)) || stepOf(r.step).who}</b> to accept</span>
           : <span className="qt-card-with">With {stepOf(r.step).who} · {r.accepted_by_name ?? 'not accepted yet'}</span>
@@ -1645,7 +1646,7 @@ function Todo({ me, list, targets, now, onOpen, onDone, sub }) {
                     <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => onOpen(r.id, 'reject')}>Reject</button>
                     <button type="button" className="mt-btn" onClick={() => onOpen(r.id, 'send_back')}>Send back</button>
                     <button type="button" data-role="coordinator" className="mt-go" onClick={() => ask({
-                      title: `Approve ${r.no}?`, lines: [`${r.spare} × ${r.qty} · ${r.hospital}`, person(r.engineer_name, r.engineer_code),
+                      title: `Approve ${r.no}?`, lines: [`${r.spare} × ${r.qty} · ${r.hospital ?? 'Stock'}`, person(r.engineer_name, r.engineer_code),
                         (r.category ?? '').toUpperCase() === 'CAMC' ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
                       run: () => tlApprove([r.id]), after: () => onDone(`${r.no} approved.`),
                     })}>Approve</button>
@@ -1914,7 +1915,7 @@ function Facts({ r, now }) {
   return (
     <section className="mt-facts qt-facts">
       <Fact label={r.kind === 'stock' ? 'For' : 'Engineer'} sub={r.team_lead_name ? `Team Lead ${r.team_lead_name}` : null}>{person(r.engineer_name, r.engineer_code)}</Fact>
-      <Fact label="Hospital" sub={[r.district, r.state, r.category].filter(Boolean).join(' · ')}>{r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)}</Fact>
+      <Fact label="Hospital" sub={[r.district, r.state, r.category].filter(Boolean).join(' · ')}>{r.for_stock ? `Stock · ${r.hospital ?? ''}` : r.hospital ?? (r.kind === 'stock' ? 'Stock' : null)}</Fact>
       <Fact label="Equipment" sub={[r.make, r.model, r.serial && `Serial ${r.serial}`, r.barcode && `Barcode ${r.barcode}`, r.ticket_id && `Ticket ${r.ticket_id}`].filter(Boolean).join(' · ')}>{r.equipment}</Fact>
       <BarcodeHistory r={r} />
       <Fact label="Spare" sub={[r.part_no && `Part ${r.part_no}`, r.item_code && `Item ${r.item_code}`].filter(Boolean).join(' · ')}>{r.spare} × {r.qty}{r.approved_qty && r.approved_qty !== r.qty ? ` (approved ${r.approved_qty})` : ''}</Fact>
@@ -2299,7 +2300,7 @@ function TlReview({ r, preset, onDone }) {
     clear();
     ask({
       title: a === 'send_back' ? `Send ${r.no} back to ${r.engineer_name}?` : `Reject ${r.no}?`,
-      lines: [`${r.spare} × ${r.qty} · ${r.hospital}`, who, note.trim(), a === 'send_back' ? `${r.engineer_name} corrects it and sends it again.` : 'The request ends here.'],
+      lines: [`${r.spare} × ${r.qty} · ${r.hospital ?? 'Stock'}`, who, note.trim(), a === 'send_back' ? `${r.engineer_name} corrects it and sends it again.` : 'The request ends here.'],
       ok: a === 'send_back' ? 'Send back' : 'Reject', tone: a === 'reject' ? 'bad' : undefined,
       run: () => tlDecline(r.id, { action: a, note: note.trim() }),
       after: () => onDone(a === 'send_back' ? `${r.no} sent back to ${r.engineer_name}.` : `${r.no} rejected.`),
@@ -2318,7 +2319,7 @@ function TlReview({ r, preset, onDone }) {
         <button type="button" className="mt-btn qt-btn-line-bad" onClick={() => decline('reject')}>Reject</button>
         <button type="button" data-role="engineer" className="mt-btn" onClick={() => decline('send_back')}>Send back</button>
         <button type="button" data-role="coordinator" className="mt-go" onClick={() => { clear(); ask({
-          title: `Approve ${r.no}?`, lines: [`${v.spare} × ${v.qty} · ${r.hospital}`, who, camc ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
+          title: `Approve ${r.no}?`, lines: [`${v.spare} × ${v.qty} · ${r.hospital ?? 'Stock'}`, who, camc ? 'CAMC: straight to PR.' : 'It goes to the Coordinator.'], ok: 'Approve',
           run: () => tlApprove([r.id], { ...v, qty: Number(v.qty), photos, equipment_photos: eqPhotos }), after: () => onDone(`${r.no} approved.`),
         }); }}>Approve</button>
       </div>
@@ -3013,7 +3014,7 @@ function HospitalPick({ facilities, value, onChange, bad }) {
 }
 
 /** Raise in two steps (idea 6): hospital and equipment, then the spares, one request number each. */
-const BLANK_RAISE = { ticket: '', barcode: '', facility_id: '', equipment: '', make: '', model: '', serial: '', note: '' };
+const BLANK_RAISE = { ticket: '', barcode: '', facility_id: '', equipment: '', make: '', model: '', serial: '', note: '', for_stock: false };
 
 /*
   A Care 360 ticket ID fills the hospital and the equipment (BEMMP 0068; the user, 19 Nov: "when ticket id is entered
@@ -3080,10 +3081,12 @@ function RaiseForm({ me, onDone }) {
   const set = (k, x) => { setV((o) => ({ ...o, [k]: x })); clear(); };
   const setSpare = (i, k, x) => { setSpares((s) => s.map((o, j) => (j === i ? { ...o, [k]: x } : o))); clear(); };
   const f = facilities.find((x) => x.id === v.facility_id);
+  // For my stock (0085; the user, 24 Nov: "same fields as in tickets, just a category"): everything the same, no ticket ID.
+  const stock = Boolean(v.for_stock);
 
   const next = () => {
     // Required (the user, 19 Nov: "ticket id mandatory").
-    if (!(v.ticket ?? '').trim()) { show('Type the ticket ID.'); return; }
+    if (!stock && !(v.ticket ?? '').trim()) { show('Type the ticket ID.'); return; }
     if (!v.facility_id) { show('Choose the hospital.'); return; }
     if (!v.equipment.trim()) { show('Write the equipment name.'); return; }
     // One equipment photo and two of each spare (the user, 20 Nov).
@@ -3097,10 +3100,10 @@ function RaiseForm({ me, onDone }) {
     if (few >= 0) { show(`Add 2 photos of spare ${few + 1}.`); return; }
     ask({
       title: spares.length === 1 ? 'Send this request?' : `Send ${spares.length} requests?`,
-      lines: [`${f?.name}`, `${v.equipment}${v.make ? ` · ${v.make}` : ''}`, ...spares.map((s) => `${s.spare} × ${s.qty}`),
+      lines: [...(stock ? ['For my stock'] : []), `${f?.name}`, `${v.equipment}${v.make ? ` · ${v.make}` : ''}`, ...spares.map((s) => `${s.spare} × ${s.qty}`),
         me.role === 'team_lead' ? 'It goes to the Coordinator.' : `It goes to ${me.team_lead_name ?? 'your Team Lead'}.`],
       ok: 'Send',
-      run: () => raise({ ...v, equipment_photo: eqPhotos[0] ?? null, equipment_photos: eqPhotos, client_token: token, spares: spares.map((s) => ({ ...s, qty: Number(s.qty), photos: s.photos })) }),
+      run: () => raise({ ...v, ticket: stock ? '' : v.ticket, for_stock: stock, equipment_photo: eqPhotos[0] ?? null, equipment_photos: eqPhotos, client_token: token, spares: spares.map((s) => ({ ...s, qty: Number(s.qty), photos: s.photos })) }),
       after: (nos) => {
         sent.current = true; store.set(key, null);
         store.set(`qt-recent-hosp:${code}`, [v.facility_id, ...(store.get(`qt-recent-hosp:${code}`) ?? []).filter((x) => x !== v.facility_id)].slice(0, 5));
@@ -3111,13 +3114,17 @@ function RaiseForm({ me, onDone }) {
 
   return (
     <div className="pm-form qt-raise">
+      <div className="qt-for" role="group" aria-label="Request for">
+        <button type="button" data-on={!stock} aria-pressed={!stock} onClick={() => set('for_stock', false)}><Icon d={I.doc} size={16} />For a ticket</button>
+        <button type="button" data-on={stock} aria-pressed={stock} onClick={() => set('for_stock', true)}><Icon d={I.box} size={16} />For my stock</button>
+      </div>
       <div className="qt-steps"><span data-on={step === 1}>1 · Hospital and equipment</span><span data-on={step === 2}>2 · Spares</span>
         {filled && <button type="button" className="pm-clear qt-start-again" onClick={startAgain}>Clear</button>}
       </div>
       {step === 1 ? (
         <section className="pm-card pm-details">
-          <TicketFind value={v.ticket ?? ''} onChange={(x) => set('ticket', x)} facilities={facilities}
-            onFound={(t) => setV((o) => ({ ...o, facility_id: t.facility_id ?? o.facility_id, barcode: t.barcode ?? o.barcode, equipment: t.equipment ?? o.equipment, make: t.make ?? o.make, model: t.model ?? o.model, serial: t.serial ?? o.serial }))} />
+          {!stock && <TicketFind value={v.ticket ?? ''} onChange={(x) => set('ticket', x)} facilities={facilities}
+            onFound={(t) => setV((o) => ({ ...o, facility_id: t.facility_id ?? o.facility_id, barcode: t.barcode ?? o.barcode, equipment: t.equipment ?? o.equipment, make: t.make ?? o.make, model: t.model ?? o.model, serial: t.serial ?? o.serial }))} />}
           <HospitalPick facilities={facilities} value={v.facility_id} onChange={(x) => set('facility_id', x)} />
           {before.length > 0 && (
             <div className="qt-before">
@@ -3152,7 +3159,7 @@ function RaiseForm({ me, onDone }) {
         <>
           <section className="pm-card qt-summary-card">
             <button type="button" className="pm-back" onClick={() => setStep(1)} aria-label="Back to hospital and equipment"><Icon d={I.back} size={20} /></button>
-            <div><strong>{f?.name}</strong><span>{[v.equipment, v.make, v.model].filter(Boolean).join(' · ')}</span></div>
+            <div><strong>{stock ? `Stock · ${f?.name}` : f?.name}</strong><span>{[v.equipment, v.make, v.model].filter(Boolean).join(' · ')}</span></div>
           </section>
           {spares.map((s, i) => (
             <section key={s.id} className="pm-card pm-details qt-spare-card">
