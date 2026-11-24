@@ -1000,7 +1000,7 @@ button.qt-qstate { cursor: pointer; }
 .qt-terms-pop { width: min(560px, 100%); display: grid; gap: 12px; padding: 16px; border-radius: 20px; background: var(--page); border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
 .qt-terms-head { display: flex; align-items: center; justify-content: space-between; }
 .qt-terms-head b { font-size: 16px; font-weight: 750; }
-.qt-terms-pop textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; line-height: 1.45; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); }
+.qt-terms-pop textarea, .qt-yl-terms textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; line-height: 1.45; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); }
 .qt-terms-go { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 640px) { .qt-terms-scrim { align-items: flex-end; } .qt-terms-pop { border-radius: 20px 20px 0 0; } }
 
@@ -1368,3 +1368,10 @@ button.qt-qfile-ico { cursor: pointer; }
 
 /* The yellow form's rows are cards of their own: no second frame round them (the user, 19 Nov: double borders). */
 .qt-maker-items:has(> .qt-lm-item) { border: 0; border-radius: 0; background: none; overflow: visible; gap: 10px; padding-top: 0; }
+
+/* Yellow-template terms, folded until needed (24 Nov). */
+.qt-yl-terms-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-align: left; }
+.qt-yl-terms-head small { padding: 1px 8px; border-radius: 999px; background: var(--hover-wash); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.qt-yl-terms-head svg { margin-left: auto; color: var(--text-secondary); transition: transform .2s ease; }
+.qt-yl-terms.is-open .qt-yl-terms-head svg { transform: rotate(90deg); }
+.qt-yl-terms.is-open .qt-yl-terms-head { margin-bottom: 6px; }

@@ -12,7 +12,7 @@ import {
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
-import { readYellow, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
+import { readYellow, readTerms, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -4470,6 +4470,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
   const [busy, setBusy] = useState(null);
   const [preview, setPreview] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [err, show, clear, at] = useErr();
   const roleOf = (role) => Y.fields.find((x) => x.role === role);
   const toOf = (f) => {
@@ -4490,6 +4491,15 @@ function YellowMaker({ r, start, onClose, onMade }) {
     return { ...o, f, ...(cl && k === cl.key ? { clientOwn: true } : {}) };
   });
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
+  // The template's terms, one box each, whether yellow or not (the user, 24 Nov: "earlier we had terms and conditions also,
+  // which was editable"); read from the Word when the form opens, kept with the quotation once saved.
+  useEffect(() => {
+    if (q.terms !== undefined || !q.tplPath) return undefined;
+    let live = true;
+    templateBlob(q.tplPath).then(readTerms).catch(() => null)
+      .then((list) => { if (live) setQ((o) => (o.terms !== undefined ? o : { ...o, terms: list ?? null, termsOrig: list ?? null })); });
+    return () => { live = false; };
+  }, [q.tplPath]); // eslint-disable-line react-hooks/exhaustive-deps
   const totals = totalsOf(Y, itemsOf(Y, q.items, q.rows), q.gst, q.lump);
 
   // The Annexure: its columns (S.No. counted), rows typed or from Excel.
@@ -4526,6 +4536,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     const ref = roleOf('ref'); const date = roleOf('date');
     return {
       v: 2, tpl: q.tpl, tplPath: q.tplPath, Y, f: q.f, rows: q.rows, gst: Number(q.gst), lump: q.lump, clientOwn: q.clientOwn,
+      ...(Array.isArray(q.terms) ? { terms: q.terms.map((t) => t.trim()).filter(Boolean), termsOrig: q.termsOrig } : {}),
       // Each item's words kept as one line too, for the search of Quotations.
       items: q.items.map(({ key, ...it }) => ({ ...it, desc: own.map((x) => String(it[x.key] ?? '').trim()).filter(Boolean).join(' ') })),
       qtn_no: (ref && String(q.f[ref.key] ?? '').trim()) || q.qtn_no || (forSave ? null : 'Preview'), date: (date && q.f[date.key]) || todayIst(),
@@ -4666,6 +4677,15 @@ function YellowMaker({ r, start, onClose, onMade }) {
                   <button type="button" className="mt-btn" onClick={listFormat}><Icon d={I.down} size={16} />Excel format</button>
                   <input ref={listIn} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => { listExcel(e.target.files?.[0]); e.target.value = ''; }} />
                 </div>
+              </div>
+            )}
+            {Array.isArray(q.terms) && (
+              // Folded until needed (the user, 24 Nov: "collapse, when needed they will expand").
+              <div className={`qt-maker-items qt-yl-terms${termsOpen ? ' is-open' : ''}`}>
+                <button type="button" className="qt-yl-terms-head" aria-expanded={termsOpen} onClick={() => setTermsOpen(!termsOpen)}>
+                  <span>Terms and conditions</span><small>{q.terms.filter((t) => t.trim()).length}</small><Icon d={I.chevron} size={16} />
+                </button>
+                {termsOpen && <TermsList terms={q.terms} onChange={(t) => set('terms', t)} />}
               </div>
             )}
           </div>

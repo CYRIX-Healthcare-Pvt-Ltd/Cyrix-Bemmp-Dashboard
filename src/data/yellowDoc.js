@@ -88,6 +88,76 @@ function setPara(doc, p, text) {
   t.setAttributeNS(XS, 'xml:space', 'preserve'); t.textContent = text; r.appendChild(t); p.appendChild(r);
 }
 
+/* ---------- Terms and conditions ---------- */
+
+/*
+  The template's TERMS AND CONDITIONS, read whether yellow or not (the user, 24 Nov: "earlier we had terms and conditions
+  also, which was editable"): the numbered lines under that heading, up to the first line that is not one of them. Word's
+  own numbering, or a number typed at the start ("1.", "2)"), kept as the template has it.
+*/
+const TERMS_HEAD = /^(terms\s*(and|&)\s*conditions?|terms)\s*[:.]?$/i;
+const MANUAL_NO = /^\s*\(?(\d{1,2})([.)])\s*/;
+const wordNumbered = (p) => { const ppr = kids(p, 'w:pPr')[0]; const n = ppr && kids(ppr, 'w:numPr')[0]; return !!n && kids(n, 'w:numId')[0]?.getAttribute('w:val') !== '0'; };
+function termsIn(doc) {
+  const ps = all(doc, 'w:p');
+  const h = ps.findIndex((x) => TERMS_HEAD.test(norm(textOf(x))));
+  if (h < 0) return null;
+  const out = [];
+  for (let i = h + 1; i < ps.length; i++) {
+    const x = ps[i];
+    if (up(x, 'w:tbl') !== up(ps[h], 'w:tbl')) break;
+    const t = norm(tabText(x));
+    if (!t) continue;
+    if (wordNumbered(x) || MANUAL_NO.test(t)) { out.push(x); continue; }
+    break;
+  }
+  // A plain list only: one numbering at one level. An AMC contract's clauses (headings, sub-clauses, a list of
+  // exceptions) stay as uploaded.
+  const lv = (x) => { const n = kids(kids(x, 'w:pPr')[0] ?? x, 'w:numPr')[0]; return n ? `${kids(n, 'w:numId')[0]?.getAttribute('w:val')}/${kids(n, 'w:ilvl')[0]?.getAttribute('w:val') ?? '0'}` : 'typed'; };
+  if (new Set(out.map(lv)).size > 1) return null;
+  return out.length ? out : null;
+}
+const termOf = (x) => { const t = norm(tabText(x)); return wordNumbered(x) ? t : t.replace(MANUAL_NO, ''); };
+
+/** The terms as the template has them (null: no TERMS AND CONDITIONS list in it). */
+export async function readTerms(file) {
+  const zip = await JSZip.loadAsync(file);
+  const f = zip.file('word/document.xml'); if (!f) return null;
+  const ps = termsIn(parse(await f.async('string')));
+  return ps ? ps.map(termOf) : null;
+}
+
+/** A term's line written: Word's numbering untouched; a typed number counted again, its look and the gap after it kept. */
+function setTerm(doc, x, n, text) {
+  if (wordNumbered(x)) { for (const tab of all(x, 'w:tab')) tab.parentNode.removeChild(tab); setPara(doc, x, text); return; }
+  const m = MANUAL_NO.exec(textOf(x));
+  if (!m) { setPara(doc, x, text); return; }
+  let left = m[0].replace(/\s+$/, '').length; let done = false; let first = true;
+  for (const t of all(x, 'w:t')) {
+    if (done) { t.textContent = ''; continue; }
+    const s0 = t.textContent;
+    if (left >= s0.length) { left -= s0.length; if (first && s0.trim()) { t.textContent = s0.replace(/\d{1,2}/, String(n)); first = false; } continue; }
+    const head = s0.slice(0, left); const gap = /^\s*/.exec(s0.slice(left))[0];
+    t.textContent = (first && head.trim() ? head.replace(/\d{1,2}/, String(n)) : head) + gap + text;
+    t.setAttributeNS(XS, 'xml:space', 'preserve'); left = 0; done = true; first = false;
+  }
+  if (!done) { const r = doc.createElementNS(W, 'w:r'); const t = doc.createElementNS(W, 'w:t'); t.setAttributeNS(XS, 'xml:space', 'preserve'); t.textContent = text; r.appendChild(t); x.appendChild(r); }
+}
+
+/** The terms as written in the form: a changed one rewritten, one taken out removed, a new one under the last. */
+function fillTerms(doc, terms, orig) {
+  const ps = termsIn(doc); if (!ps) return;
+  const list = terms.map((t) => norm(t)).filter(Boolean);
+  ps.forEach((x, i) => {
+    if (i >= list.length) { if (ps.length > 1 || list.length === 0) x.parentNode.removeChild(x); return; }
+    if (list[i] !== norm(orig?.[i]) || (!wordNumbered(x) && list.length !== ps.length)) setTerm(doc, x, i + 1, list[i]);
+  });
+  let last = ps[Math.min(list.length, ps.length) - 1];
+  for (const [k, t] of list.slice(ps.length).entries()) {
+    const c = last.cloneNode(true); last.parentNode.insertBefore(c, last.nextSibling); setTerm(doc, c, ps.length + k + 1, t); last = c;
+  }
+}
+
 /* ---------- Numbers, dates, amounts ---------- */
 
 const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
@@ -878,6 +948,7 @@ export async function fillYellow(file, Y, v) {
     for (const j of jobs) holds.push(await holdPlace(L, j.g).catch(() => null));
     jobs.forEach((j) => setGroup(j.g, j.text));
     for (const h of holds) if (h) await rebuildPlace(L, doc, h).catch(() => {});
+    if (name === 'word/document.xml' && Array.isArray(v.terms)) fillTerms(doc, v.terms, v.termsOrig);
 
     // The yellow and Word's comments taken away.
     for (const h of all(doc, 'w:highlight')) if (h.getAttribute('w:val') === 'yellow') h.parentNode.removeChild(h);
