@@ -28,7 +28,7 @@ import MedtronicApp from './components/Medtronic.jsx';
 import { MEDTRONIC, loadMtMe, roleOf } from './data/medtronic.js';
 import PmApp from './components/PmChecklist.jsx';
 import { PM_PROJECT, loadPmMe } from './data/pm.js';
-import QuotationApp, { canMakeQuotes } from './components/Quotation.jsx';
+import QuotationApp from './components/Quotation.jsx';
 import { QT_PROJECT, loadQtMe } from './data/quotation.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
@@ -677,7 +677,7 @@ export default function App() {
     // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role. A Quotation maker (0060) is
     // given in SW Admin → BEMMP → Quotation makers, which is the tick itself (the user, 16 Nov: "not showing in e1427").
     // A Quotation maker has only the quotation creator, kept to test accounts while it is rebuilt (19 Nov).
-    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin' || qtMe.role === 'maker') && (qtMe.role !== 'maker' || canMakeQuotes(profile)) ? [QT_PROJECT] : []),
+    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin' || qtMe.role === 'maker') ? [QT_PROJECT] : []),
   ], [available, hasMt, hasPm, qtMe, profile]);
   const decided = !isConfigured() || (ready && session !== undefined
     && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));

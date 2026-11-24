@@ -65,7 +65,8 @@ function tabsFor(me) {
 
 export default function QuotationApp({ me: meIn, profile, narrow, switcher, onSignOut }) {
   // Every coordinator makes quotations again (the user, 23 Nov: "ok every coordinator"); makers and leads stay test-only.
-  const me = useMemo(() => ({ ...meIn, make: canMakeQuotes(profile) || meIn?.role === 'coordinator' }), [meIn, profile]);
+  // Everybody with a quotation role (the user, 24 Nov: "all changes in quotation should be for all"): makers, coordinators, leads.
+  const me = useMemo(() => ({ ...meIn, make: canMakeQuotes(profile) || ['coordinator', 'maker'].includes(meIn?.role) || Boolean(meIn?.lead) }), [meIn, profile]);
   // The open tab rides in the address (?tab=), so a reload stays on it (the user, 19 Nov).
   const [tab, setTabRaw] = useState(() => {
     const t = new URL(window.location.href).searchParams.get('tab');
