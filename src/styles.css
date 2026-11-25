@@ -4031,3 +4031,7 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 /* Care 360's own grid: the way back to all projects (25 Nov). */
 .project-home-title { display: flex; align-items: center; gap: 6px; }
 .project-home-back { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: inherit; cursor: pointer; }
+
+/* Gemini's note at template upload: not yellow but likely to change (25 Nov). */
+.qt-yc-missed { margin-top: 0.75rem; padding: 0.6rem 0.75rem; border: 1px dashed #f59e0b; border-radius: 10px; }
+.qt-yc-missed > b { display: block; font-size: 0.8rem; color: #d97706; margin-bottom: 0.35rem; }

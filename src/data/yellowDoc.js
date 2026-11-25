@@ -412,10 +412,12 @@ const blockKey = (b) => `block:${(nameOf(b.heading) || 'address').toLowerCase()}
 /** Read a template: its boxes, the price table and the list table. Nothing yellow: `fields` empty. */
 export async function readYellow(file) {
   const zip = await JSZip.loadAsync(file);
-  const fields = []; let price = null; let list = null;
+  const fields = []; let price = null; let list = null; const plain = [];
   const byKey = new Map();
   for (const name of partNames(zip)) {
     const doc = parse(await zip.file(name).async('string'));
+    // The plain text, with no yellow, for Gemini to spot what changes but was not coloured (quoteAi.js).
+    if (/document\.xml$/.test(name)) for (const p of all(doc, 'w:p')) { const t = norm(textOf(p)); if (t && !groupsIn(p).length) plain.push(t); }
     const s = scan(doc);
     if (s.price && !price) price = priceOf(s.price);
     if (s.list && !list) {
@@ -449,7 +451,8 @@ export async function readYellow(file) {
       // The second date of a pair ("from … to …"): named after the first.
       const prev = fields[fields.length - 1];
       if (kind === 'date' && /^(to|till|until)$/i.test(label) && prev?.kind === 'date') label = `${prev.label} to`;
-      const f = { key, kind, label, sample: norm(g.text), places: 1 };
+      // The words around it, for Gemini to name it (quoteAi.js).
+      const f = { key, kind, label, sample: norm(g.text), places: 1, around: norm(`${it.heading ? it.heading + " / " : ""}${before}[${g.text}]${after}`).slice(0, 300) };
       byKey.set(key, f); fields.push(f);
     }
   }
@@ -468,7 +471,7 @@ export async function readYellow(file) {
     for (const x of own) { const col = x.key.replace(/g\d+$/, ''); if (own.filter((y) => y.key.startsWith(`${col}g`)).length === 1) x.label = x.label.replace(/ · line \d+$/, ''); }
   }
   rolesOf(fields);
-  return { v: 2, fields, price: oneBoxPerCell(price), list };
+  return { v: 2, fields, price: oneBoxPerCell(price), list, plain: plain.join('\n').slice(0, 12000) };
 }
 
 /** Which box is the quotation number, the date, the address, CLIENT. Worked out again whenever a form opens, so a
@@ -519,6 +522,8 @@ export function startValue(f, ctx = {}) {
   if (f.role === 'client') return ctx.hospital ? clientFrom(ctx.hospital) : '';
   if (f.kind === 'signer') return ctx.signer ?? '';
   if (f.kind === 'period') return { from: '', upto: '' };
+  // Not a box (Gemini, quoteAi.js): the template's own text stays.
+  if (f.kind === 'fixed') return f.sample;
   return '';
 }
 
@@ -938,7 +943,8 @@ export async function fillYellow(file, Y, v) {
       const { g } = it; const { key, kind } = keyOf(g.text); const f = byKey.get(key); if (!f) continue;
       const val = value(key);
       let text;
-      if (kind === 'num') text = writeNum(g.text, val);
+      if (f.kind === 'fixed') text = g.text.trim();
+      else if (kind === 'num') text = writeNum(g.text, val);
       else if (kind === 'date') { const t = g.text.trim(); const ld = leadOf(t); text = ld + dateLike(t.slice(ld.length).trim(), val); }
       else if (kind === 'period') { const t = norm(g.text); const ld = leadOf(t); const m = PERIOD.exec(t.slice(ld.length)); text = `${ld}${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
       else if (kind === 'words') text = wordsLike(g.text, tot.with);

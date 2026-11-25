@@ -12,6 +12,7 @@ import {
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
+import { nameBoxes } from '../data/quoteAi.js';
 import { readYellow, readTerms, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
@@ -3981,7 +3982,9 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
     setErr(null); setReading(true);
     try {
       // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
-      const [Y, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
+      const [Y0, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
+      // Gemini names the boxes (api/quote-boxes.js); the rules' names stand if it cannot.
+      const { Y } = await nameBoxes(Y0);
       if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
       setFile(f); setLay({ v: 2, yellow: Y }); if (n) setName(n);
     } catch { setErr('This Word file could not be read.'); } finally { setReading(false); }
@@ -4667,7 +4670,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
   const check = () => {
     if (r.free && !roleOf('ref')) return 'The Ref number is not in yellow in this template.';
     for (const x of Y.fields) {
-      if (x.kind === 'words') continue;
+      if (x.kind === 'words' || x.kind === 'fixed') continue;
       const v = q.f[x.key];
       if (x.kind === 'period') { if (!v?.from || !v?.upto) return `Choose the ${x.label}.`; if (v.upto < v.from) return `${x.label} ends before it starts.`; continue; }
       if (!String(v ?? '').trim()) return x.kind === 'date' ? `Choose the ${x.label}.` : `Write the ${x.label}.`;
@@ -4748,7 +4751,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
         </header>
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
-            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words').flatMap((x) => [box(x)].flat())}</div>
+            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed').flatMap((x) => [box(x)].flat())}</div>
             {Y.price && (
               <div className="qt-maker-items">
                 {q.items.map((it, i) => (
@@ -4874,12 +4877,18 @@ function YellowCheck({ lay, onChange }) {
   return (
     <div className="qt-yc">
       <section className="qt-yc-sec">
-        <h3>Boxes · {Y.fields.filter((x) => x.kind !== 'words').length}</h3>
+        <h3>Boxes · {Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed').length}</h3>
         <ul className="qt-yc-list">
           {Y.fields.map((x) => (
-            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.sample.split('\n').join(' · ')}</span>{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
+            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.sample.split('\n').join(' · ')}</span>{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
           ))}
         </ul>
+        {Y.missed?.length > 0 && (
+          <div className="qt-yc-missed">
+            <b>Not in yellow · may change</b>
+            <ul className="qt-yc-list">{Y.missed.map((m) => <li key={m.text}><b>{m.label}</b><span>{m.text}</span></li>)}</ul>
+          </div>
+        )}
       </section>
       {Y.price && (
         <section className="qt-yc-sec">
