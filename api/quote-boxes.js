@@ -75,7 +75,14 @@ export default async function handler(req, res) {
     if (!r.ok) throw new Error(body?.error?.message ?? `${r.status}`);
     return JSON.parse(body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '');
   });
-  const github = (model, ms, system, input) => fetch('https://models.github.ai/inference/chat/completions', {
+  // GitHub's newer address answered a bare "200 OK" (25 Nov, token never used): the older one, same token, next.
+  const github = (model, ms, system, input) => ghAt('https://models.github.ai/inference/chat/completions', model, ms, system, input)
+    .catch((e) => {
+      if (!/empty answer|200 OK|not json/i.test(e.message)) throw e;
+      return ghAt('https://models.inference.ai.azure.com/chat/completions', model.replace(/^openai\//, ''), ms, system, input)
+        .catch((e2) => { throw new Error(`${e.message} · azure: ${e2.message}`); });
+    });
+  const ghAt = (url, model, ms, system, input) => fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${gh}` },
     body: JSON.stringify({
