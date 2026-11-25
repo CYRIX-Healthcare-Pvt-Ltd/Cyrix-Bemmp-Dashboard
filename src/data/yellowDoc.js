@@ -242,11 +242,15 @@ function sectionsIn(doc) {
   // The stretch between the last yellow part and a signature line that has headings in it ("With Regards" under the
   // letter has none; the CLIENT signature under the terms has).
   let start = -1; let end = -1;
-  const lastYellow = (to) => { let k = -1; for (let i = 0; i < to; i++) if (paraYellow(body[i])) k = i; return k; };
   const stops = body.map((p, i) => (STOP.test(norm(textOf(p))) ? i : -1)).filter((i) => i >= 0).concat(body.length);
+  // After the price table (the letter above it is not terms), from the last yellow line there to the first signature
+  // line after it ("CLIENT", "SIGNATURE") — the stretch must have headings.
+  const tbls = kids(all(doc, 'w:body')[0] ?? doc, 'w:tbl').filter((t) => all(t, 'w:r').some(isYellow));
+  const after = (p) => !tbls.length || (tbls[0].compareDocumentPosition(p) & 4);
   for (const s of stops) {
-    const y = lastYellow(s); if (y < 0) continue;
-    if (body.slice(y + 1, s).some((p) => { const t = norm(tabText(p)); return t && isHead(p, t); })) { start = y; end = s; break; }
+    let y = -1; for (let i = 0; i < s; i++) if (after(body[i]) && paraYellow(body[i])) y = i;
+    if (y < 0) { const f = body.findIndex(after); if (f < 0 || f >= s) continue; y = f - 1; }
+    if (body.slice(y + 1, s).filter((p) => { const t = norm(tabText(p)); return t && isHead(p, t); }).length >= 1) { start = y; end = s; break; }
   }
   if (start < 0) return null;
   const out = []; let cur = null;
