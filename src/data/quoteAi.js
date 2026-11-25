@@ -21,7 +21,7 @@ export async function nameBoxes(Y) {
       signal: AbortSignal.timeout(65000),
     });
     // Why Gemini gave nothing, kept in the template for SW to read (never shown): the upload goes on regardless.
-    if (!r.ok) { const e = await r.json().catch(() => null); return { Y: { ...Y, ai: `${r.status} ${e?.error ?? ""}`.slice(0, 300) }, ai: false }; }
+    if (!r.ok) { const e = await r.json().catch(() => null); return { Y: { ...Y, ai: `${r.status} ${e?.error ?? ""}`.slice(0, 600) }, ai: false }; }
     const ans = await r.json();
     const by = new Map((ans?.boxes ?? []).map((b) => [b.key, b]));
     const fields = Y.fields.map((f) => {
