@@ -181,6 +181,21 @@ function deriveUp(field) {
 }
 
 /**
+ * What a FieldPro export (Care 360, Private BEMMP) leaves to work out: "PMPT_000023" is ticket PMPT 23; its dates are
+ * "24-01-2026 10:12:58"; a call is resolved once Completed or Closed, on its end (else closed) date; Critical /
+ * Non-Critical is the penalty type.
+ */
+function deriveFieldPro(field) {
+  field.ticket = String(field.ticket ?? '').trim().replace('_', '');
+  field.loggedDay = excelDayOfText(field.receivedAt);
+  const done = /^(completed|closed)$/i.test(String(field.status ?? '').trim());
+  field.resolvedDay = done ? (excelDayOfText(field.completedAt) || excelDayOfText(field.closedAt) || field.loggedDay) : '';
+  const cls = String(field.equipmentType ?? '').trim().toUpperCase().replace('-', ' ');
+  field.equipmentType = cls;
+  if (!done && !String(field.parkedReason ?? '').trim() && /hold|wait|parked/i.test(String(field.subStatus ?? ''))) field.parkedReason = field.subStatus;
+}
+
+/**
  * Penalty SLA, in days, keyed by normalised equipment type.
  *
  * A call breaches when `age > window`, where age counts full days after the logged
@@ -292,6 +307,71 @@ export const STATES = [
       if (excelDayOfText(asExportTime(field.receivedAt)) === '') {
         return `Call Received Date & Time is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
       }
+      return null;
+    },
+  },
+  {
+    /*
+     * Care 360 (the user, 25 Nov): a FieldPro ticket export, read by its headings. Inside the Care 360 module; test
+     * accounts only until its reports are agreed. No penalty rate card.
+     */
+    id: 'c360',
+    name: 'Care 360',
+    short: 'C360',
+    file: 'Care 360.xlsx',
+    barcodeWidth: 0,
+    penaltyDays: { CRITICAL: 2, 'NON CRITICAL': 7 },
+    penaltyRates: null,
+    ticket: 'A',
+    group: 'care360',
+    categorical: {},
+    numeric: {},
+    derive: deriveFieldPro,
+    byHeading: {
+      'PMPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
+      'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
+      BME: 'engineer', 'Job Type': 'lifecycle', 'Raised Mobile No': 'contactNo',
+      'Raised Date': 'receivedAt', 'Accepted Date': 'respondedAt', 'Job Start Date': 'attendedAt',
+      'Job End Date': 'completedAt', 'Job Closed Date': 'closedAt', 'Sub Status': 'subStatus',
+      State: 'zone', District: 'district', 'Project Name': 'department', 'Facility Class': 'equipmentType',
+      'WIP - Reason': 'parkedReason', 'Product Group': 'facilityType',
+    },
+    required: ['PMPT ID', 'Facility Name', 'Status', 'Raised Date'],
+    rowCheck: (field) => {
+      if (!/^[A-Za-z]+_?\d+$/.test(String(field.ticket ?? '').trim())) return `PMPT ID is "${String(field.ticket ?? '').trim() || 'blank'}", not a ticket`;
+      if (excelDayOfText(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
+      return null;
+    },
+  },
+  {
+    /*
+     * Private BEMMP (the user, 25 Nov): a FieldPro ticket export, read by its headings. Inside the Care 360 module; test
+     * accounts only until its reports are agreed. No penalty rate card.
+     */
+    id: 'pvt',
+    name: 'Private BEMMP',
+    short: 'PVT',
+    file: 'Private BEMMP.xlsx',
+    barcodeWidth: 0,
+    penaltyDays: { CRITICAL: 2, 'NON CRITICAL': 7 },
+    penaltyRates: null,
+    ticket: 'A',
+    group: 'care360',
+    categorical: {},
+    numeric: {},
+    derive: deriveFieldPro,
+    byHeading: {
+      'MPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
+      'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
+      BME: 'engineer', 'Job Type': 'lifecycle', 'Raised Mobile No': 'contactNo',
+      'Raised Date': 'receivedAt', 'Accepted Date': 'respondedAt', 'Job Start Date': 'attendedAt',
+      'Job End Date': 'completedAt', 'Job Closed Date': 'closedAt', 'Sub Status': 'subStatus',
+      'Product Group': 'department',
+    },
+    required: ['MPT ID', 'Facility Name', 'Status', 'Raised Date'],
+    rowCheck: (field) => {
+      if (!/^[A-Za-z]+_?\d+$/.test(String(field.ticket ?? '').trim())) return `MPT ID is "${String(field.ticket ?? '').trim() || 'blank'}", not a ticket`;
+      if (excelDayOfText(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
       return null;
     },
   },
@@ -707,5 +787,9 @@ export function detectState(filename) {
   for (const s of STATES) {
     if (new RegExp(`(^|[^A-Z])${s.short}([^A-Z]|$)`).test(name)) return s;
   }
+  // "Care360.xlsx": the contract's name, spaces aside (25 Nov).
+  const bare = name.replace(/[^A-Z0-9]/g, '');
+  for (const s of STATES) if (s.group && bare.includes(s.name.toUpperCase().replace(/[^A-Z0-9]/g, ''))) return s;
+  for (const s of STATES) if (s.group && bare.startsWith(s.short)) return s; // "PVTBEMMP.xlsx"
   return null;
 }

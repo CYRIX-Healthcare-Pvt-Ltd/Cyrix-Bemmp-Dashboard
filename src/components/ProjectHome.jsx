@@ -57,7 +57,7 @@ export function ProjectMasthead({ profile, narrow, sub, right, extra, onSignOut,
   );
 }
 
-const TINT = { kl: '#0d9488', ap: '#2563eb', up: '#d97706', mt: '#7c3aed', pm: '#059669', qt: '#dc2626' };
+const TINT = { kl: '#0d9488', ap: '#2563eb', up: '#d97706', mt: '#7c3aed', pm: '#059669', qt: '#dc2626', care360: '#0891b2', c360: '#0891b2', pvt: '#9333ea' };
 
 /**
  * BEMMP's own home: one tile per project assigned, the way the portal shows
@@ -65,14 +65,19 @@ const TINT = { kl: '#0d9488', ap: '#2563eb', up: '#d97706', mt: '#7c3aed', pm: '
  * projects"). Somebody with a single project never sees it — they go straight
  * in — and the project menu's "All projects" brings everybody else back here.
  */
-export default function ProjectHome({ projects, onPick, profile, narrow, onSignOut }) {
+export default function ProjectHome({ projects, onPick, profile, narrow, onSignOut, title = 'Projects', onBack }) {
   return (
     <div className="app">
       <ProjectMasthead profile={profile} narrow={narrow} onSignOut={onSignOut} withAccount />
       <main className="project-home">
         {/* The way back to the portal, as the side bar has it inside a project (the user, 31 Oct). */}
         <div className="project-home-head">
-          <h2 className="project-home-title">Projects</h2>
+          <h2 className="project-home-title">
+            {onBack && <button type="button" className="project-home-back" onClick={onBack} aria-label="All projects">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+            </button>}
+            {title}
+          </h2>
           <a className="project-home-apps" href="/" aria-label="All Cyrix modules">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8"
                  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -25,7 +25,7 @@ const ROLES = new Set([
   'divisional_manager', 'zonal_manager', 'district_incharge', 'engineer',
 ]);
 // Uttar Pradesh was missing, so an edit here dropped it; Medtronic (0012) and the PM checklist (0014) are projects of their own.
-const CONTRACTS = new Set(['kl', 'ap', 'up', 'mt', 'pm']);
+const CONTRACTS = new Set(['kl', 'ap', 'up', 'mt', 'pm', 'c360', 'pvt']);
 
 /**
  * The default password *is* the employee code, which is what makes "I've reset

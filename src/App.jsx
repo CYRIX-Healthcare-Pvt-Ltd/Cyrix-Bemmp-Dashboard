@@ -5,6 +5,9 @@ import {
 import { listUploads, getUpload } from './data/uploads.js';
 import { listSharedDatasets, fetchSharedDataset } from './data/datasets.js';
 import { STATES } from '../shared/schema.mjs';
+
+/** The Care 360 module's contracts (the user, 25 Nov). */
+const CARE_IDS = ['c360', 'pvt'];
 import UploadPanel from './components/UploadPanel.jsx';
 import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
@@ -689,6 +692,7 @@ export default function App() {
   const inQt = project === QT_PROJECT.id;
   const contractOpen = Boolean(project) && !inMt && !inPm && !inQt;
 
+  const [careOpen, setCareOpen] = useState(false);
   const pickProject = useCallback((id) => {
     setPicked(id);
     try { localStorage.setItem(PROJECT_KEY, id); } catch { /* forgets on reload, nothing more */ }
@@ -1108,7 +1112,13 @@ export default function App() {
   }
 
   if (!project && projects.length > 1) {
-    return <ProjectHome projects={projects} onPick={pickProject} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
+    // Care 360 is one module holding its two contracts, Care 360 and Private BEMMP (the user, 25 Nov).
+    const care = projects.filter((x) => CARE_IDS.includes(x.id));
+    const tiles = care.length ? [...projects.filter((x) => !CARE_IDS.includes(x.id)), { id: 'care360', short: 'C360', name: 'Care 360', rows: care.reduce((t, x) => t + (x.rows ?? 0), 0) }] : projects;
+    if (care.length && (careOpen || tiles.length === 1)) {
+      return <ProjectHome projects={care} title="Care 360" onBack={tiles.length > 1 ? () => setCareOpen(false) : undefined} onPick={pickProject} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
+    }
+    return <ProjectHome projects={tiles} onPick={(id) => (id === 'care360' ? setCareOpen(true) : pickProject(id))} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
   }
 
   if (inMt) {
