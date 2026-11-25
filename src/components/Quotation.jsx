@@ -13,7 +13,7 @@ import {
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { nameBoxes } from '../data/quoteAi.js';
-import { markYellow, readYellow, readTerms, readTermSections, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
+import { markWorked, markYellow, readYellow, readTerms, readTermSections, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -4594,7 +4594,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     }
     // The roles again by today's rules (a template saved before keeps working without being uploaded again).
     const Y0 = start.tpl.layout.yellow;
-    const Y = { ...Y0, fields: rolesOf(Y0.fields.map((x) => ({ ...x })), Y0.list), price: oneBoxPerCell(Y0.price) };
+    const Y = markWorked({ ...Y0, fields: rolesOf(Y0.fields.map((x) => ({ ...x })), Y0.list), price: oneBoxPerCell(Y0.price) });
     const f = {};
     // From the request, into this template's own boxes only (fromRequest); a free quotation starts empty.
     const fr = r.free ? { to: '', item: {}, row: null } : fromRequest(Y, r);
@@ -4751,7 +4751,9 @@ function YellowMaker({ r, start, onClose, onMade }) {
     ];
     if (x.kind === 'num') return <Field key={x.key} label={x.label}><input inputMode="numeric" value={v ?? ''} onChange={(e) => setF(x.key, e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} placeholder="0" /></Field>;
     if (x.kind === 'lines' || x.kind === 'signer') {
-      const n = Math.max(2, Math.min(8, Math.max(String(v ?? '').split('\n').length, x.sample.split('\n').length)));
+      // Worked-out figures are not typed: only the box's other lines (SUB CAMC: the asset value).
+      const rows = x.wlines ? x.wlines.filter((w) => !w).length : x.sample.split('\n').length;
+      const n = Math.max(x.wlines ? 1 : 2, Math.min(8, Math.max(String(v ?? '').split('\n').length, rows)));
       return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
     }
     // Gemini's size (the user, 25 Nov: "you know what all field needed more space"): a long one full width with room to
@@ -4777,7 +4779,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
         </header>
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
-            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed').flatMap((x) => [box(x)].flat())}</div>
+            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean))).flatMap((x) => [box(x)].flat())}</div>
             {Y.price && (
               <div className="qt-maker-items">
                 {q.items.map((it, i) => (

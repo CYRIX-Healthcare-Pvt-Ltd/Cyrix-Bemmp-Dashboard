@@ -655,6 +655,27 @@ export function oneBoxPerCell(price) {
   return { ...price, fields: out };
 }
 
+/*
+  Amounts worked out, never typed (the user, 25 Nov: "what gst amount I need to type"): a yellow figure equal to the
+  template's own total, GST or grand total (from its price row and GST %) follows the price table. A box of several
+  figures (SUB CAMC's summary: asset value, CAMC, GST, total) keeps only the others to type.
+*/
+const MONEY = /^\s*(₹|rs\.?|inr)?\s*\d{1,3}(,\d{2,3})*(\.\d{1,2})?\s*(\/-)?\s*$/i;
+export function markWorked(Y) {
+  const pr = Y?.price; const base = pr && numIn(pr.samplePrice);
+  if (!base) return Y;
+  const tax = Math.round(base * Number(pr.gst || 0)) / 100;
+  const sums = [['total', base], ['tax', tax], ['with', Math.round((base + tax) * 100) / 100]];
+  const which = (s) => { if (!MONEY.test(s) || !/[,.]/.test(s)) return null; const n = numIn(s); return sums.find(([, v]) => v && Math.abs(n - v) <= 1)?.[0] ?? null; };
+  const fields = Y.fields.map((f) => {
+    const g = { ...f }; delete g.worked; delete g.wlines;
+    if ((f.kind === 'text' || f.kind === 'num') && !f.role) { const w = which(f.sample); if (w) g.worked = w; }
+    if (f.kind === 'lines' && !f.role) { const ws = f.sample.split('\n').map((l) => which(l)); if (ws.some(Boolean)) g.wlines = ws; }
+    return g;
+  });
+  return { ...Y, fields };
+}
+
 export function rolesOf(fields, list) {
   for (const f of fields) delete f.role;
   // The Annexure's yellow heading is the Annexure section's own title, never a box of its own (SUB AMC, 25 Nov).
@@ -944,13 +965,19 @@ async function rebuildPlace(L, doc, h) {
  * Fill a template: v = { f: {key: value}, items: [{[fieldKey]: text, price}], rows: [[cells]], gst, lump }.
  * Returns the filled .docx with the yellow and Word's comments taken away.
  */
-export async function fillYellow(file, Y, v) {
+export async function fillYellow(file, Y0, v) {
+  const Y = markWorked(Y0);
   const zip = await JSZip.loadAsync(file);
   const L = await looksOf(zip);
   const byKey = new Map(Y.fields.map((f) => [f.key, f]));
   const rows = (v.rows ?? []).filter((r) => r.some((c) => String(c ?? '').trim()));
   const items = itemsOf(Y, v.items, rows);
   const tot = totalsOf(Y, items, v.gst, v.lump);
+  // The template's GST % written in its yellow ("18% GST", "GST @ 18%") follows the Tax % chosen (the user, 25 Nov).
+  const was = Y.price?.gst; const now = Number(v.gst);
+  const gstText = (s) => (was == null || !Number.isFinite(now) || now === Number(was) ? s : String(s)
+    .replace(new RegExp(`\\b${was}(\\s*%\\s*)(?=(i|c|s)?gst\\b|tax\\b)`, 'gi'), `${now}$1`)
+    .replace(new RegExp(`(\\b(i|c|s)?gst\\s*(@|-|:)?\\s*)${was}(\\s*%)`, 'gi'), `$1${now}$4`));
   const value = (key) => v.f?.[key];
   for (const name of partNames(zip)) {
     const doc = parse(await zip.file(name).async('string'));
@@ -1082,7 +1109,10 @@ export async function fillYellow(file, Y, v) {
     for (const it of s.items) {
       if (it.type === 'block') {
         const b = it.block; const f = byKey.get(blockKey(b)); if (!f) continue;
-        const lines = String(value(f.key) ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+        let lines = String(value(f.key) ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+        // Figures worked out in their own lines, the typed ones in the others, in the template's order.
+        if (f.kind === 'fixed') lines = lines.map(gstText);
+        if (f.wlines) { const typed = [...lines]; const ss = f.sample.split('\n'); lines = f.wlines.map((w, i) => (w ? moneyLike(ss[i].trim(), tot[w]) : typed.shift() ?? '')); }
         // The address box no longer holds the template's own "TO," line: put back above the customer.
         const lead = f.sample.split('\n')[0];
         if (f.role === 'to' && TO_LINE.test(lead) && !TO_LINE.test(lines[0] ?? '')) lines.unshift(lead.trim());
@@ -1109,11 +1139,12 @@ export async function fillYellow(file, Y, v) {
       const { g } = it; const { key, kind } = keyOf(g.text); const f = byKey.get(key); if (!f) continue;
       const val = value(key);
       let text;
-      if (f.kind === 'fixed') text = g.text.trim();
+      if (f.kind === 'fixed') text = gstText(g.text.trim());
       else if (kind === 'num') text = writeNum(g.text, val);
       else if (kind === 'date') { const t = g.text.trim(); const ld = leadOf(t); text = ld + dateLike(t.slice(ld.length).trim(), val); }
       else if (kind === 'period') { const t = norm(g.text); const ld = leadOf(t); const m = PERIOD.exec(t.slice(ld.length)); text = `${ld}${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
       else if (kind === 'words') text = wordsLike(g.text, tot.with);
+      else if (f.worked) text = moneyLike(g.text.trim(), tot[f.worked]);
       else if (REF_LEAD.test(g.text) && !REF_LEAD.test(String(val ?? ''))) text = REF_LEAD.exec(g.text.trim())[0] + String(val ?? '');
       else text = String(val ?? '');
       jobs.push({ g, text: `${/^\s*/.exec(g.text)[0]}${text}${/\s*$/.exec(g.text)[0]}` });
