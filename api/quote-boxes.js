@@ -6,8 +6,22 @@ import { caller, configured, json, readBody } from './_lib/server.js';
  * coloured yellow). Quotation-tracker people only; the key (GEMINI_API_KEY, Vercel) never leaves this function.
  * Any failure answers 502 and the upload goes on with the rules' names.
  */
-// Pro first, Flash if Pro fails or is slow (the user, 25 Nov); then the rules alone.
-const MODELS = [['gemini-2.5-pro', 40000], ['gemini-2.5-flash', 15000]];
+// Pro first, Flash if Pro fails or is slow (the user, 25 Nov); then the rules alone. Google retires model names for new
+// keys (2.5 refused on 25 Nov), so the newest Pro and Flash this key may use are looked up, not written in.
+const FALLBACK = [['gemini-3.8-pro', 40000], ['gemini-3.8-flash', 15000]];
+const ver = (n) => (n.match(/gemini-(\d+(?:\.\d+)?)/) ?? [0, '0'])[1] * 1;
+async function pickModels(key) {
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(5000) });
+    const names = ((await r.json())?.models ?? [])
+      .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
+      .map((m) => String(m.name).replace(/^models\//, ''))
+      .filter((n) => /^gemini-\d/.test(n) && !/lite|preview|exp|image|tts|audio|live|embed|thinking|-\d{3,}$/.test(n));
+    const best = (kind) => names.filter((n) => n.includes(`-${kind}`)).sort((a, b) => ver(b) - ver(a) || a.length - b.length)[0];
+    const out = [[best('pro'), 40000], [best('flash'), 15000]].filter(([n]) => n);
+    return out.length ? out : FALLBACK;
+  } catch { return FALLBACK; }
+}
 export const config = { maxDuration: 60 };
 
 const PROMPT = `You read a company quotation template (Word). People marked in yellow the parts that change in each quotation; a program turned each yellow part into a form box and guessed a label. For each box you get: key, kind, the guessed label, the yellow sample text, and the words around it (the yellow part is in [brackets]).
@@ -48,15 +62,15 @@ export default async function handler(req, res) {
       if (!r.ok) throw new Error(body?.error?.message ?? `${model} ${r.status}`);
       return JSON.parse(body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '');
     });
-    let out = null; let last = null;
-    for (const [model, ms] of MODELS) { try { out = await ask(model, ms); break; } catch (e) { last = e; } }
+    let out = null; let last = null; let used = null;
+    for (const [model, ms] of await pickModels(key)) { try { out = await ask(model, ms); used = model; break; } catch (e) { last = e; } }
     if (!out) { json(res, 502, { error: `Gemini: ${last?.message}` }); return; }
     const known = new Set(slim.map((b) => b.key));
     const answer = (out?.boxes ?? [])
       .filter((b) => known.has(b.key))
       .map((b) => ({ key: b.key, label: String(b.label ?? '').trim().slice(0, 40), box: b.box !== false }));
     const missed = (out?.missed ?? []).slice(0, 8).map((m) => ({ text: String(m.text ?? '').slice(0, 60), label: String(m.label ?? '').slice(0, 40) })).filter((m) => m.text && String(plain ?? '').includes(m.text));
-    json(res, 200, { boxes: answer, missed });
+    json(res, 200, { boxes: answer, missed, model: used });
   } catch (e) {
     json(res, 502, { error: `Gemini: ${e.message}` });
   }

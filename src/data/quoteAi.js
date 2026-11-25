@@ -29,6 +29,6 @@ export async function nameBoxes(Y) {
       return b.box ? { ...f, label: b.label || f.label } : { ...f, kind: 'fixed', label: b.label || f.label };
     });
     // Not yellow but likely to change: a note on the Boxes list, nothing more (the user, 25 Nov: "just a companion").
-    return { Y: { ...Y, fields, missed: ans?.missed ?? [], ai: "ok" }, ai: true };
+    return { Y: { ...Y, fields, missed: ans?.missed ?? [], ai: `ok ${ans?.model ?? ""}`.trim() }, ai: true };
   } catch (e) { return { Y: { ...Y, ai: `browser: ${e?.message ?? e}`.slice(0, 300) }, ai: false }; }
 }
