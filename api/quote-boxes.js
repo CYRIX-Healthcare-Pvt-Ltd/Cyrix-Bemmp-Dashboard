@@ -63,7 +63,15 @@ export default async function handler(req, res) {
       return JSON.parse(body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '');
     });
     let out = null; let last = null; let used = null;
-    for (const [model, ms] of await pickModels(key)) { try { out = await ask(model, ms); used = model; break; } catch (e) { last = e; } }
+    // Busy or rate-limited ("high demand", 25 Nov): one more try after 2 s before the next model. Every reason is kept.
+    const why = [];
+    for (const [model, ms] of await pickModels(key)) {
+      for (let k = 0; k < 2 && !out; k++) {
+        try { out = await ask(model, ms); used = model; } catch (e) { last = e; why.push(`${model}: ${String(e.message).slice(0, 80)}`); if (!/demand|overload|busy|unavailable|429|503|exhaust|rate/i.test(e.message)) break; await new Promise((r) => setTimeout(r, 2000)); }
+      }
+      if (out) break;
+    }
+    if (!out && why.length) last = new Error(why.join(' · '));
     if (!out) { json(res, 502, { error: `Gemini: ${last?.message}` }); return; }
     const known = new Set(slim.map((b) => b.key));
     const answer = (out?.boxes ?? [])

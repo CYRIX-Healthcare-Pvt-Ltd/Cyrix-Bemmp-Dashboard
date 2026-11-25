@@ -4748,7 +4748,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
       const n = Math.max(2, Math.min(8, Math.max(String(v ?? '').split('\n').length, x.sample.split('\n').length)));
       return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
     }
-    return <Field key={x.key} label={x.label} wide={x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
+    return <Field key={x.key} label={x.label} wide={x.role !== 'ref' && x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
   };
   const qtyName = (x) => (Y.list && q.rows.length ? `${q.rows.length}${/\s*nos?\.?\s*$/i.exec(x.sample)?.[0] ?? ''}` : '1');
   // Our own hint for a box, never the uploaded file's customer.
