@@ -42,7 +42,8 @@ export default async function handler(req, res) {
   if (!who) { json(res, 401, { error: 'Sign in first.' }); return; }
   if (!(who.scope ?? []).includes('qt')) { json(res, 403, { error: 'Quotation tracker only.' }); return; }
   const key = process.env.GEMINI_API_KEY;
-  if (!key) { json(res, 503, { error: 'No Gemini key on this deployment.' }); return; }
+  const gh = process.env.GITHUB_MODELS_TOKEN;
+  if (!key && !gh) { json(res, 503, { error: 'No AI key on this deployment.' }); return; }
 
   const { boxes, plain } = readBody(req) ?? {};
   if (!Array.isArray(boxes) || boxes.length > 80) { json(res, 400, { error: 'boxes: 1–80 needed.' }); return; }
@@ -66,14 +67,29 @@ export default async function handler(req, res) {
       if (!r.ok) throw new Error(body?.error?.message ?? `${model} ${r.status}`);
       return JSON.parse(body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '');
     });
+    // GPT-4.1 through GitHub Models first (free with the cyrix-devops token; the user, 25 Nov), then Gemini.
+    const askGh = (model, ms) => fetch('https://models.github.ai/inference/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${gh}` },
+      body: JSON.stringify({
+        model, temperature: 0, response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: JSON.stringify({ boxes: slim, otherText: String(plain ?? '').slice(0, 12000) }) }],
+      }),
+      signal: AbortSignal.timeout(ms),
+    }).then(async (r) => {
+      const body = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(body?.error?.message ?? body?.message ?? `${model} ${r.status}`);
+      return JSON.parse(body?.choices?.[0]?.message?.content ?? '');
+    });
     let out = null; let last = null; let used = null;
     // Busy or rate-limited ("high demand", 25 Nov): one more try after 2 s before the next model. Every reason is kept.
     const why = [];
     const end = Date.now() + 54000; // the function may run 60 s
-    for (const [model, ms] of await pickModels(key)) {
+    const plan = [...(gh ? [['openai/gpt-4.1', 30000, askGh]] : []), ...(key ? (await pickModels(key)).map(([m, ms]) => [m, ms, ask]) : [])];
+    for (const [model, ms, call] of plan) {
       for (let k = 0; k < 2 && !out; k++) {
         const left = end - Date.now(); if (left < 4000) break;
-        try { out = await ask(model, Math.min(ms, left)); used = model; } catch (e) { last = e; why.push(`${model}: ${String(e.message).slice(0, 80)}`); if (!/demand|overload|busy|unavailable|429|503|exhaust|rate/i.test(e.message)) break; await new Promise((r) => setTimeout(r, 2000)); }
+        try { out = await call(model, Math.min(ms, left)); used = model; } catch (e) { last = e; why.push(`${model}: ${String(e.message).slice(0, 80)}`); if (!/demand|overload|busy|unavailable|429|503|exhaust|rate/i.test(e.message)) break; await new Promise((r) => setTimeout(r, 2000)); }
       }
       if (out) break;
     }
