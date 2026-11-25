@@ -4575,7 +4575,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     }
     // The roles again by today's rules (a template saved before keeps working without being uploaded again).
     const Y0 = start.tpl.layout.yellow;
-    const Y = { ...Y0, fields: rolesOf(Y0.fields.map((x) => ({ ...x }))), price: oneBoxPerCell(Y0.price) };
+    const Y = { ...Y0, fields: rolesOf(Y0.fields.map((x) => ({ ...x })), Y0.list), price: oneBoxPerCell(Y0.price) };
     const f = {};
     // From the request, into this template's own boxes only (fromRequest); a free quotation starts empty.
     const fr = r.free ? { to: '', item: {}, row: null } : fromRequest(Y, r);

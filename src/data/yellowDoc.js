@@ -470,7 +470,7 @@ export async function readYellow(file) {
     const own = price.fields.filter((x) => !x.link);
     for (const x of own) { const col = x.key.replace(/g\d+$/, ''); if (own.filter((y) => y.key.startsWith(`${col}g`)).length === 1) x.label = x.label.replace(/ · line \d+$/, ''); }
   }
-  rolesOf(fields);
+  rolesOf(fields, list);
   return { v: 2, fields, price: oneBoxPerCell(price), list, plain: plain.join('\n').slice(0, 12000) };
 }
 
@@ -495,8 +495,10 @@ export function oneBoxPerCell(price) {
   return { ...price, fields: out };
 }
 
-export function rolesOf(fields) {
+export function rolesOf(fields, list) {
   for (const f of fields) delete f.role;
+  // The Annexure's yellow heading is the Annexure section's own title, never a box of its own (SUB AMC, 25 Nov).
+  if (list) for (const f of fields) if (f.kind === 'text' && /^annex/i.test(f.sample.trim())) f.kind = 'fixed';
   const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample)));
   if (ref) ref.role = 'ref';
   const date = fields.find((f) => f.kind === 'date' && /date/i.test(f.label)) ?? fields.find((f) => f.kind === 'date');

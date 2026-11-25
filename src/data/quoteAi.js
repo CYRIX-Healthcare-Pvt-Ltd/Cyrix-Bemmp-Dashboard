@@ -20,7 +20,8 @@ export async function nameBoxes(Y) {
       body: JSON.stringify({ boxes, plain }),
       signal: AbortSignal.timeout(65000),
     });
-    if (!r.ok) return { Y, ai: false };
+    // Why Gemini gave nothing, kept in the template for SW to read (never shown): the upload goes on regardless.
+    if (!r.ok) { const e = await r.json().catch(() => null); return { Y: { ...Y, ai: `${r.status} ${e?.error ?? ""}`.slice(0, 300) }, ai: false }; }
     const ans = await r.json();
     const by = new Map((ans?.boxes ?? []).map((b) => [b.key, b]));
     const fields = Y.fields.map((f) => {
@@ -28,6 +29,6 @@ export async function nameBoxes(Y) {
       return b.box ? { ...f, label: b.label || f.label } : { ...f, kind: 'fixed', label: b.label || f.label };
     });
     // Not yellow but likely to change: a note on the Boxes list, nothing more (the user, 25 Nov: "just a companion").
-    return { Y: { ...Y, fields, missed: ans?.missed ?? [] }, ai: true };
-  } catch { return { Y, ai: false }; }
+    return { Y: { ...Y, fields, missed: ans?.missed ?? [], ai: "ok" }, ai: true };
+  } catch (e) { return { Y: { ...Y, ai: `browser: ${e?.message ?? e}`.slice(0, 300) }, ai: false }; }
 }
