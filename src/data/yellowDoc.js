@@ -442,7 +442,8 @@ export async function readYellow(file) {
       const own = !label && /^\s*([a-z][a-z .&/()]{1,40}?)\s*[:：]/i.exec(g.text);
       if (own) label = nameOf(own[1]);
       // Alone on its line: named by the line above ("TO," then a yellow name: To).
-      if (!label && it.heading) label = nameOf(it.heading);
+      // Not a signing line, though: SUB AMC's yellow "Annexture- 1" under "SIGNATURE … SIGNATURE" is its own name (25 Nov).
+      if (!label && it.heading && !/^\s*(signature|seal|sign)\b/i.test(it.heading)) label = nameOf(it.heading);
       if (kind === 'words') label = 'Amount in words';
       if (!label) label = norm(g.text).slice(0, 30);
       // The second date of a pair ("from … to …"): named after the first.
