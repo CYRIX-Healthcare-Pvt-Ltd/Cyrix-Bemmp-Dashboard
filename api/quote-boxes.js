@@ -16,9 +16,11 @@ async function pickModels(key) {
     const names = ((await r.json())?.models ?? [])
       .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
       .map((m) => String(m.name).replace(/^models\//, ''))
-      .filter((n) => /^gemini-\d/.test(n) && !/lite|preview|exp|image|tts|audio|live|embed|thinking|-\d{3,}$/.test(n));
-    const best = (kind) => names.filter((n) => n.includes(`-${kind}`)).sort((a, b) => ver(b) - ver(a) || a.length - b.length)[0];
-    const out = [[best('pro'), 40000], [best('flash'), 15000]].filter(([n]) => n);
+      // Previews kept (the newest Pro is often only a preview); never 2.x, which Google lists but refuses new keys.
+      .filter((n) => /^gemini-\d/.test(n) && ver(n) >= 3 && !/lite|exp|image|tts|audio|live|embed|thinking|-\d{3,}$/.test(n));
+    // Every Pro newest first (a finished one before its preview), then every Flash: a refusal is instant, so trying more costs nothing.
+    const rank = (kind) => names.filter((n) => n.includes(`-${kind}`)).sort((a, b) => ver(b) - ver(a) || /preview/.test(a) - /preview/.test(b) || a.length - b.length);
+    const out = [...rank('pro').slice(0, 3).map((n) => [n, 30000]), ...rank('flash').slice(0, 3).map((n) => [n, 25000])];
     return out.length ? out : FALLBACK;
   } catch { return FALLBACK; }
 }
@@ -65,9 +67,11 @@ export default async function handler(req, res) {
     let out = null; let last = null; let used = null;
     // Busy or rate-limited ("high demand", 25 Nov): one more try after 2 s before the next model. Every reason is kept.
     const why = [];
+    const end = Date.now() + 54000; // the function may run 60 s
     for (const [model, ms] of await pickModels(key)) {
       for (let k = 0; k < 2 && !out; k++) {
-        try { out = await ask(model, ms); used = model; } catch (e) { last = e; why.push(`${model}: ${String(e.message).slice(0, 80)}`); if (!/demand|overload|busy|unavailable|429|503|exhaust|rate/i.test(e.message)) break; await new Promise((r) => setTimeout(r, 2000)); }
+        const left = end - Date.now(); if (left < 4000) break;
+        try { out = await ask(model, Math.min(ms, left)); used = model; } catch (e) { last = e; why.push(`${model}: ${String(e.message).slice(0, 80)}`); if (!/demand|overload|busy|unavailable|429|503|exhaust|rate/i.test(e.message)) break; await new Promise((r) => setTimeout(r, 2000)); }
       }
       if (out) break;
     }
