@@ -4908,6 +4908,8 @@ function PageWriting() {
 function YellowCheck({ lay, onChange }) {
   // As the form will show it: roles named, amounts that follow the price table marked worked out.
   const Y = markWorked({ ...lay.yellow, fields: rolesOf(lay.yellow.fields.map((x) => ({ ...x })), lay.yellow.list) });
+  // The user, 25 Nov: what is typed in green, counted in yellow, worked out in blue; kept as in the file stays plain.
+  const tone = (x) => (x.kind === 'words' || x.worked || (x.wlines && x.wlines.every(Boolean)) ? 'qt-yc-t-calc' : x.kind === 'fixed' ? '' : 'qt-yc-t-in');
   const shown = (x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean));
   const own = (Y.price?.fields ?? []).filter((x) => !x.link);
   const role = (k) => {
@@ -4923,7 +4925,7 @@ function YellowCheck({ lay, onChange }) {
         <h3>Boxes · {Y.fields.filter(shown).length}</h3>
         <ul className="qt-yc-list">
           {Y.fields.map((x) => (
-            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' || x.worked ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.wlines ? `${x.sample.split('\n').filter((_, i) => !x.wlines[i]).join(' · ')} · the rest worked out` : x.sample.split('\n').join(' · ')}</span>{x.calc && !x.worked && !x.wlines && <em className="qt-yc-calc">Calculated · check</em>}{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
+            <li key={x.key} className={tone(x)}><b>{x.label}</b><span>{x.kind === 'words' || x.worked ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.wlines ? `${x.sample.split('\n').filter((_, i) => !x.wlines[i]).join(' · ')} · the rest worked out` : x.sample.split('\n').join(' · ')}</span>{x.calc && !x.worked && !x.wlines && <em className="qt-yc-calc">Calculated · check</em>}{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
           ))}
         </ul>
         {Y.missed?.length > 0 && (
@@ -4937,8 +4939,8 @@ function YellowCheck({ lay, onChange }) {
         <section className="qt-yc-sec">
           <h3>Price table</h3>
           <ul className="qt-yc-list">
-            {Y.price.cols.map((c, k) => <li key={k}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
-            <li><b>Total · GST · Grand total</b><span>Worked out</span></li>
+            {Y.price.cols.map((c, k) => <li key={k} className={{ Price: 'qt-yc-t-in', Qty: 'qt-yc-t-in', Typed: 'qt-yc-t-in', Counted: 'qt-yc-t-count' }[role(k)] ?? ''}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
+            <li className="qt-yc-t-calc"><b>Total · GST · Grand total</b><span>Worked out</span></li>
           </ul>
           {Y.price.qty != null && !Y.price.lumpSure && (
             <Field label={`${Y.price.priceHead} is for`} wide>

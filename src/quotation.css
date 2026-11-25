@@ -1409,3 +1409,9 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
 .qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }
 .qt-yc-calc { color: #b45309 !important; }
+.qt-yc-list li.qt-yc-t-in b { color: #16a34a; }
+.qt-yc-list li.qt-yc-t-count b { color: #ca8a04; }
+.qt-yc-list li.qt-yc-t-calc b { color: #2563eb; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-in b { color: #4ade80; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-count b { color: #facc15; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-calc b { color: #60a5fa; }
