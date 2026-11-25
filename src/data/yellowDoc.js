@@ -107,10 +107,448 @@ function paintRange(doc, runs, s, e) {
     for (const h of kids(rpr, 'w:highlight')) rpr.removeChild(h);
     // Word's order inside w:rPr: highlight comes before underline, effects, shading, language and the rest.
     const h = doc.createElementNS(W, 'w:highlight'); h.setAttributeNS(W, 'w:val', 'yellow');
-    const after = [...rpr.childNodes].find((c) => /^w:(u|effect|bdr|shd|fitText|vertAlign|rtl|cs|em|lang|eastAsianLayout|specVanish|oMath)$/.test(c.nodeName));
+    const after = [...rpr.childNodes].find((c) => /^w:(u|effect|bdr|shd|fitText|vertAlign|rtl|cs|em|lang|eastAsianLayout|specVanish|oMath|rPrChange)$/.test(c.nodeName));
     rpr.insertBefore(h, after ?? null);
   }
   return hit.length > 0;
+}
+
+/* ---------- A file with no yellow: coloured by the company's own patterns ---------- */
+
+/*
+  Learnt from the company's quotations (the user, 25 Nov: "understand the pattern, study, learn and save in rules"): the
+  16 sent that day — Shri Balaji calibration, Mahally and Jeeva AMC, Nahas CAMC agreement, Dhee, AV Mult, Aswini, Tata,
+  St Rita's, Sports Med, Orchid, Giri Pushp and the CT / MRI / Cathlab templates. A Word file with no yellow is coloured
+  in a copy where these say, then read as if the person had coloured it; the Boxes list shows the result to check.
+  No AI here; a file the person coloured is read as they coloured it.
+    - the quotation number and the date after Ref / Quotation No / No / Date (page header or letter), and that date again
+      in the letter ("entered on 10.11.2026");
+    - the lines under "To," (or in the box under it, AV Mult); nothing under it: three sample lines (blank templates);
+      the hospital's name again anywhere, its other lines where they stand alone or start a line (CLIENT ⇥ FIRST PARTY);
+    - the lines under a "CUSTOMER NAME AND ADDRESS" heading (Mahally);
+    - a contract period (two dates), and the dates of a sentence about the contract's start and end (Nahas);
+    - the price table's first item row, but not its number, a cell pointing to the Annexure or the figures worked out from
+      the price; amounts in the letter equal to a figure of that table (Nahas "Rs. 220000/-");
+    - an Annexure list's heading row (equipment, make, model…; never a table of prices or of contacts);
+    - the signer under With Regards / Yours truly / Prepared By / For Cyrix… and the contact under "please contact": the
+      name and designation lines, of a phone line the number only; in a table beside "For Cyrix…", the values after
+      NAME / DESIGNATION / MOBILE (Mahally, Jeeva).
+*/
+/** One run per piece (text, tab, break…), each in the run's own look, so a range can be coloured exactly. */
+function splitRuns(doc, p) {
+  for (const r of runsOf(p)) {
+    const parts = [...r.childNodes].filter((c) => c.nodeName !== 'w:rPr');
+    if (parts.length <= 1) continue;
+    const rpr = kids(r, 'w:rPr')[0];
+    for (const c of parts) { const n = doc.createElementNS(W, 'w:r'); if (rpr) n.appendChild(rpr.cloneNode(true)); n.appendChild(c.cloneNode(true)); r.parentNode.insertBefore(n, r); }
+    r.parentNode.removeChild(r);
+  }
+}
+/** A paragraph's text with its tabs and breaks, and where each character sits in its plain text (-1: a tab or break). */
+function lineOf(p) {
+  let s = ''; const at = []; let n = 0;
+  for (const r of runsOf(p)) {
+    for (const c of [...r.childNodes]) {
+      if (c.nodeName === 'w:t') { const x = c.textContent; for (let i = 0; i < x.length; i++) { s += x[i]; at.push(n++); } } else if (c.nodeName === 'w:tab') { s += '\t'; at.push(-1); } else if (c.nodeName === 'w:br' || c.nodeName === 'w:cr') { s += '\n'; at.push(-1); }
+    }
+  }
+  return { s, at };
+}
+const textRuns = (p) => runsOf(p).filter((r) => kids(r, 'w:t').length);
+/** The runs holding [s, e) of a paragraph's plain text, split at the edges. */
+function cutRange(doc, p, s, e) {
+  splitRuns(doc, p);
+  let at = 0; const hit = [];
+  for (const r of textRuns(p)) {
+    const t = textOf(r); const a = at; const b = at + t.length; at = b;
+    if (b <= s || a >= e) continue;
+    const c = [Math.max(s, a) - a, Math.min(e, b) - a];
+    [t.slice(0, c[0]), t.slice(c[0], c[1]), t.slice(c[1])].forEach((x, i) => {
+      if (!x) return;
+      const n = r.cloneNode(true); for (const y of kids(n, 'w:t')) n.removeChild(y);
+      const wt = doc.createElementNS(W, 'w:t'); wt.setAttributeNS(XS, 'xml:space', 'preserve'); wt.textContent = x; n.appendChild(wt);
+      r.parentNode.insertBefore(n, r); if (i === 1) hit.push(n);
+    });
+    r.parentNode.removeChild(r);
+  }
+  return hit;
+}
+/** Yellow on [a, b) of the paragraph's text as lineOf gives it. */
+function paintAt(doc, p, a, b) {
+  const pos = lineOf(p).at.slice(a, b).filter((x) => x >= 0);
+  if (!pos.length) return false;
+  splitRuns(doc, p);
+  return paintRange(doc, textRuns(p), pos[0], pos[pos.length - 1] + 1);
+}
+/** Yellow on a whole line, the spaces at its ends left out. */
+function paintLine(doc, p) {
+  const { s } = lineOf(p); const a = s.length - s.trimStart().length; const b = s.trimEnd().length;
+  return b > a ? paintAt(doc, p, a, b) : false;
+}
+/** A line made two at its line break (AV Mult: name ↵ designation), each a paragraph of the same look. */
+function splitAtBreak(doc, p) {
+  splitRuns(doc, p);
+  const runs = runsOf(p); const k = runs.findIndex((r) => kids(r, 'w:br').length || kids(r, 'w:cr').length);
+  if (k < 0) return null;
+  const q = p.cloneNode(false); const ppr = kids(p, 'w:pPr')[0]; if (ppr) q.appendChild(ppr.cloneNode(true));
+  for (const r of runs.slice(k + 1)) q.appendChild(r);
+  runs[k].parentNode.removeChild(runs[k]);
+  p.parentNode.insertBefore(q, p.nextSibling);
+  return q;
+}
+/** A new run at the end of a paragraph, in the look of its last text run (or of its paragraph mark). */
+function newRun(doc, p, text) {
+  const last = textRuns(p).pop(); const r = doc.createElementNS(W, 'w:r');
+  const rpr = last ? kids(last, 'w:rPr')[0] : kids(kids(p, 'w:pPr')[0], 'w:rPr')[0];
+  if (rpr) { const c = rpr.cloneNode(true); for (const x of [...c.childNodes]) if (/^w:(ins|del|rPrChange|moveFrom|moveTo|highlight)$/.test(x.nodeName)) c.removeChild(x); r.appendChild(c); }
+  const t = doc.createElementNS(W, 'w:t'); t.setAttributeNS(XS, 'xml:space', 'preserve'); t.textContent = text; r.appendChild(t);
+  return r;
+}
+/** A new line under a paragraph in its look, yellow (a sample under an empty "To,"). */
+function sampleLine(doc, p, after, text) {
+  const q = p.cloneNode(true); for (const x of [...q.childNodes]) if (x.nodeName !== 'w:pPr') q.removeChild(x);
+  const r = newRun(doc, p, text); q.appendChild(r);
+  after.parentNode.insertBefore(q, after.nextSibling);
+  paintRange(doc, [r], 0, text.length);
+  return q;
+}
+/** A yellow sample after a label with nothing after it ("Ref:", "Date:" of a blank template). */
+function sampleAfter(doc, p, text) {
+  if (!/\s$/.test(lineOf(p).s)) p.appendChild(newRun(doc, p, ' '));
+  const r = newRun(doc, p, text); p.appendChild(r);
+  paintRange(doc, [r], 0, text.length);
+}
+/** A sample in an empty cell, yellow or plain. */
+function sampleCell(doc, tc, text, yellow) {
+  const p = kids(tc, 'w:p')[0]; if (!p) return;
+  for (const x of runsOf(p)) x.parentNode.removeChild(x);
+  const r = newRun(doc, p, text); p.appendChild(r);
+  if (yellow) paintRange(doc, [r], 0, text.length);
+}
+/**
+  One item written over several rows (St Rita's: a bed, its features one to a row, the figures beside one of them) made
+  one row: the description's lines in one cell, the figures beside them. False when the rows are not of that shape.
+*/
+function joinItem(doc, rows, a, f) {
+  const n = kids(rows[a], 'w:tc').length;
+  const tx = (i) => kids(rows[i], 'w:tc').map((c) => norm(textOf(c)));
+  // The description's column: the one with words in the rows above the figures.
+  const counts = new Array(n).fill(0);
+  for (let i = a; i < f; i++) { const r = tx(i); if (r.length !== n) return false; r.forEach((x, k) => { if (k > 0 && x) counts[k] += 1; }); }
+  const d = counts.indexOf(Math.max(...counts)); if (d <= 0 || !counts[d]) return false;
+  const only = (i) => { const r = tx(i); return r.length === n && r.every((x, k) => k === d || k === 0 || !x); };
+  const line = (i) => only(i) && !!tx(i)[d];
+  if (!only(a)) return false;
+  for (let i = a + 1; i < f; i++) if (!line(i)) return false;
+  let e = f;
+  while (e + 1 < rows.length && line(e + 1) && !/\btotal\b/i.test(rowLabel(rows[e + 1]))) e += 1;
+  const keep = kids(rows[a], 'w:tc'); const fig = kids(rows[f], 'w:tc');
+  for (let i = a + 1; i <= e; i++) for (const p of kids(kids(rows[i], 'w:tc')[d], 'w:p')) keep[d].appendChild(p.cloneNode(true));
+  keep.forEach((tc, c) => {
+    if (c === d || c === 0) return;
+    for (const p of kids(tc, 'w:p')) tc.removeChild(p);
+    for (const p of kids(fig[c], 'w:p')) tc.appendChild(p.cloneNode(true));
+    // The figures in the middle of the taller cell; Word wants vAlign before hideMark and the change marks.
+    const pr = kids(tc, 'w:tcPr')[0];
+    if (pr && !kids(pr, 'w:vAlign').length) {
+      const v = doc.createElementNS(W, 'w:vAlign'); v.setAttributeNS(W, 'w:val', 'center');
+      pr.insertBefore(v, [...pr.childNodes].find((x) => /^w:(hideMark|headers|cellIns|cellDel|cellMerge|tcPrChange)$/.test(x.nodeName)) ?? null);
+    }
+  });
+  for (let i = a + 1; i <= e; i++) rows[i].parentNode.removeChild(rows[i]);
+  return true;
+}
+const innerPs = (doc) => all(doc, 'w:p').filter((p) => !all(p, 'w:p').length);
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+const dmy = (d) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+
+export async function autoYellow(file) {
+  const zip = await JSZip.loadAsync(file);
+  const added = []; const dates = new Set();
+  const REF_RE = /\b(?:ref(?:erence)?\.?(?:\s*no\.?)?|quotation\s*no\.?|qtn\.?\s*no\.?)\s*[:\-–.]+\s*([^\t\n]+?)(?=\t| {3,}|\s+date\b|$)/gi;
+  const NO_RE = /^(\s*no\.?\s*[:\-–]+\s*)([^\t\n]+?)(?=\t| {3,}|\s+date\b|$)/i;
+  const DATE_RE = /\bdated?(?:\s*[:\-–.]+\s*|\s+)(\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{4})(?!\d)/gi;
+  const REF_EMPTY = /^\s*(?:our\s+)?(?:ref(?:erence)?\.?(?:\s*no\.?)?|quotation\s*no\.?|qtn\.?\s*no\.?)\s*[:\-–.]+\s*$/i;
+  const DATE_EMPTY = /^\s*dated?\s*[:\-–.]+\s*$/i;
+  // A code (QTN001/2026-27, AMC FFLM 049/2026-27), never "Your enquiry dated …".
+  const refLike = (v) => /\d/.test(v) && /[/-]/.test(v) && v.length <= 40 && v.split(/\s+/).length <= 4
+    && !/\b(dated?|your|our|letter|e-?mail|mail|enquiry|inquiry|discussion|telecon|visit|request|order)\b/i.test(v);
+  const docs = {};
+  for (const name of partNames(zip)) docs[name] = parse(await zip.file(name).async('string'));
+  // Cyrix's own GSTIN in yellow (Shri Balaji, its one yellow) is the company's, never a box.
+  const GSTIN = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/;
+  for (const d of Object.values(docs)) {
+    for (const p of innerPs(d)) {
+      if (!/cyrix/i.test(textOf(p))) continue;
+      for (const g of groupsIn(p)) {
+        if (!GSTIN.test(g.text)) continue;
+        for (const r of g.runs) { const rpr = kids(r, 'w:rPr')[0]; for (const x of kids(rpr, 'w:highlight')) rpr.removeChild(x); }
+        added.push(`GSTIN kept as written: ${g.text.trim()}`);
+      }
+    }
+  }
+  const toAt = innerPs(docs['word/document.xml'] ?? parse('<x/>')).findIndex((p) => TO_LINE.test(lineOf(p).s));
+  let refSeen = false; let dateSeen = false; let refEmpty = null; let dateEmpty = null;
+  // The number and the date, in the page header or the letter.
+  for (const [name, doc] of Object.entries(docs)) {
+    const ps = innerPs(doc);
+    for (const [i, p] of ps.entries()) {
+      const { s } = lineOf(p); if (!s.trim()) continue;
+      // Above the address (a blank template's "Ref:" and "Date:"), not a signing's "Date:".
+      const top = name !== 'word/document.xml' || i < (toAt >= 0 ? toAt : 20);
+      if (top && !refEmpty && REF_EMPTY.test(s)) refEmpty = [doc, p];
+      if (top && !dateEmpty && DATE_EMPTY.test(s)) dateEmpty = [doc, p];
+      const want = [];
+      for (const m of s.matchAll(REF_RE)) if (refLike(m[1].trim())) want.push([m.index + m[0].length - m[1].length, m[1].trim()]);
+      const no = NO_RE.exec(s); if (no && refLike(no[2].trim()) && /[a-z]/i.test(no[2]) && /\//.test(no[2])) want.push([no[1].length, no[2].trim()]);
+      for (const m of s.matchAll(DATE_RE)) want.push([m.index + m[0].length - m[1].length, m[1], true]);
+      // From the end of the line back, so a date written right does not move what comes after it.
+      want.sort((x, y) => y[0] - x[0]);
+      for (const [a, v, isDate] of want) {
+        if (isDate) dateSeen = true; else refSeen = true;
+        const clean = isDate ? v.replace(/\s+/g, '') : v;
+        // A slip in the sample's date ("16-06- 2026", Dhee) written right in the copy, so it reads as a date.
+        if (clean !== v) {
+          const pos = lineOf(p).at.slice(a, a + v.length).filter((x) => x >= 0);
+          const hit = cutRange(doc, p, pos[0], pos[pos.length - 1] + 1);
+          hit.forEach((r, i) => { kids(r, 'w:t')[0].textContent = i === 0 ? clean : ''; });
+          for (const r of hit.slice(1)) r.parentNode.removeChild(r);
+          if (hit[0]) paintRange(doc, [hit[0]], 0, clean.length);
+          added.push(clean);
+        } else if (paintAt(doc, p, a, a + v.length)) added.push(v);
+        if (isDate) dates.add(clean);
+      }
+    }
+  }
+  // A blank template (the CT / MRI templates): "Ref:" and "Date:" with nothing after them get a sample to overwrite.
+  const now = new Date();
+  if (!refSeen && refEmpty) {
+    const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const v = `QTN001/${y}-${String((y + 1) % 100).padStart(2, '0')}`; sampleAfter(refEmpty[0], refEmpty[1], v); added.push(v);
+  }
+  if (!dateSeen && dateEmpty) { const v = dmy(now); sampleAfter(dateEmpty[0], dateEmpty[1], v); added.push(v); dates.add(v); }
+  const doc = docs['word/document.xml'];
+  if (doc) {
+    const ps = innerPs(doc);
+    const plain = (p) => lineOf(p).s.trim();
+    // The address under "To,".
+    const to = []; const toPs = new Set();
+    for (const p of ps) {
+      if (!TO_LINE.test(lineOf(p).s)) continue;
+      const got = []; let gap = 0;
+      for (let el = p.nextSibling; el && got.length < 5; el = el.nextSibling) {
+        if (el.nodeName === 'w:tbl') { if (!got.length && kids(el, 'w:tr').length <= 2) { const tc = all(el, 'w:tc')[0]; for (const q of tc ? kids(tc, 'w:p') : []) if (plain(q)) got.push(q); } break; }
+        if (el.nodeName !== 'w:p') continue;
+        const t = plain(el);
+        if (!t) { if (got.length || ++gap > 1) break; continue; }
+        if (/^(sub(ject)?\b|dear\b|kind\s*(attn|attention)|respected|ref\b|date\b|greetings)/i.test(t)) break;
+        got.push(el);
+      }
+      if (got.length) { for (const q of got) if (paintLine(doc, q)) { to.push(plain(q)); toPs.add(q); } } else {
+        let at = p; for (const x of ['Hospital name', 'Address', 'Place']) at = sampleLine(doc, p, at, x);
+        added.push('To (sample lines)');
+      }
+      break;
+    }
+    if (to.length) added.push(`To: ${to.join(' / ')}`);
+    // The customer again: the hospital's name anywhere; its other lines alone on a line or starting one. Not a person or
+    // a post ("The Managing Director,") — the hospital is the line that sounds like one, else the first other line.
+    const DESIG = /^(the\s+)?(managing\s+|medical\s+|chief\s+|general\s+|purchase\s+|biomedical\s+)?(director|manager|superintendent|administrator|officer|engineer|head|in-?charge|secretary|chairman|chairperson|ceo|cfo|coo|hod|dean|principal|purchase|procurement)\b/i;
+    const ORG = /hospital|medical|medicare|clinic|centre|center|institute|health|diagnostic|lab|scan|college|trust|foundation|nursing|\bcare\b|speciality|specialty|pvt|ltd|limited|llp|society|mission|sciences/i;
+    const cust = to.filter((l) => !PERSON.test(l) && !DESIG.test(l));
+    const hosp = cust.find((l) => ORG.test(l)) ?? cust[0];
+    if (hosp) {
+      const names = [hosp.replace(/[\s,;:–—-]+$/, ''), hosp.split(',')[0].trim()].filter((x, i, a) => x.split(/\s+/).length >= 2 && a.indexOf(x) === i);
+      const others = cust.filter((l) => l !== hosp).map((l) => l.replace(/[\s,;:–—-]+$/, '').toLowerCase());
+      for (const q of innerPs(doc)) {
+        if (toPs.has(q)) continue;
+        for (const nm of names) {
+          const re = new RegExp(`(^|[^A-Za-z0-9])(${escRe(nm)})(?![A-Za-z0-9])`, 'gi');
+          for (const m of [...lineOf(q).s.matchAll(re)]) { const a = m.index + m[1].length; if (paintAt(doc, q, a, a + m[2].length)) added.push(m[2]); }
+        }
+        const { s } = lineOf(q); const t = s.trim().replace(/[\s,;:–—-]+$/, '').toLowerCase();
+        if (others.includes(t)) { if (paintLine(doc, q)) added.push(s.trim()); continue; }
+        const m = /^(\s*)([^\t]+?)(?=\t| {3,})/.exec(s);
+        if (m && others.includes(m[2].trim().replace(/[\s,;:–—-]+$/, '').toLowerCase())) { if (paintAt(doc, q, m[1].length, m[1].length + m[2].trim().length)) added.push(m[2].trim()); }
+      }
+    }
+    // The lines under a customer heading (Mahally's "CUSTOMER NAME AND ADDRESS:").
+    for (const p of innerPs(doc)) {
+      const t = plain(p);
+      if (!/^(customer|client)('?s)?\b/i.test(t) || !/name|address/i.test(t) || t.length > 45) continue;
+      let gap = 0; let n = 0;
+      for (let el = p.nextSibling; el && n < 4; el = el.nextSibling) {
+        if (el.nodeName !== 'w:p') continue;
+        if (!plain(el)) { if (n || ++gap > 1) break; continue; }
+        if (paintLine(doc, el)) added.push(plain(el)); n++;
+      }
+    }
+    // Contract periods, and the dates of a sentence about the contract's start and end.
+    const PAIR = /(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s*(?:to|-|–|till)\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})/gi;
+    for (const p of innerPs(doc)) {
+      const { s } = lineOf(p);
+      const pairs = [...s.matchAll(PAIR)];
+      for (const m of pairs) if (paintAt(doc, p, m.index, m.index + m[0].length)) added.push(m[0]);
+      const about = /contract|agreement/i.test(s) && /start|commenc|ending|end\s+on|expir|valid\s+(from|till|up)/i.test(s);
+      for (const m of s.matchAll(/(?<![\d/.-])(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})(?![\d/.-])/g)) {
+        if (pairs.some((x) => m.index >= x.index && m.index < x.index + x[0].length)) continue;
+        if ((about || dates.has(m[1])) && paintAt(doc, p, m.index, m.index + m[1].length)) added.push(m[1]);
+      }
+    }
+    // The price table's first item row.
+    const NUM = /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i;
+    // "59,000+18% Tax" (St Rita's): the figure before the plus is the price.
+    const LEADNUM = /^(\s*(?:₹|rs\.?|inr)?\s*)([\d,]{3,}(?:\.\d+)?)\s*(?:\/-)?\s*\+/i;
+    const tbls = all(doc, 'w:tbl').filter((t) => !up(t, 'w:tbl'));
+    let priced = null; const amounts = new Set();
+    for (const t of tbls) {
+      let rows = kids(t, 'w:tr');
+      for (let h = 0; h < Math.min(2, rows.length - 1) && !priced; h++) {
+        const heads = kids(rows[h], 'w:tc').map((c) => norm(textOf(c)));
+        if (heads.length < 3 || !heads.some((x) => PRICE_HEAD.test(x) || YEAR_HEAD.test(x))) continue;
+        const priceAt = (tr) => {
+          const tx = kids(tr, 'w:tc').map((c) => norm(textOf(c)));
+          return tx.length !== heads.length ? -1 : heads.findIndex((x, k) => (PRICE_HEAD.test(x) || YEAR_HEAD.test(x)) && !/%|gst|tax/i.test(x) && tx[k] && (NUM.test(tx[k]) || LEADNUM.test(tx[k])));
+        };
+        // The figures may sit some rows down, the item's description running over the rows around them (St Rita's).
+        let f = -1;
+        for (let i = h + 1; i < Math.min(rows.length, h + 25) && f < 0; i++) { if (i > h + 1 && /\btotal\b/i.test(rowLabel(rows[i]))) break; if (priceAt(rows[i]) >= 0) f = i; }
+        if (f < 0 || (f > h + 1 && !joinItem(doc, rows, h + 1, f))) continue;
+        rows = kids(t, 'w:tr');
+        const cells = kids(rows[h + 1], 'w:tc');
+        const txt = cells.map((c) => norm(textOf(c)));
+        const pk = priceAt(rows[h + 1]);
+        for (let k = 0; k < cells.length; k++) {
+          if (!txt[k] || (k === 0 && /^\d+\.?$/.test(txt[k])) || (SERIAL.test(heads[k]) && /^\d+\.?$/.test(txt[k]))) continue;
+          if (colKind(heads, k, pk) || /annex/i.test(txt[k])) continue;
+          if (k === pk && !NUM.test(txt[k])) {
+            for (const q of kids(cells[k], 'w:p')) { const m = LEADNUM.exec(lineOf(q).s); if (m) paintAt(doc, q, m[1].length, m[1].length + m[2].length); }
+            continue;
+          }
+          for (const q of kids(cells[k], 'w:p')) paintLine(doc, q);
+        }
+        added.push(`Item row: ${txt.filter(Boolean).join(' | ').slice(0, 80)}`);
+        priced = t;
+        for (const tr of rows.slice(h + 1)) for (const c of kids(tr, 'w:tc')) { const x = norm(textOf(c)); if (NUM.test(x) && /\d{3}/.test(x)) amounts.add(numIn(x)); }
+      }
+      if (priced) break;
+    }
+    // A blank template's empty item row (CT / MRI templates): a sample in each cell, yellow where it is typed; the
+    // figures worked out from the price written plain, as the filler works them out.
+    for (const t of priced ? [] : tbls) {
+      const rows = kids(t, 'w:tr');
+      for (let h = 0; h < Math.min(2, rows.length - 1) && !priced; h++) {
+        const heads = kids(rows[h], 'w:tc').map((c) => norm(textOf(c)));
+        const cells = kids(rows[h + 1], 'w:tc');
+        if (heads.length < 3 || cells.length !== heads.length) continue;
+        if (cells.some((c, k) => { const x = norm(textOf(c)); return x && !(k === 0 && /^\d+\.?$/.test(x)); })) continue;
+        // A price by year (SMRI, Cathlab): the years are the price, one sample each.
+        const yearCols = heads.map((x, k) => (YEAR_HEAD.test(x) ? k : -1)).filter((k) => k >= 0);
+        const pk = yearCols.length >= 2 ? yearCols[0] : heads.findIndex((x) => PRICE_HEAD.test(x) && !/%|gst|tax|total|grand|with|incl/i.test(x));
+        if (pk < 0) continue;
+        const rate = Number((/(\d+(?:\.\d+)?)\s*%/.exec(heads.join(' ')) ?? [0, 18])[1]);
+        const P = 100000; const base = P * Math.max(1, yearCols.length >= 2 ? yearCols.length : 1); const tax = Math.round(base * rate) / 100;
+        const from = new Date(now.getFullYear(), now.getMonth() + 1, 1); const till = new Date(from.getFullYear() + 1, from.getMonth(), 0);
+        heads.forEach((hd, k) => {
+          const kind = colKind(heads, k, pk);
+          let v = hd.slice(0, 30); let yellow = true;
+          if (k === 0 || SERIAL.test(hd)) { v = norm(textOf(cells[k])) || '1'; yellow = false; } else if (k === pk || (yearCols.length >= 2 && yearCols.includes(k))) v = moneyLike('1,00,000', P);
+          // "Tax 18 %" holds the tax; "GST %" the rate.
+          else if (kind) { yellow = false; v = kind === 'rate' && !/\d\s*%/.test(hd) ? `${rate}%` : moneyLike('1,00,000', kind === 'tax' || kind === 'rate' ? tax : kind === 'with' ? base + tax : base); }
+          else if (QTY_HEAD.test(hd) && !NOT_QTY.test(hd)) v = '1';
+          else if (/start|from|commenc/i.test(hd)) v = dmy(from);
+          else if (/\bend|till|until|expir|\bto\b/i.test(hd)) v = dmy(till);
+          else if (/period|duration/i.test(hd)) v = `${dmy(from)} to ${dmy(till)}`;
+          else if (PRICE_HEAD.test(hd)) v = moneyLike('1,00,000', P);
+          else if (/serial/i.test(hd)) v = 'SN0001';
+          sampleCell(doc, cells[k], v, yellow);
+        });
+        added.push(`Item row (samples): ${heads.join(' | ').slice(0, 80)}`);
+        priced = t;
+      }
+      if (priced) break;
+    }
+    // Amounts in the letter that are figures of the price table (Nahas: "Rs. 220000/-", "Rs.39600/-").
+    if (amounts.size) {
+      const AMT = /(?:rs\.?|₹|inr)\s*([\d,]{3,}(?:\.\d{1,2})?(?:\s*\/-)?)|([\d,]{4,}(?:\.\d{1,2})?\s*\/-)/gi;
+      for (const p of innerPs(doc)) {
+        if (up(p, 'w:tbl') === priced) continue;
+        for (const m of [...lineOf(p).s.matchAll(AMT)]) {
+          const v = (m[1] ?? m[2]).trim(); const a = m.index + m[0].length - (m[1] ?? m[2]).length;
+          if (amounts.has(numIn(v)) && paintAt(doc, p, a, a + v.length)) added.push(v);
+        }
+      }
+    }
+    // The amount in words ("Rupees … Only"), worked out from the grand total when filled; a blank template's bare
+    // "Amount in words: Rupees" (Cathlab) gets a sample to stand for it.
+    if (priced) {
+      for (const p of innerPs(doc)) {
+        const { s } = lineOf(p);
+        // Only the quotation's own amount: not the SMRI template's "Cold Head … (Rupees Eighteen Lakhs Only)".
+        const m = /\bamount\s+in\s+words\b|\b(grand\s+)?total\b|contract\s+value/i.test(s) && s.length < 200 ? /\brupees\b.*?\bonly\b/i.exec(s) : null;
+        if (m) { if (paintAt(doc, p, m.index, m.index + m[0].length)) added.push(m[0]); continue; }
+        const e = /\bamount\s+in\s+words\b\s*[:\-–]?\s*(rupees)?\s*$/i.exec(s);
+        if (!e) continue;
+        const sample = e[1] ? 'One Lakh Only' : 'Rupees One Lakh Only';
+        if (!/\s$/.test(s)) p.appendChild(newRun(doc, p, ' '));
+        p.appendChild(newRun(doc, p, sample));
+        const t = lineOf(p).s; const a = e[1] ? t.toLowerCase().lastIndexOf('rupees') : t.length - sample.length;
+        if (paintAt(doc, p, a, t.trimEnd().length)) added.push('Amount in words (sample)');
+      }
+    }
+    // An Annexure list's heading row (equipment, make, model…), never a table of prices or of contacts.
+    for (const t of tbls) {
+      if (t === priced) continue;
+      const rows = kids(t, 'w:tr'); if (rows.length < 2) continue;
+      const h = rows.length > 2 && kids(rows[0], 'w:tc').filter((c) => textOf(c).trim()).length <= 1 ? 1 : 0;
+      const heads = kids(rows[h], 'w:tc').map((c) => norm(textOf(c))); const named = heads.filter(Boolean);
+      if (named.length < 3 || named.some((x) => x.length > 40)) continue;
+      if (!heads.some((x) => /equipment|item|asset|model|make|serial|device|machine/i.test(x)) || heads.some((x) => /rate|price|tax|gst/i.test(x))) continue;
+      let el = t.previousSibling; let title = '';
+      for (let k = 0; el && k < 5 && !title; k++, el = el.previousSibling) if (el.nodeName === 'w:p') title = norm(textOf(el));
+      if (!/annex/i.test(title) && !/annex/i.test(textOf(rows[0]))) continue;
+      for (const q of all(rows[h], 'w:p')) paintLine(doc, q);
+      added.push(`Annexure: ${named.join(' | ')}`);
+      break;
+    }
+    // The signer, and the contact under "please contact".
+    const SIGN_LEAD = /^\s*(with\s+(best\s+|warm\s+|kind\s+)?regards|(best|warm|kind)\s+regards|yours\s+(truly|faithfully|sincerely)|thanking\s+you|prepared\s+by|submitted\s+by|for\s*,?\s*(m\/s\.?\s*)?cyrix\b.*|.*\b(please\s+contact|contact\s+person)\b.*)[\s,.:;]*$/i;
+    const SIGN_STOP = /^\s*(for\s*,?\s*)?(m\/s\.?\s*)?cyrix\b|authori[sz]ed\s+signatory|^\s*(signature|seal|stamp|date|name|designation|place)\s*[:\-]?\s*$/i;
+    const PHONE = /^(\s*(?:tel|ph|phone|mob(?:ile)?|cell|contact)\b[^:\n]*?[:\-–]+\s*)(\+?\d[\d\s-]{6,}\d)\s*$/i;
+    const EMAIL = /^(\s*e-?mail\s*(?:id)?\s*[:\-–]+\s*)(\S+@\S+?)[\s.]*$/i;
+    const VALUE = /^(\s*(?:name|designation|mobile\s*no\.?|mob(?:ile)?|phone|tel(?:\.?\s*no\.?)?|contact\s*no\.?|e-?mail(?:\s*id)?)\s*[:\-–]+\s*)(\S.*?)\s*$/i;
+    for (const p of innerPs(doc)) {
+      const lead = plain(p);
+      if (lead.length > 45 || !SIGN_LEAD.test(lead)) continue;
+      if (up(p, 'w:tc') && /^\s*for\b.*cyrix/i.test(lead)) {
+        for (let el = p.nextSibling; el; el = el.nextSibling) {
+          if (el.nodeName !== 'w:p') continue;
+          const m = VALUE.exec(lineOf(el).s);
+          if (m && paintAt(doc, el, m[1].length, m[1].length + m[2].length)) added.push(m[2]);
+        }
+        continue;
+      }
+      let n = 0; let gaps = 0;
+      for (let el = p.nextSibling; el && n < 5; el = el.nextSibling) {
+        if (el.nodeName === 'w:tbl') break;
+        if (el.nodeName !== 'w:p') continue;
+        const t = plain(el);
+        if (!t) { if (n || ++gaps > 8) break; continue; }
+        // An agreement's signing form ("Name: ⇥ Syed Nazre Imam ⇥ Designation: Service Delivery Head", the CT / MRI
+        // templates) stays as written: the company's fixed signatory.
+        if (SIGN_STOP.test(t) || (t.length <= 45 && SIGN_LEAD.test(t)) || /^(name|designation)\s*[:\-–]/i.test(t)) break;
+        if (/\n/.test(lineOf(el).s.trim())) splitAtBreak(doc, el);
+        // Of "Mob: 98…" or "Email: …@…" the number or the address only.
+        const m = PHONE.exec(lineOf(el).s) ?? EMAIL.exec(lineOf(el).s);
+        if (m) { if (paintAt(doc, el, m[1].length, m[1].length + m[2].length)) added.push(m[2]); } else if (paintLine(doc, el)) added.push(plain(el));
+        n++;
+      }
+    }
+  }
+  if (!added.length) return { file, added };
+  for (const [name, d] of Object.entries(docs)) zip.file(name, new XMLSerializer().serializeToString(d));
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: DOCX });
+  return { file: new File([blob], file.name, { type: DOCX }), added };
 }
 
 /** The yellow groups of a paragraph: yellow runs side by side (spaces between them kept in). */
@@ -398,7 +836,15 @@ function wordsLike(sample, n) {
 
 const SERIAL = /^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i;
 const PRICE_HEAD = /charge|rate|price|amount|cost|value|₹|\brs\b|fee/i;
-const QTY_HEAD = /\bqty\b|quantity|\bnos?\b|units?/i;
+// "Nos" is a count; "No. of PMS" (Nahas) and "Product Serial No." (CT template) are not (25 Nov).
+// A price split by year (SMRI, Cathlab templates: First Year · Second Year · Third Year, the user, 25 Nov).
+const YEAR_HEAD = /\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\s*year\b|\byear\s*-?\s*[1-5]\b/i;
+const QTY_HEAD = /\bqty\b|quantity|\bnos\b|\bunits?\b|\bpcs\b/i;
+const NOT_QTY = /serial|s\/n|part|model|code|\bno\.?\s*of\b/i;
+/** The headings row over a price table's item row: the nearest row above it with as many cells (Dhee: a "QUOTATION" title row on top). */
+const headRow = (rows, at) => { const n = kids(rows[at], 'w:tc').length; for (let i = at - 1; i >= 0; i--) if (kids(rows[i], 'w:tc').length === n) return i; return 0; };
+/** A row's name: its first cell with words in it (Jeeva's totals sit after an empty cell). */
+const rowLabel = (tr) => norm(kids(tr, 'w:tc').map(textOf).find((x) => /[a-z]/i.test(x)) ?? '');
 
 /** The tables of a part: the price table (a yellow row, totals under it) and the list table (a yellow heading row). */
 function tablesOf(doc) {
@@ -412,8 +858,8 @@ function tablesOf(doc) {
     // No total row under it (Sub AMC: SI NO. · CONTRACT TYPE · RATE · GST % · GST RATE · TOTAL, the user, 19 Nov): a
     // price heading over a yellow figure in the item row is enough.
     const priced = () => {
-      const heads = kids(rows[0], 'w:tc').map((c) => norm(textOf(c)));
-      return kids(rows[yrow], 'w:tc').some((tc, k) => PRICE_HEAD.test(heads[k] ?? '') && !/%/.test(heads[k] ?? '')
+      const heads = kids(rows[headRow(rows, yrow)], 'w:tc').map((c) => norm(textOf(c)));
+      return kids(rows[yrow], 'w:tc').some((tc, k) => (PRICE_HEAD.test(heads[k] ?? '') || YEAR_HEAD.test(heads[k] ?? '')) && !/%/.test(heads[k] ?? '')
         && all(tc, 'w:p').flatMap(groupsIn).some((g) => /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i.test(g.text)));
     };
     if (!price && yrow > 0 && (tot > yrow || priced())) {
@@ -426,17 +872,21 @@ function tablesOf(doc) {
         const runs = all(tr, 'w:r').filter((x) => textOf(x).trim());
         return /^\s*\d+\.?\s*$/.test(textOf(tcs[0])) || (runs.length > 0 && runs.every(isYellow));
       });
-      price = { t, rows, item: yrow, extra }; continue;
+      price = { t, rows, item: yrow, head: headRow(rows, yrow), extra }; continue;
     }
     // The yellow heading row may sit under a title row ("Asset list - Orchid Medical Centre", SUB CAMC 25 Nov).
     for (let h = 0; h < 2 && !list; h++) {
       const head = rows[h];
       const cells = head ? kids(head, 'w:tc') : [];
       const runs = head ? all(head, 'w:r').filter((r) => textOf(r).trim()) : [];
-      if (cells.length >= 2 && runs.length && runs.every(isYellow)) {
-        // Its rows end where the shape changes: SUB CAMC's summary under the list (TOTAL ASSET VALUE | ₹ …) is not a row.
-        let end = h + 1; while (end < rows.length && kids(rows[end], 'w:tc').length === cells.length) end++;
-        list = { t, rows: rows.slice(h, end), tail: end < rows.length };
+      // Headings, two or more and short: not an address in a box (AV Mult's To in a one-row table, 25 Nov).
+      const named = cells.map((c) => norm(textOf(c))).filter(Boolean);
+      if (cells.length >= 2 && runs.length && runs.every(isYellow) && named.length >= 2 && named.every((x) => x.length <= 40)) {
+        // Its rows end where the shape changes: SUB CAMC's summary under the list (TOTAL ASSET VALUE | ₹ …) is not a row;
+        // nor is a total in the same shape (Aswini's TOTAL QTY, added up when filled).
+        let end = h + 1;
+        while (end < rows.length && kids(rows[end], 'w:tc').length === cells.length && !kids(rows[end], 'w:tc').some((c) => /^\s*total\b/i.test(textOf(c)))) end++;
+        list = { t, rows: rows.slice(h, end), tail: end < rows.length, cells: cells.length };
       }
       if (h === 0 && cells.length > 2) break; // a full first row that is not yellow: not a list
     }
@@ -446,15 +896,20 @@ function tablesOf(doc) {
 
 /** What the price table holds: its columns, the item row's yellow, which column is the price and which the quantity. */
 function priceOf(pt) {
-  const head = kids(pt.rows[0], 'w:tc').map((c) => norm(textOf(c)));
+  const head = kids(pt.rows[pt.head ?? 0], 'w:tc').map((c) => norm(textOf(c)));
   const cells = kids(pt.rows[pt.item], 'w:tc').map((tc, k) => ({ k, head: head[k] ?? '', groups: all(tc, 'w:p').flatMap(groupsIn).map((g, j) => ({ j, text: g.text })) }));
   const numeric = (c) => c.groups.length === 1 && /^[\s₹]*(rs\.?|inr)?\s*[\d,]+(\.\d+)?\s*(\/-)?\s*$/i.test(c.groups[0].text);
-  let pk = cells.filter((c) => numeric(c) && PRICE_HEAD.test(c.head)).map((c) => c.k)[0];
+  // Of two prices in yellow (Dhee: Unit Price · Special discounted Price, 25 Nov) the discounted one is charged.
+  const cands = cells.filter((c) => numeric(c) && PRICE_HEAD.test(c.head));
+  let pk = (cands.find((c) => /discount|special|offer/i.test(c.head)) ?? cands[0])?.k;
   if (pk == null) pk = cells.filter(numeric).map((c) => c.k).pop();
-  const qk = cells.find((c) => c.k !== pk && c.groups.length && QTY_HEAD.test(c.head) && !SERIAL.test(c.head))?.k ?? null; // "SI No" is not a Qty
+  // Two or more years side by side: one price per year, the first year's column standing as the price's.
+  const years = cells.filter((c) => numeric(c) && YEAR_HEAD.test(c.head)).map((c) => c.k);
+  if (years.length >= 2) pk = years[0];
+  const qk = cells.find((c) => c.k !== pk && c.groups.length && QTY_HEAD.test(c.head) && !SERIAL.test(c.head) && !NOT_QTY.test(c.head))?.k ?? null; // "SI No" is not a Qty
   const fields = [];
   for (const c of cells) {
-    if (c.k === pk || !c.groups.length) continue;
+    if (c.k === pk || !c.groups.length || (years.length >= 2 && years.includes(c.k))) continue;
     // A whole table marked yellow (Carmel, the user, 19 Nov): its serial number and the columns worked out from the
     // price (Total Price, GST %, Tax Amount, Total with Taxes) are not boxes to type.
     if (SERIAL.test(c.head) || colKind(head, c.k, pk)) continue;
@@ -464,12 +919,14 @@ function priceOf(pt) {
   }
   // The template's own figures: GST % from "GST 18%", and whether its price was for the whole row (76 Nos, 1,25,000 total).
   // GST from the item row's own GST % cell (Carmel's 5%), else from a "GST 18%" row under it.
-  const rateCell = cells.find((c) => /%/.test(c.head) && c.k > (pk ?? 99));
-  const rc = rateCell ? kids(pt.rows[pt.item], 'w:tc')[rateCell.k] : null;
-  const rowRate = rc ? /(\d+(\.\d+)?)\s*%/.exec(textOf(rc)) : null;
+  // The rate from the item row's GST cell ("18%", AV Mult's GST column), else from its heading ("GST @5%" over 667, Tata).
+  const itemTc = kids(pt.rows[pt.item], 'w:tc');
+  const rateCell = cells.find((c) => c.k > (pk ?? 99) && (/%/.test(c.head) || /^\s*\d+(\.\d+)?\s*%\s*$/.test(textOf(itemTc[c.k]))));
+  const rc = rateCell ? itemTc[rateCell.k] : null;
+  const rowRate = rc ? (/(\d+(\.\d+)?)\s*%/.exec(textOf(rc)) ?? /(\d+(\.\d+)?)\s*%/.exec(rateCell.head)) : null;
   let gst = rowRate ? Number(rowRate[1]) : 18; let total = null;
   for (const tr of pt.rows.slice(pt.item + 1)) {
-    const tcs = kids(tr, 'w:tc'); const label = norm(textOf(tcs[0] ?? tr));
+    const tcs = kids(tr, 'w:tc'); const label = rowLabel(tr);
     const m = /(gst|tax)\D*?(\d+(\.\d+)?)\s*%/i.exec(textOf(tr)); if (m) gst = Number(m[2]);
     if (/total/i.test(label) && !/grand/i.test(label) && total == null) total = numIn([...tcs].reverse().map(textOf).find((x) => /\d/.test(x)));
   }
@@ -484,7 +941,7 @@ function priceOf(pt) {
   // TOTAL = price × Qty is one piece. No Qty column: nothing to multiply.
   const near = (a, b) => Math.abs(a - b) < 0.5;
   const totalSays = qk == null || (total != null && qty > 1 && price > 0 && (near(total, price) || near(total, price * qty)));
-  return { cols: head, price: pk ?? null, priceHead: head[pk] ?? 'Amount', samplePrice: pk != null ? cells[pk].groups[0].text : '', qty: qk, fields, gst,
+  return { cols: head, price: pk ?? null, ...(years.length >= 2 ? { years, yearHeads: years.map((k) => head[k]) } : {}), priceHead: head[pk] ?? 'Amount', samplePrice: pk != null ? cells[pk].groups[0].text : '', qty: qk, fields, gst,
     lump: perUnit ? false : lump, ...(perUnit || totalSays ? { lumpSure: true } : {}) };
 }
 
@@ -505,7 +962,15 @@ const nameOf = (s) => {
   return t ? t[0].toUpperCase() + t.slice(1).toLowerCase() : '';
 };
 const chunks = (s) => String(s).split(/\t| {3,}/).map((x) => norm(x).replace(/^[\s:;,.–—-]+|[\s:;,–—-]+$/g, '')).filter((x) => /[a-z0-9]/i.test(x));
-const labelBefore = (before) => (chunks(before).pop() ?? '').split(' ').slice(-4).join(' ').replace(/^[^a-z0-9]+/i, '');
+const labelBefore = (before) => {
+  const cs = chunks(before); let last = cs.pop() ?? '';
+  // "Period of Contract   from: " (Mahally): the words before the joining word.
+  if (/^(from|on|of|dated|for|is|w\.?e\.?f\.?)$/i.test(last) && cs.length) last = cs.pop();
+  const w = last.split(' ');
+  // A sentence ending "…365 Days starting from" or "…and ending on" (Nahas): its last two words.
+  if (w.length > 2 && /^(from|on|dated|till|until)$/i.test(w[w.length - 1]) && /^[a-z]+$/i.test(w[w.length - 2])) return w.slice(-2).join(' ');
+  return w.slice(-4).join(' ').replace(/^[^a-z0-9]+/i, '');
+};
 const labelAfter = (after) => (chunks(after)[0] ?? '').split(' ').slice(0, 4).join(' ').replace(/[^a-z0-9)]+$/i, '');
 const PERSON = /^(dr|mr|mrs|ms|miss|prof)\b\.?/i;
 
@@ -529,9 +994,10 @@ function scan(doc) {
     // The price table's headings, item row and totals are its own: yellow there (Carmel, all yellow) makes no box. Other
     // rows of it keep their boxes (Giri Pushp's "Contract Period: 03/11/2026 to 02/11/2027").
     if (price && tbl === price.t) {
-      const tr = up(p, 'w:tr');
-      if (tr === price.rows[0] || tr === price.rows[price.item] || price.extra.includes(tr)) return true;
-      if (/total|gst|tax/i.test(textOf(kids(tr, 'w:tc')[0] ?? tr))) return true;
+      const tr = up(p, 'w:tr'); const at = price.rows.indexOf(tr);
+      // Its title, headings and item row (everything down to the item), the sample items and the totals.
+      if ((at >= 0 && at <= price.item) || price.extra.includes(tr)) return true;
+      if (/total|gst|tax/i.test(rowLabel(tr))) return true;
     }
     return false;
   };
@@ -576,6 +1042,12 @@ function scan(doc) {
 }
 
 const blockKey = (b) => `block:${(nameOf(b.heading) || 'address').toLowerCase()}`;
+/** The line over the signer's name: With Regards, Yours truly, Prepared By, For Cyrix Healthcare… */
+const SIGNER_HEAD = /regards|yours|sincerely|faithfully|truly|thanking|prepared\s+by|submitted\s+by|^\s*for\b.*\b(cyrix|healthcare)\b/i;
+/** A block's lines as written (to find the box of a signer written in two places). */
+const blockLines = (b) => b.slots.map((p) => norm(groupsIn(p)[0]?.text)).join('\n');
+/** A box the person types: not worked out, not kept as written, not following To. */
+export const typedBox = (x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean)) && x.role !== 'toline';
 
 /** Read a template: its boxes, the price table and the list table. Nothing yellow: `fields` empty. */
 export async function readYellow(file) {
@@ -598,8 +1070,11 @@ export async function readYellow(file) {
       if (it.type === 'block') {
         const b = it.block; const key = blockKey(b);
         if (byKey.has(key)) { byKey.get(key).places++; continue; }
-        const signer = /regards|yours|sincerely|faithfully|truly/i.test(b.heading);
+        const signer = SIGNER_HEAD.test(b.heading);
         const lines = b.slots.map((p) => norm(groupsIn(p)[0]?.text));
+        // The same signer under another heading (Shri Balaji: "Prepared By" on page 1, "For Cyrix…" at the end): one box.
+        const same = signer && fields.find((x) => x.kind === 'signer' && x.sample === lines.join('\n'));
+        if (same) { same.places++; byKey.set(key, same); continue; }
         const f = { key, kind: signer ? 'signer' : 'lines', label: signer ? 'Signed by' : nameOf(b.heading) || 'Address', sample: lines.join('\n'), lines: lines.length, places: 1 };
         // Each line's label in the cell before it, when the lines sit in a table (SUB CAMC: TOTAL ASSET VALUE | ₹ …).
         const rl = b.slots.map((p) => { const tc = up(p, 'w:tc'); const tr = tc && up(tc, 'w:tr'); const first = tr && kids(tr, 'w:tc')[0]; return first && first !== tc ? norm(textOf(first)) : ''; });
@@ -616,7 +1091,8 @@ export async function readYellow(file) {
       if (own) label = nameOf(own[1]);
       // Alone on its line: named by the line above ("TO," then a yellow name: To).
       // Not a signing line, though: SUB AMC's yellow "Annexture- 1" under "SIGNATURE … SIGNATURE" is its own name (25 Nov).
-      if (!label && it.heading && !/^\s*(signature|seal|sign)\b/i.test(it.heading)) label = nameOf(it.heading);
+      // A sentence above is no name (Nahas: "2.2.1 Maintenance Services in respect of…" over the machine's name).
+      if (!label && it.heading && norm(it.heading).length <= 40 && !/^\s*(signature|seal|sign)\b/i.test(it.heading)) label = nameOf(it.heading);
       if (kind === 'words') label = 'Amount in words';
       if (!label) label = norm(g.text).slice(0, 30);
       // The second date of a pair ("from … to …"): named after the first.
@@ -672,12 +1148,14 @@ export function oneBoxPerCell(price) {
   figures (SUB CAMC's summary: asset value, CAMC, GST, total) keeps only the others to type.
 */
 const MONEY = /^\s*(₹|rs\.?|inr)?\s*\d{1,3}(,\d{2,3})*(\.\d{1,2})?\s*(\/-)?\s*$/i;
+// A long figure written without commas ("Rs. 220000/-", Nahas 25 Nov).
+const MONEY_PLAIN = /^\s*(₹|rs\.?|inr)?\s*\d{4,}(\.\d{1,2})?\s*(\/-)?\s*$/i;
 export function markWorked(Y) {
   const pr = Y?.price; const base = pr && numIn(pr.samplePrice);
   if (!base) return Y;
   const tax = Math.round(base * Number(pr.gst || 0)) / 100;
   const sums = [['total', base], ['tax', tax], ['with', Math.round((base + tax) * 100) / 100]];
-  const which = (s) => { if (!MONEY.test(s) || !/[,.]/.test(s)) return null; const n = numIn(s); return sums.find(([, v]) => v && Math.abs(n - v) <= 1)?.[0] ?? null; };
+  const which = (s) => { if (!((MONEY.test(s) && /[,.]/.test(s)) || MONEY_PLAIN.test(s))) return null; const n = numIn(s); return sums.find(([, v]) => v && Math.abs(n - v) <= 1)?.[0] ?? null; };
   const fields = Y.fields.map((f) => {
     const g = { ...f }; delete g.worked; delete g.wlines;
     if ((f.kind === 'text' || f.kind === 'num') && !f.role) {
@@ -702,7 +1180,9 @@ export function rolesOf(fields, list) {
   for (const f of fields) delete f.role;
   // The Annexure's yellow heading is the Annexure section's own title, never a box of its own (SUB AMC, 25 Nov).
   if (list) for (const f of fields) if (f.kind === 'text' && /^annex/i.test(f.sample.trim())) f.kind = 'fixed';
-  const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample) || REF_LEAD.test(f.sample)));
+  const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*(no|num))/i.test(f.label) || /^qtn/i.test(f.sample) || REF_LEAD.test(f.sample)
+    // "No: AMC FFLM 049/2026-27" (Mahally, 25 Nov): a number with a slash in it.
+    || (/^(no|number)\.?$/i.test(f.label.trim()) && /\d/.test(f.sample) && /\//.test(f.sample))));
   // A label that is the number itself ("Ref – QTN015/…", SUB CAMC 25 Nov) is no name: Ref number.
   const looksRef = (l) => REF_LEAD.test(l) || /qtn|\d{2,}\/|\/\d{2,}/i.test(l);
   if (ref) { ref.role = 'ref'; if (!/[a-z]{2}/i.test(ref.label) || looksRef(ref.label)) ref.label = 'Ref number'; }
@@ -712,7 +1192,17 @@ export function rolesOf(fields, list) {
   const to = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && /^to\b/i.test(f.label))
     ?? fields.find((f) => f.kind === 'lines' && (/^address\b/i.test(f.label) || TO_LINE.test(f.sample.split('\n')[0])));
   if (to) to.role = 'to';
-  const client = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && f !== to && /client|customer|second party|hospital/i.test(f.label));
+  // The customer written again in the letter, the same words as a line of To ("For, NAHAS HOSPITAL ⏎ MALAPPURAM" at the
+  // signing, Nahas 25 Nov): filled from To, not asked. The last line follows To's last line (the place).
+  if (to) {
+    const tl = to.sample.split('\n').map((l) => norm(l).toLowerCase()).filter((l) => l && !TO_LINE.test(l));
+    for (const f of fields) {
+      if (f === to || f.role || f.kind !== 'text') continue;
+      const i = tl.indexOf(norm(f.sample).toLowerCase());
+      if (i >= 0) { f.role = 'toline'; f.line = i > 0 && i === tl.length - 1 ? -1 : i; }
+    }
+  }
+  const client = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && f !== to && !f.role && /client|customer|second party|hospital/i.test(f.label));
   if (client) client.role = 'client';
   return fields;
 }
@@ -726,7 +1216,8 @@ export function startValue(f, ctx = {}) {
   // uploaded data showing"): every box starts empty but today, the signed-in person and what a request knows.
   if (f.role === 'date') return ctx.today ?? '';
   if (f.role === 'to') return ctx.hospital ?? '';
-  if (f.role === 'client') return ctx.hospital ? clientFrom(ctx.hospital) : '';
+  // CLIENT on one line of the letter takes the hospital's first line only.
+  if (f.role === 'client') { const c = ctx.hospital ? clientFrom(ctx.hospital) : ''; return f.kind === 'text' ? c.split('\n')[0] : c; }
   if (f.kind === 'signer') return ctx.signer ?? '';
   if (f.kind === 'period') return { from: '', upto: '' };
   // Not a box (Gemini, quoteAi.js): the template's own text stays.
@@ -787,7 +1278,7 @@ export const clientFrom = (to) => { const l = String(to ?? '').split('\n').map((
 export function itemsOf(Y, items, rows) {
   const n = (rows ?? []).filter((r) => r.some((c) => String(c ?? '').trim())).length;
   const qf = Y.price?.fields.find((f) => f.qty && !f.link);
-  const list = (items ?? []).length ? items : [{}];
+  const list = ((items ?? []).length ? items : [{}]).map((it) => (Y.price?.years && Array.isArray(it.years) ? { ...it, price: yearSum(it.years) } : it));
   return list.map((it) => (qf && n && !String(it[qf.key] ?? '').trim() ? { ...it, [qf.key]: `${n}${/\s*nos?\.?\s*$/i.exec(qf.sample)?.[0] ?? ''}` } : it));
 }
 
@@ -796,13 +1287,18 @@ export function itemsOf(Y, items, rows) {
   or 'with' (with tax). A Total or Amount column with a tax column after it is before tax (Carmel: Total Price · GST % ·
   Tax Amount · Total with Taxes); one with none after it is with tax (Sub AMC: RATE · GST % · GST RATE · TOTAL).
 */
-function colKind(cols, k, price) {
+export function colKind(cols, k, price) {
   if (price == null || k <= price) return null;
   const h = cols[k] ?? '';
   if (/%/.test(h)) return 'rate';
   if (/with|incl|gross|grand/i.test(h)) return 'with';
   if (/gst|tax/i.test(h)) return 'tax';
-  if (/total|amount|value/i.test(h)) return cols.slice(k + 1).some((c) => /gst|tax/i.test(c) && !/%/.test(c) && !/with|incl/i.test(c)) ? 'line' : 'with';
+  // A Total, Amount or Rate column after the price (Shri Balaji: UNIT RATE · RATE, 25 Nov): before tax when a tax column
+  // follows it or the table has none (its GST is in the rows under it); with tax when a tax column comes before it.
+  if (/total|amount|value|\brate\b/i.test(h)) {
+    if (cols.slice(k + 1).some((c) => /gst|tax/i.test(c) && !/%/.test(c) && !/with|incl/i.test(c))) return 'line';
+    return cols.slice(price + 1, k).some((c) => /gst|tax|%/i.test(c)) ? 'with' : 'line';
+  }
   return null;
 }
 
@@ -813,8 +1309,16 @@ export function totalsOf(Y, items, gst, lump) {
   const lines = (items ?? []).map((it) => { const p = numIn(it.price); return lump || !qkey ? p : p * (numIn(it[qkey]) || 1); });
   const total = Math.round(lines.reduce((a, b) => a + b, 0) * 100) / 100;
   const tax = Math.round(total * Number(gst || 0)) / 100;
-  return { lines, total, tax, with: Math.round((total + tax) * 100) / 100 };
+  // A price by year: each year's own total, GST and total with it (the GST and Total Contract Value rows, by year).
+  const byYear = (pr.years ?? []).map((_, j) => {
+    const t = Math.round((items ?? []).reduce((a, it) => { const p = numIn(it.years?.[j]); return a + (lump || !qkey ? p : p * (numIn(it[qkey]) || 1)); }, 0) * 100) / 100;
+    const x = Math.round(t * Number(gst || 0)) / 100;
+    return { total: t, tax: x, with: Math.round((t + x) * 100) / 100 };
+  });
+  return { lines, total, tax, with: Math.round((total + tax) * 100) / 100, byYear };
 }
+/** An item's price as the sum of its years (a price by year), else as typed. */
+export const yearSum = (years) => String(Math.round((years ?? []).reduce((a, v) => a + numIn(v), 0) * 100) / 100);
 
 /* ---------- Measuring: keep what follows a yellow bit where it was on its line ---------- */
 
@@ -1001,7 +1505,8 @@ export async function fillYellow(file, Y0, v) {
   const was = Y.price?.gst; const now = Number(v.gst);
   const gstText = (s) => (was == null || !Number.isFinite(now) || now === Number(was) ? s : String(s)
     .replace(new RegExp(`\\b${was}(\\s*%\\s*)(?=(i|c|s)?gst\\b|tax\\b)`, 'gi'), `${now}$1`)
-    .replace(new RegExp(`(\\b(i|c|s)?gst\\s*(@|-|:)?\\s*)${was}(\\s*%)`, 'gi'), `$1${now}$4`));
+    // "GST @ 18%", "GST@18%", "Tax 18 %", "Tax (18%)" (the CT template's heading, 25 Nov).
+    .replace(new RegExp(`(\\b(?:[ics]?gst|tax)\\s*[@:-]?\\s*\\(?\\s*)${was}(\\s*%)`, 'gi'), `$1${now}$2`));
   const value = (key) => v.f?.[key];
   for (const name of partNames(zip)) {
     const doc = parse(await zip.file(name).async('string'));
@@ -1011,11 +1516,13 @@ export async function fillYellow(file, Y0, v) {
 
     // The price table: the yellow row once per item, its figures worked out, the totals under it.
     if (s.price && Y.price) {
-      const pt = s.price; const model = pt.rows[pt.item]; const pr = Y.price;
+      const pt = s.price; const model = pt.rows[pt.item]; const pr = Y.price; const made = new Set();
       items.forEach((it, i) => {
-        const tr = model.cloneNode(true);
+        const tr = model.cloneNode(true); made.add(tr);
         kids(tr, 'w:tc').forEach((tc, k) => {
           const gs = all(tc, 'w:p').flatMap(groupsIn);
+          const yr = (pr.years ?? []).indexOf(k);
+          if (yr >= 0) { if (gs[0]) setGroup(gs[0], moneyLike(pr.samplePrice, it.years?.[yr])); gs.slice(1).forEach((g) => setGroup(g, '')); return; }
           if (k === pr.price) { if (gs[0]) setGroup(gs[0], moneyLike(pr.samplePrice, it.price)); gs.slice(1).forEach((g) => setGroup(g, '')); return; }
           // Serial number and worked-out columns are worked out even when yellow (a whole table marked, Carmel).
           const worked = SERIAL.test(pr.cols[k] ?? '') || colKind(pr.cols, k, pr.price);
@@ -1054,13 +1561,17 @@ export async function fillYellow(file, Y0, v) {
             return;
           }
           const h = pr.cols[k] ?? ''; const ps = all(tc, 'w:p'); const t = norm(textOf(tc));
-          if (SERIAL.test(h) && /^\d+\.?$/.test(t)) { setPara(doc, ps.find((x) => textOf(x).trim()) ?? ps[0], String(i + 1) + (t.endsWith('.') ? '.' : '')); return; }
+          // The serial number, also under a heading that does not say so (Nahas: "S/N" over 1).
+          if ((SERIAL.test(h) || k === 0) && /^\d+\.?$/.test(t)) { setPara(doc, ps.find((x) => textOf(x).trim()) ?? ps[0], String(i + 1) + (t.endsWith('.') ? '.' : '')); return; }
           // Worked-out cells of a row (GST %, GST amount, row total) where the template has figures in them.
           const line = tot.lines[i] ?? 0; const tax = Math.round(line * Number(v.gst || 0)) / 100;
           const fig = ps.find((x) => /\d/.test(textOf(x)));
           if (!fig) return;
-          const kind = colKind(pr.cols, k, pr.price);
-          if (kind === 'rate' && /%/.test(t)) setPara(doc, fig, `${Number(v.gst || 0)}%`);
+          // A cell holding "18%" is the rate (AV Mult's GST column); a "%" column holding an amount is the GST (Tata's
+          // "GST @5%" over 667, 25 Nov).
+          const kind0 = colKind(pr.cols, k, pr.price);
+          const kind = kind0 && /%/.test(t) ? 'rate' : kind0 === 'rate' ? 'tax' : kind0;
+          if (kind === 'rate') setPara(doc, fig, `${Number(v.gst || 0)}%`);
           else if (kind) setPara(doc, fig, moneyLike(textOf(fig).trim(), kind === 'tax' ? tax : kind === 'with' ? line + tax : line));
         });
         // No Annexure rows: the line pointing to it goes (the user, 19 Nov).
@@ -1069,27 +1580,57 @@ export async function fillYellow(file, Y0, v) {
       });
       pt.t.removeChild(model);
       for (const tr of pt.extra) if (tr.parentNode === pt.t) pt.t.removeChild(tr);
-      // Totals rows: the figure in each worked out; "GST 18%" says the GST chosen.
+      // The headings say the GST chosen ("GST @5%" over Tata's GST column, "Tax 18 %").
+      for (const p of all(pt.rows[pt.head ?? 0], 'w:p')) { const s0 = textOf(p); const s1 = gstText(s0); if (s1 !== s0) setKeep(doc, p, s1); }
+      // Totals rows: the figure in each worked out; "GST 18%" says the GST chosen. A row is named by its first cell with
+      // words (Jeeva's TOTAL after an empty cell); what it holds by its name (GRAND TOTAL, Total with GST, GST @18%), else
+      // by the column its figure stands under (AV Mult's TOTAL VALUE under TOTAL AMOUNT), else a total after the GST row
+      // is the total with it (Jeeva's TOTAL AMOUNT, 25 Nov).
+      const above = new Set(pt.rows.slice(0, pt.item)); let taxSeen = false;
       for (const tr of kids(pt.t, 'w:tr')) {
+        if (above.has(tr) || made.has(tr)) continue;
         const tcs = kids(tr, 'w:tc'); if (tcs.length < 2) continue;
-        const label = norm(textOf(tcs[0])); const t = textOf(tr);
-        if (/^\d+\.?$/.test(label) || !/total|gst|tax/i.test(t)) continue;
-        const kind = /grand/i.test(t) ? 'with' : /gst|tax|igst|cgst|sgst/i.test(label) ? 'tax' : /total/i.test(label) ? 'total' : null;
-        if (!kind) continue;
-        // A totals row with a figure under each worked-out column (Carmel's GRAND TOTAL · 16,800 · 840 · 17,640): each its own.
+        const label = rowLabel(tr); const t = textOf(tr);
+        if (!label || /^\d+\.?$/.test(label) || !/total|gst|tax/i.test(t)) continue;
         const at = []; let col = 0;
         for (const tc of tcs) { at.push(col); col += Number(all(tc, 'w:gridSpan')[0]?.getAttribute('w:val')) || 1; }
+        const vi = tcs.map((_, i) => i).slice(1).reverse().find((i) => /\d/.test(textOf(tcs[i])));
+        const under = vi != null ? colKind(pr.cols, at[vi], pr.price) : null;
+        const kind = /grand|with|incl/i.test(label) ? 'with' : /gst|tax/i.test(label) ? 'tax'
+          : /total|value|amount/i.test(label) ? (taxSeen || under === 'with' ? 'with' : 'total') : null;
+        if (!kind) continue;
+        if (kind === 'tax') taxSeen = true;
+        // A price by year: under each year its own figure, under the total column the whole; written even where the
+        // template left the cell empty (the Cathlab template's GST 18% and Total Contract Value rows).
+        if (pr.years) {
+          tcs.forEach((tc, i) => {
+            if (i === 0) return;
+            const j = pr.years.indexOf(at[i]);
+            if (j < 0 && !colKind(pr.cols, at[i], pr.price)) return;
+            const fig = j >= 0 ? tot.byYear?.[j]?.[kind] : tot[kind];
+            const ps = all(tc, 'w:p'); const p0 = ps.find((q) => /\d/.test(textOf(q))) ?? ps[0];
+            if (!p0 || fig == null) return;
+            const text = moneyLike(textOf(p0).trim() || pr.samplePrice, fig);
+            if (all(p0, 'w:t').length) setPara(doc, p0, text); else p0.appendChild(newRun(doc, p0, text));
+          });
+          const lc = tcs.find((c) => /[a-z]/i.test(textOf(c)));
+          if (kind === 'tax' && lc) for (const x of all(lc, 'w:t')) x.textContent = x.textContent.replace(/\d+(\.\d+)?\s*%/, `${Number(v.gst || 0)}%`);
+          continue;
+        }
+        // A totals row with a figure under each worked-out column (Carmel's GRAND TOTAL · 16,800 · 840 · 17,640): each its own.
         const figs = tcs.map((tc, i) => ({ tc, k: at[i] })).slice(1).filter((x) => /\d/.test(textOf(x.tc)) && colKind(pr.cols, x.k, pr.price));
         if (figs.length > 1 && col === pr.cols.length) {
           for (const x of figs) {
-            const ck = colKind(pr.cols, x.k, pr.price); const ps = all(x.tc, 'w:p').filter((q) => /\d/.test(textOf(q)));
+            const ck0 = colKind(pr.cols, x.k, pr.price); const ck = ck0 === 'rate' && !/%/.test(textOf(x.tc)) ? 'tax' : ck0;
+            const ps = all(x.tc, 'w:p').filter((q) => /\d/.test(textOf(q)));
             if (ps[0] && ck !== 'rate') setPara(doc, ps[0], moneyLike(textOf(ps[0]).trim(), ck === 'tax' ? tot.tax : ck === 'with' ? tot.with : tot.total));
           }
           continue;
         }
-        const vc = [...tcs].slice(1).reverse().find((c) => /\d/.test(textOf(c)));
+        const vc = vi != null ? tcs[vi] : null;
         if (vc) { const ps = all(vc, 'w:p').filter((p) => /\d/.test(textOf(p))); if (ps[0]) setPara(doc, ps[0], moneyLike(textOf(ps[0]).trim(), tot[kind])); }
-        if (kind === 'tax') for (const x of all(tcs[0], 'w:t')) x.textContent = x.textContent.replace(/\d+(\.\d+)?\s*%/, `${Number(v.gst || 0)}%`);
+        const lc = tcs.find((c) => /[a-z]/i.test(textOf(c)));
+        if (kind === 'tax' && lc) for (const x of all(lc, 'w:t')) x.textContent = x.textContent.replace(/\d+(\.\d+)?\s*%/, `${Number(v.gst || 0)}%`);
       }
     }
 
@@ -1112,6 +1653,17 @@ export async function fillYellow(file, Y0, v) {
           lt.t.insertBefore(tr, after);
         });
         for (const tr of trs.slice(1)) lt.t.removeChild(tr);
+        // A total under the rows (Aswini's TOTAL QTY 54, 25 Nov): its column added up from the rows written.
+        for (let tr = after; tr; tr = tr.nextSibling) {
+          if (tr.nodeName !== 'w:tr' || !kids(tr, 'w:tc').some((c) => /^\s*total\b/i.test(textOf(c)))) continue;
+          let col = 0;
+          for (const tc of kids(tr, 'w:tc')) {
+            const k = col; col += Number(all(tc, 'w:gridSpan')[0]?.getAttribute('w:val')) || 1;
+            const fig = kids(tc, 'w:p').find((p) => textOf(p).trim() && /^\s*[\d,]+(\.\d+)?\s*$/.test(textOf(p)));
+            const nums = rows.map((r) => String(r[k] ?? '').replace(/,/g, '').trim()).filter((x) => /^\d+(\.\d+)?$/.test(x));
+            if (fig && nums.length) setPara(doc, fig, String(nums.reduce((a, x) => a + Number(x), 0)));
+          }
+        }
       } else {
         // The title above it ("Annexure- 1") and a page break before that go with it.
         let el = lt.t.previousSibling;
@@ -1124,8 +1676,11 @@ export async function fillYellow(file, Y0, v) {
           }
           el = prev;
         }
-        // A summary under the list keeps the table; only the list's rows go.
-        if (lt.tail) for (const tr of trs) lt.t.removeChild(tr); else lt.t.parentNode.removeChild(lt.t);
+        // A summary under the list keeps the table (SUB CAMC's TOTAL ASSET VALUE); only the list's rows go. A list with
+        // nothing under it but its own total (Aswini's TOTAL QTY) goes whole.
+        const rest = []; for (let tr = after; tr; tr = tr.nextSibling) if (tr.nodeName === 'w:tr') rest.push(tr);
+        const sumOnly = rest.every((tr) => kids(tr, 'w:tc').length === lt.cells && kids(tr, 'w:tc').some((c) => /^\s*total\b/i.test(textOf(c))));
+        if (lt.tail && !sumOnly) for (const tr of trs) lt.t.removeChild(tr); else lt.t.parentNode.removeChild(lt.t);
       }
     }
 
@@ -1133,7 +1688,8 @@ export async function fillYellow(file, Y0, v) {
     const jobs = [];
     for (const it of s.items) {
       if (it.type === 'block') {
-        const b = it.block; const f = byKey.get(blockKey(b)); if (!f) continue;
+        // A signer written twice under different headings is one box (Shri Balaji): found by its lines.
+        const b = it.block; const f = byKey.get(blockKey(b)) ?? Y.fields.find((x) => x.kind === 'signer' && x.sample === blockLines(b)); if (!f) continue;
         let lines = String(value(f.key) ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
         // Figures worked out in their own lines, the typed ones in the others, in the template's order.
         if (f.kind === 'fixed') lines = lines.map(gstText);
@@ -1171,6 +1727,14 @@ export async function fillYellow(file, Y0, v) {
       else if (kind === 'date') { const t = g.text.trim(); const ld = leadOf(t); text = ld + dateLike(t.slice(ld.length).trim(), val); }
       else if (kind === 'period') { const t = norm(g.text); const ld = leadOf(t); const m = PERIOD.exec(t.slice(ld.length)); text = `${ld}${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
       else if (kind === 'words') text = wordsLike(g.text, tot.with);
+      else if (f.role === 'toline') {
+        // The customer again at the signing (Nahas): To's line, in capitals where the template wrote it so.
+        const to = Y.fields.find((x) => x.role === 'to');
+        const ls = clientFrom(String(value(to?.key) ?? '')).split('\n').map((x) => x.trim()).filter((x) => x && !TO_LINE.test(x));
+        const one = f.line === -1 ? (ls.length > 1 ? ls[ls.length - 1] : '') : (ls[f.line] ?? '');
+        const s0 = g.text.trim();
+        text = /[A-Z]/.test(s0) && s0 === s0.toUpperCase() ? one.toUpperCase() : one;
+      }
       else if (f.worked) text = moneyLike(g.text.trim(), tot[f.worked]);
       else if (REF_LEAD.test(g.text) && !REF_LEAD.test(String(val ?? ''))) text = REF_LEAD.exec(g.text.trim())[0] + String(val ?? '');
       else text = String(val ?? '');

@@ -1409,6 +1409,7 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
 .qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }
 .qt-yc-calc { color: #b45309 !important; }
+.qt-yc-auto { margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #fef9c3; color: #854d0e; font-style: normal; font-size: 12px; font-weight: 700; vertical-align: 1px; }
 .qt-yc-list li.qt-yc-t-in b { color: #16a34a; }
 .qt-yc-list li.qt-yc-t-count b { color: #ca8a04; }
 .qt-yc-list li.qt-yc-t-calc b { color: #2563eb; }

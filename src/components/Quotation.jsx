@@ -13,7 +13,7 @@ import {
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { nameBoxes } from '../data/quoteAi.js';
-import { markWorked, markYellow, readYellow, readTerms, readTermSections, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
+import { autoYellow, colKind, yearSum, markWorked,markYellow, readYellow,readTerms, readTermSections, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell, typedBox } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -862,6 +862,8 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
   const set = (k, v) => setQ((o) => ({ ...o, [k]: v }));
   const settle = useHeldQtn(r, q, set);
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
+  // A price by year (SMRI, Cathlab templates): each year typed, the item's price their sum.
+  const setYear = (i, j, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => { if (n !== i) return it; const years = [...(it.years ?? [])]; years[j] = v; return { ...it, years, price: yearSum(years) }; }) }));
   const totals = quoteTotals(q.items);
   // Margin and unit price follow each other: a margin gives the price from the cost, a price shows its margin.
   const r2 = (n) => String(Math.round(n * 100) / 100);
@@ -3983,7 +3985,16 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
     setErr(null); setReading(true); setStep({ n: 0, name: f.name });
     try {
       // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
-      const [Y0, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
+      const [R0, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
+      // No yellow (or one bit, Shri Balaji's GSTIN): coloured in a copy by the company's own quotations' patterns, then
+      // read as if the person had coloured it (autoYellow; the user, 25 Nov: "understand the pattern, study, learn and
+      // save in rules"). A file the person coloured is read as they coloured it.
+      let src = f; let Y0 = R0; let auto = false;
+      if (R0.fields.length <= 1 && !R0.price && !R0.list) {
+        const a = await autoYellow(f).catch(() => null);
+        const R1 = a?.added.length ? await readYellow(a.file).catch(() => null) : null;
+        if (R1 && (R1.fields.length || R1.price || R1.list)) { src = a.file; Y0 = R1; auto = true; }
+      }
       // Gemini names the boxes (api/quote-boxes.js); the rules' names stand if it cannot.
       setStep({ n: 2, name: f.name });
       const { Y: G } = await nameBoxes(Y0);
@@ -3991,7 +4002,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
       // What changes but is not yellow (the Ref and Date by rule, Gemini's finds) is coloured in a copy and read again
       // (the user, 25 Nov); Gemini's names and its "kept as in the file" carry over by key.
       const missed = G.missed ?? [];
-      const { file: f2, added } = await markYellow(f, missed.map((m) => m.text)).catch(() => ({ file: f, added: [] }));
+      const { file: f2, added } = await markYellow(src, missed.map((m) => m.text)).catch(() => ({ file: src, added: [] }));
       let Y = G;
       if (added.length) {
         const Y1 = await readYellow(f2);
@@ -4005,7 +4016,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
         Y = { ...rest, fields: rolesOf(fields, Y1.list), missed: missed.filter((m) => !added.includes(m.text)), ai: G.ai };
       }
       if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
-      setFile(f2); setLay({ v: 2, yellow: Y }); if (n) setName(n);
+      setFile(f2); setLay({ v: 2, yellow: auto ? { ...Y, auto: true } : Y }); if (n) setName(n);
     } catch { setErr('This Word file could not be read.'); } finally { setReading(false); setStep(null); }
   };
   const look = async () => {
@@ -4631,7 +4642,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     const f = { ...o.f, [k]: v };
     const to = roleOf('to'); const cl = roleOf('client');
     // CLIENT follows To (without the person's line) until it is written itself (the user, 19 Nov).
-    if (to && cl && k === to.key && !o.clientOwn) f[cl.key] = titleLike(cl.sample, clientFrom(v));
+    if (to && cl && k === to.key && !o.clientOwn) f[cl.key] = titleLike(cl.sample, cl.kind === 'text' ? clientFrom(v).split('\n')[0] : clientFrom(v));
     return { ...o, f, ...(cl && k === cl.key ? { clientOwn: true } : {}) };
   });
   const setItem = (i, k, v) => setQ((o) => ({ ...o, items: o.items.map((it, n) => (n === i ? { ...it, [k]: v } : it)) }));
@@ -4692,7 +4703,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
   const check = () => {
     if (r.free && !roleOf('ref')) return 'The Ref number is not in yellow in this template.';
     for (const x of Y.fields) {
-      if (x.kind === 'words' || x.kind === 'fixed') continue;
+      if (!typedBox(x)) continue; // worked out, kept as written, or following To: nothing to write
       const v = q.f[x.key];
       if (x.kind === 'period') { if (!v?.from || !v?.upto) return `Choose the ${x.label}.`; if (v.upto < v.from) return `${x.label} ends before it starts.`; continue; }
       if (!String(v ?? '').trim()) return x.kind === 'date' ? `Choose the ${x.label}.` : `Write the ${x.label}.`;
@@ -4701,6 +4712,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
       for (const [i, it] of q.items.entries()) {
         const n = q.items.length > 1 ? ` of item ${i + 1}` : '';
         for (const x of own) if (!String(it[x.key] ?? '').trim() && !(x.qty && Y.list && q.rows.length)) return `Write the ${x.label}${n}.`;
+        if (Y.price.years) { const j = Y.price.years.findIndex((_, y) => !(Number(it.years?.[y]) > 0)); if (j >= 0) return `Write the ${Y.price.yearHeads[j]}${n}.`; }
         if (!(Number(it.price) > 0)) return `Write the ${Y.price.priceHead}${n}.`;
       }
     }
@@ -4779,7 +4791,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
         </header>
         <div className="mt-sheet-body qt-maker-body">
           <div className="qt-maker-main">
-            <div className="qt-maker-to qt-lm-to">{Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean))).flatMap((x) => [box(x)].flat())}</div>
+            <div className="qt-maker-to qt-lm-to">{Y.fields.filter(typedBox).flatMap((x) => [box(x)].flat())}</div>
             {Y.price && (
               <div className="qt-maker-items">
                 {q.items.map((it, i) => (
@@ -4795,9 +4807,15 @@ function YellowMaker({ r, start, onClose, onMade }) {
                             : <input value={it[x.key] ?? ''} onChange={(e) => setItem(i, x.key, e.target.value)} placeholder={x.qty ? qtyName(x) : undefined} />}
                         </label>
                       ))}
-                      <label className="pm-in"><span>{Y.price.priceHead}</span>
-                        <input inputMode="decimal" value={it.price ?? ''} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
-                      </label>
+                      {Y.price.years ? Y.price.yearHeads.map((h, j) => (
+                        <label key={h} className="pm-in"><span>{h}</span>
+                          <input inputMode="decimal" value={it.years?.[j] ?? ''} onChange={(e) => setYear(i, j, e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
+                        </label>
+                      )) : (
+                        <label className="pm-in"><span>{Y.price.priceHead}</span>
+                          <input inputMode="decimal" value={it.price ?? ''} onChange={(e) => setItem(i, 'price', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
+                        </label>
+                      )}
                       {!q.lump && Y.price.qty != null && <p className="qt-mi-tot"><span>Amount</span><b>{money(totals.lines[i]) || '₹0'}</b></p>}
                     </div>
                   </section>
@@ -4909,23 +4927,26 @@ function YellowCheck({ lay, onChange }) {
   // As the form will show it: roles named, amounts that follow the price table marked worked out.
   const Y = markWorked({ ...lay.yellow, fields: rolesOf(lay.yellow.fields.map((x) => ({ ...x })), lay.yellow.list) });
   // The user, 25 Nov: what is typed in green, counted in yellow, worked out in blue; kept as in the file stays plain.
-  const tone = (x) => (x.kind === 'words' || x.worked || (x.wlines && x.wlines.every(Boolean)) ? 'qt-yc-t-calc' : x.kind === 'fixed' ? '' : 'qt-yc-t-in');
-  const shown = (x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean));
+  const tone = (x) => (x.kind === 'words' || x.worked || x.role === 'toline' || (x.wlines && x.wlines.every(Boolean)) ? 'qt-yc-t-calc' : x.kind === 'fixed' ? '' : 'qt-yc-t-in');
+  const shown = typedBox;
   const own = (Y.price?.fields ?? []).filter((x) => !x.link);
   const role = (k) => {
-    if (k === Y.price.price) return 'Price';
+    if (k === Y.price.price || Y.price.years?.includes(k)) return 'Price';
     if (k === Y.price.qty) return 'Qty';
-    if (own.some((x) => x.key.startsWith(`c${k}g`))) return 'Typed';
+    // A cell's lines are one box keyed by the cell (St Rita's bed and its features: "c1").
+    if (own.some((x) => x.key === `c${k}` || x.key.startsWith(`c${k}g`))) return 'Typed';
     if (/^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i.test(Y.price.cols[k] ?? '')) return 'Counted';
+    // Total, GST and the like after the price: worked out per row by the filler.
+    if (colKind(Y.price.cols, k, Y.price.price)) return 'Worked out';
     return 'As in the file';
   };
   return (
     <div className="qt-yc">
       <section className="qt-yc-sec">
-        <h3>Boxes · {Y.fields.filter(shown).length}</h3>
+        <h3>Boxes · {Y.fields.filter(shown).length}{Y.auto && <em className="qt-yc-auto">Yellow added</em>}</h3>
         <ul className="qt-yc-list">
           {Y.fields.map((x) => (
-            <li key={x.key} className={tone(x)}><b>{x.label}</b><span>{x.kind === 'words' || x.worked ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.wlines ? `${x.sample.split('\n').filter((_, i) => !x.wlines[i]).join(' · ')} · the rest worked out` : x.sample.split('\n').join(' · ')}</span>{x.calc && !x.worked && !x.wlines && <em className="qt-yc-calc">Calculated · check</em>}{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
+            <li key={x.key} className={tone(x)}><b>{x.label}</b><span>{x.kind === 'words' || x.worked ? 'Worked out' : x.role === 'toline' ? 'From To' : x.kind === 'fixed' ? 'Kept as in the file' : x.wlines ? `${x.sample.split('\n').filter((_, i) => !x.wlines[i]).join(' · ')} · the rest worked out` : x.sample.split('\n').join(' · ')}</span>{x.calc && !x.worked && !x.wlines && <em className="qt-yc-calc">Calculated · check</em>}{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
           ))}
         </ul>
         {Y.missed?.length > 0 && (
@@ -4939,7 +4960,7 @@ function YellowCheck({ lay, onChange }) {
         <section className="qt-yc-sec">
           <h3>Price table</h3>
           <ul className="qt-yc-list">
-            {Y.price.cols.map((c, k) => <li key={k} className={{ Price: 'qt-yc-t-in', Qty: 'qt-yc-t-in', Typed: 'qt-yc-t-in', Counted: 'qt-yc-t-count' }[role(k)] ?? ''}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
+            {Y.price.cols.map((c, k) => <li key={k} className={{ Price: 'qt-yc-t-in', Qty: 'qt-yc-t-in', Typed: 'qt-yc-t-in', Counted: 'qt-yc-t-count', 'Worked out': 'qt-yc-t-calc' }[role(k)] ?? ''}><b>{c || '—'}</b><span>{role(k)}</span></li>)}
             <li className="qt-yc-t-calc"><b>Total · GST · Grand total</b><span>Worked out</span></li>
           </ul>
           {Y.price.qty != null && !Y.price.lumpSure && (
