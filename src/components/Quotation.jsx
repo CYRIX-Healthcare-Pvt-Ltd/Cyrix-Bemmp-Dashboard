@@ -3966,6 +3966,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
   const [file, setFile] = useState(null);
   const [lay, setLay] = useState(null);
   const [reading, setReading] = useState(t?.kind === 'word');
+  const [step, setStep] = useState(null);
   const [pop, setPop] = useState(false);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -3979,12 +3980,14 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
   const pick = async (f) => {
     if (!f) return;
     if (!/\.docx$/i.test(f.name)) { setErr('Choose a Word file (.docx).'); return; }
-    setErr(null); setReading(true);
+    setErr(null); setReading(true); setStep({ n: 0, name: f.name });
     try {
       // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
       const [Y0, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
       // Gemini names the boxes (api/quote-boxes.js); the rules' names stand if it cannot.
+      setStep({ n: 2, name: f.name });
       const { Y: G } = await nameBoxes(Y0);
+      setStep({ n: 3, name: f.name });
       // What changes but is not yellow (the Ref and Date by rule, Gemini's finds) is coloured in a copy and read again
       // (the user, 25 Nov); Gemini's names and its "kept as in the file" carry over by key.
       const missed = G.missed ?? [];
@@ -4003,7 +4006,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
       }
       if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
       setFile(f2); setLay({ v: 2, yellow: Y }); if (n) setName(n);
-    } catch { setErr('This Word file could not be read.'); } finally { setReading(false); }
+    } catch { setErr('This Word file could not be read.'); } finally { setReading(false); setStep(null); }
   };
   const look = async () => {
     setBusy('look'); setErr(null);
@@ -4047,7 +4050,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
             <Field label="Subject"><input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={DEFAULT_SUBJECT} /></Field>
             <div className="pm-in qt-wide"><span>Terms</span><TermsList terms={terms === '' ? [] : terms.split('\n')} onChange={(l) => setTerms(l.join('\n'))} /></div>
           </div>
-        ) : reading ? <div className="loader" aria-hidden="true" /> : !lay ? (
+        ) : reading ? (step ? <ReadingDoc step={step} /> : <div className="loader" aria-hidden="true" />) : !lay ? (
           <button type="button" className="qt-tpl-drop" onClick={() => input.current?.click()}><Icon d={I.doc} size={22} /><span>Choose Word file</span></button>
         ) : lay.v === 2 ? (
           <div className="qt-tpl-form qt-lm-form">
@@ -4931,6 +4934,29 @@ function YellowCheck({ lay, onChange }) {
           <ul className="qt-yc-list">{Y.list.cols.map((c, k) => <li key={k}><b>{c}</b><span>{k === 0 && /^(s[il]?\.?\s*no\.?|sr\.?\s*no\.?|no\.?|#)$/i.test(c) ? 'Counted' : 'Typed or Excel'}</span></li>)}</ul>
         </section>
       )}
+    </div>
+  );
+}
+
+// Reading a Word template (the user, 25 Nov: "show good, uploading animation"): a page being scanned and the steps.
+// The AI step says Cyra, never the model behind it (the user, 25 Nov).
+const READ_STEPS = ['Opening the Word file', 'Finding the yellow parts', 'Cyra checking the boxes', 'Getting the form ready'];
+function ReadingDoc({ step }) {
+  const [n, setN] = useState(step.n);
+  useEffect(() => { setN(step.n); if (step.n === 0) { const k = setTimeout(() => setN(1), 700); return () => clearTimeout(k); } }, [step.n]);
+  return (
+    <div className="qt-read" role="status" aria-live="polite">
+      <div className="qt-read-doc" aria-hidden="true">
+        {[50, 100, 60, 100, 40, 100, 70, 55, 100].map((w, i) => <i key={i} className={[2, 4, 7].includes(i) ? 'y' : ''} style={{ width: `${w * 0.76}%` }} />)}
+        <b />
+      </div>
+      <div className="qt-read-name">Reading {step.name}</div>
+      <ul className="qt-read-steps">
+        {READ_STEPS.map((s, i) => (
+          <li key={s} className={i < n ? 'done' : i === n ? 'now' : ''}><span aria-hidden="true">{i < n ? '✓' : i === n ? <em className="qt-read-spin" /> : '·'}</span>{s}</li>
+        ))}
+      </ul>
+      <div className="qt-read-bar"><div style={{ width: `${((n + 0.5) / READ_STEPS.length) * 100}%` }} /></div>
     </div>
   );
 }
