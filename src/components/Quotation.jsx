@@ -13,7 +13,7 @@ import {
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { nameBoxes } from '../data/quoteAi.js';
-import { readYellow, readTerms, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
+import { markYellow, readYellow, readTerms, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -3984,9 +3984,25 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
       // Only what is in yellow changes (the user, 19 Nov): the boxes, the price table's item row, the Annexure heading.
       const [Y0, n] = await Promise.all([readYellow(f), t ? Promise.resolve(null) : templateName(f)]);
       // Gemini names the boxes (api/quote-boxes.js); the rules' names stand if it cannot.
-      const { Y } = await nameBoxes(Y0);
+      const { Y: G } = await nameBoxes(Y0);
+      // What changes but is not yellow (the Ref and Date by rule, Gemini's finds) is coloured in a copy and read again
+      // (the user, 25 Nov); Gemini's names and its "kept as in the file" carry over by key.
+      const missed = G.missed ?? [];
+      const { file: f2, added } = await markYellow(f, missed.map((m) => m.text)).catch(() => ({ file: f, added: [] }));
+      let Y = G;
+      if (added.length) {
+        const Y1 = await readYellow(f2);
+        const by = new Map(G.fields.map((x) => [x.key, x]));
+        const fields = Y1.fields.map((x) => {
+          const g = by.get(x.key); if (g) return { ...x, label: g.label, kind: g.kind === 'fixed' ? 'fixed' : x.kind };
+          const m = missed.find((mm) => mm.text && x.sample.includes(mm.text));
+          return { ...x, label: m?.label || x.label, added: true };
+        });
+        const { plain, ...rest } = Y1;
+        Y = { ...rest, fields: rolesOf(fields, Y1.list), missed: missed.filter((m) => !added.includes(m.text)), ai: G.ai };
+      }
       if (!Y.fields.length && !Y.price && !Y.list) { setErr('No yellow found. In Word, mark in yellow what changes in each quotation.'); return; }
-      setFile(f); setLay({ v: 2, yellow: Y }); if (n) setName(n);
+      setFile(f2); setLay({ v: 2, yellow: Y }); if (n) setName(n);
     } catch { setErr('This Word file could not be read.'); } finally { setReading(false); }
   };
   const look = async () => {

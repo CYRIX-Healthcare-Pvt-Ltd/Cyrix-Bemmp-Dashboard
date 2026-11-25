@@ -48,6 +48,71 @@ function runsOf(p) {
 /** A paragraph's text with its tabs as tab characters (for names: "CLIENT ⇥ FIRST PARTY"). */
 const tabText = (p) => runsOf(p).map((r) => [...r.childNodes].map((c) => (c.nodeName === 'w:t' ? c.textContent : c.nodeName === 'w:tab' ? '\t' : '')).join('')).join('');
 
+/*
+  What changes but nobody coloured (the user, 25 Nov: "that ref id should be editable"): SUB AMC's "Ref- QTN1021/…" and
+  "Date- 02/11/2026" sit plain in the page header. The Ref and Date after their words are found by rule; Gemini's
+  finds (quoteAi.js) are added. Each is made yellow in a copy of the file — a run split where the text starts and ends —
+  so reading, the form and filling treat it as if the person had coloured it. The original file is never changed.
+*/
+const REF_DATE = [/\bRef(?:erence)?\.?\s*(?:No\.?)?\s*[-:.]\s*([A-Z]{2,}[\w/.-]*\d[\w/.-]*)/i, /\bDate[d]?\s*[-:.]\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})/i];
+export async function markYellow(file, texts = []) {
+  const zip = await JSZip.loadAsync(file);
+  const added = [];
+  for (const name of partNames(zip)) {
+    const doc = parse(await zip.file(name).async('string'));
+    let changed = false;
+    for (const p of all(doc, 'w:p')) {
+      const runs = runsOf(p).filter((r) => kids(r, 'w:t').length);
+      const whole = runs.map(textOf).join('');
+      if (!whole.trim()) continue;
+      const wants = [];
+      for (const re of REF_DATE) { const m = re.exec(whole); if (m) wants.push(m[1]); }
+      for (const t of texts) if (t && whole.includes(t)) wants.push(t);
+      for (const want of [...new Set(wants)]) {
+        const cur = runsOf(p).filter((r) => kids(r, 'w:t').length);
+        const s = cur.map(textOf).join('').indexOf(want); if (s < 0) continue;
+        if (paintRange(doc, cur, s, s + want.length)) { changed = true; added.push(want); }
+      }
+    }
+    if (changed) zip.file(name, new XMLSerializer().serializeToString(doc));
+  }
+  if (!added.length) return { file, added };
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: DOCX });
+  return { file: new File([blob], file.name, { type: DOCX }), added };
+}
+/** Yellow on [s, e) of these runs' joined text: runs split at the edges; false when it is already yellow or a run is not plain text. */
+function paintRange(doc, runs, s, e) {
+  let at = 0; const hit = [];
+  for (const r of runs) {
+    const t = textOf(r); const a = at; const b = at + t.length; at = b;
+    if (b <= s || a >= e) continue;
+    if (isYellow(r)) return false;
+    if ([...r.childNodes].some((c) => c.nodeName !== 'w:rPr' && c.nodeName !== 'w:t')) { if (a < s || b > e) return false; hit.push(r); continue; }
+    const cut = [Math.max(s, a) - a, Math.min(e, b) - a];
+    const parts = [t.slice(0, cut[0]), t.slice(cut[0], cut[1]), t.slice(cut[1])];
+    const make = (text, yellowOn) => {
+      const n = r.cloneNode(true);
+      for (const x of kids(n, 'w:t')) n.removeChild(x);
+      const wt = doc.createElementNS(W, 'w:t'); wt.setAttributeNS(XS, 'xml:space', 'preserve'); wt.textContent = text; n.appendChild(wt);
+      if (yellowOn) hit.push(n);
+      return n;
+    };
+    const fresh = parts.map((x, i) => (x ? make(x, i === 1) : null)).filter(Boolean);
+    for (const n of fresh) r.parentNode.insertBefore(n, r);
+    r.parentNode.removeChild(r);
+  }
+  for (const r of hit) {
+    let rpr = kids(r, 'w:rPr')[0];
+    if (!rpr) { rpr = doc.createElementNS(W, 'w:rPr'); r.insertBefore(rpr, r.firstChild); }
+    for (const h of kids(rpr, 'w:highlight')) rpr.removeChild(h);
+    // Word's order inside w:rPr: highlight comes before underline, effects, shading, language and the rest.
+    const h = doc.createElementNS(W, 'w:highlight'); h.setAttributeNS(W, 'w:val', 'yellow');
+    const after = [...rpr.childNodes].find((c) => /^w:(u|effect|bdr|shd|fitText|vertAlign|rtl|cs|em|lang|eastAsianLayout|specVanish|oMath)$/.test(c.nodeName));
+    rpr.insertBefore(h, after ?? null);
+  }
+  return hit.length > 0;
+}
+
 /** The yellow groups of a paragraph: yellow runs side by side (spaces between them kept in). */
 function groupsIn(p) {
   const out = []; let cur = null; let gap = [];
@@ -192,6 +257,8 @@ const PERIOD = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s*(to|-|–|till)\s*(\d{1,2}[/.
  */
 const LEAD = /^([^\d]*[a-z][^\d]*?[:\-–]\s*|[\s:\-–]+)(?=\d)/i;
 const leadOf = (t) => LEAD.exec(t)?.[1] ?? '';
+/** "Ref- " in front of a yellow number (SUB AMC's header, all of it yellow): kept when the number is filled in. */
+const REF_LEAD = /^\s*Ref(?:erence)?\.?\s*(?:No\.?)?\s*[-:.–]\s*/i;
 /** A line that is only "TO," (or "To:"). */
 const TO_LINE = /^\s*to\s*[,:.-]?\s*$/i;
 const WORDS_AMOUNT = /^\s*(rupees|rs\.?|inr)\b.*\bonly\b/i;
@@ -417,7 +484,7 @@ export async function readYellow(file) {
   for (const name of partNames(zip)) {
     const doc = parse(await zip.file(name).async('string'));
     // The plain text, with no yellow, for Gemini to spot what changes but was not coloured (quoteAi.js).
-    if (/document\.xml$/.test(name)) for (const p of all(doc, 'w:p')) { const t = norm(textOf(p)); if (t && !groupsIn(p).length) plain.push(t); }
+    for (const p of all(doc, 'w:p')) { const t = norm(textOf(p)); if (t && !groupsIn(p).length) plain.push(t); }
     const s = scan(doc);
     if (s.price && !price) price = priceOf(s.price);
     if (s.list && !list) {
@@ -499,8 +566,8 @@ export function rolesOf(fields, list) {
   for (const f of fields) delete f.role;
   // The Annexure's yellow heading is the Annexure section's own title, never a box of its own (SUB AMC, 25 Nov).
   if (list) for (const f of fields) if (f.kind === 'text' && /^annex/i.test(f.sample.trim())) f.kind = 'fixed';
-  const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample)));
-  if (ref) ref.role = 'ref';
+  const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample) || REF_LEAD.test(f.sample)));
+  if (ref) { ref.role = 'ref'; if (!/[a-z]{2}/i.test(ref.label)) ref.label = 'Ref number'; }
   const date = fields.find((f) => f.kind === 'date' && /date/i.test(f.label)) ?? fields.find((f) => f.kind === 'date');
   if (date) date.role = 'date';
   // The customer's address: named To or Address, or a whole yellow block starting "TO," (SUB AMC, the user, 19 Nov).
@@ -950,6 +1017,7 @@ export async function fillYellow(file, Y, v) {
       else if (kind === 'date') { const t = g.text.trim(); const ld = leadOf(t); text = ld + dateLike(t.slice(ld.length).trim(), val); }
       else if (kind === 'period') { const t = norm(g.text); const ld = leadOf(t); const m = PERIOD.exec(t.slice(ld.length)); text = `${ld}${dateLike(m[1], val?.from)} ${m[2]} ${dateLike(m[3], val?.upto)}`; }
       else if (kind === 'words') text = wordsLike(g.text, tot.with);
+      else if (REF_LEAD.test(g.text) && !REF_LEAD.test(String(val ?? ''))) text = REF_LEAD.exec(g.text.trim())[0] + String(val ?? '');
       else text = String(val ?? '');
       jobs.push({ g, text: `${/^\s*/.exec(g.text)[0]}${text}${/\s*$/.exec(g.text)[0]}` });
     }
