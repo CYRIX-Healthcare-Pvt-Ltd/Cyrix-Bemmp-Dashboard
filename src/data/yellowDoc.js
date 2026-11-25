@@ -673,6 +673,13 @@ export function markWorked(Y) {
     if (f.kind === 'lines' && !f.role) { const ws = f.sample.split('\n').map((l) => which(l)); if (ws.some(Boolean)) g.wlines = ws; }
     return g;
   });
+  // The lines left to type named by the labels beside them (SUB CAMC: "TOTAL ASSET VALUE" in the box next to the figures).
+  for (const g of fields) {
+    if (!g.wlines) continue;
+    const tags = fields.find((x) => x !== g && x.sample.split('\n').length === g.wlines.length && !x.sample.split('\n').some((l) => /\d{3}/.test(l)));
+    const names = tags ? tags.sample.split('\n').filter((_, i) => !g.wlines[i]).map((l) => l.trim().toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())) : [];
+    if (names.length) g.label = names.join(' · ');
+  }
   return { ...Y, fields };
 }
 
