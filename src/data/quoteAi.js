@@ -26,7 +26,7 @@ export async function nameBoxes(Y) {
     const by = new Map((ans?.boxes ?? []).map((b) => [b.key, b]));
     const fields = Y.fields.map((f) => {
       const b = by.get(f.key); if (!b) return f;
-      return b.box ? { ...f, label: b.label || f.label } : { ...f, kind: 'fixed', label: b.label || f.label };
+      return b.box ? { ...f, label: b.label || f.label, common: b.common, size: b.size } : { ...f, kind: 'fixed', label: b.label || f.label };
     });
     // Not yellow but likely to change: a note on the Boxes list, nothing more (the user, 25 Nov: "just a companion").
     return { Y: { ...Y, fields, missed: ans?.missed ?? [], ai: `ok ${ans?.model ?? ""}`.trim() }, ai: true };

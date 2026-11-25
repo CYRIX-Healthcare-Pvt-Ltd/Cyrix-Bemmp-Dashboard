@@ -29,9 +29,11 @@ export const config = { maxDuration: 60 };
 const PROMPT = `You read a company quotation template (Word). People marked in yellow the parts that change in each quotation; a program turned each yellow part into a form box and guessed a label. For each box you get: key, kind, the guessed label, the yellow sample text, and the words around it (the yellow part is in [brackets]).
 For each box decide:
 - label: a short plain-English name a sales coordinator understands (2-4 words, Title case, no colon), e.g. "Doctor Name", "Hospital Address", "Contract Period", "Breakdown Response Time", "Number Of PM Visits". Keep the guessed label if it is already right.
+- common: true when the text is a standard term that stays the same for most customers (number of visits, response or support times, payment terms wording); false for anything about this customer or this quotation (names, hospital, address, dates, numbers, prices, subject, signer).
+- size: "short" when a typical value fits in about 25 characters (a time, a count, a code), "long" when it is a phrase or sentence.
 - box: false only when the yellow text is a heading or fixed wording that never changes between quotations (e.g. "Annexure 1", "SIGNATURE", a section title); otherwise true.
-You also get the template's other text (not yellow, so the program keeps it fixed). List up to 8 places in it that look like they would change in each quotation but were not marked yellow: a customer or doctor name, hospital or address, a date, a quotation or reference number, a contract period, a price, a quantity, a person's name, designation or phone in the signature. Skip company boilerplate, terms and Cyrix's own address. For each give the exact words (as written, max 60 characters) and a short label.
-Answer JSON only: {"boxes":[{"key":"...","label":"...","box":true}],"missed":[{"text":"...","label":"..."}]} with every box key given, in the same order.`;
+You also get the template's other text (not yellow, so the program keeps it fixed). List up to 8 places in it that look like they would change in each quotation but were not marked yellow: a customer or doctor name, hospital or address, a date, a quotation or reference number, a contract period, a price, a quantity, a person's name, designation or phone in the signature. Skip company boilerplate, terms and Cyrix's own address. For each give the exact words (as written, max 60 characters), a short label, and common and size as for boxes.
+Answer JSON only: {"boxes":[{"key":"...","label":"...","box":true,"common":false,"size":"short"}],"missed":[{"text":"...","label":"...","common":false,"size":"short"}]} with every box key given, in the same order.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { json(res, 405, { error: 'POST only.' }); return; }
@@ -80,9 +82,9 @@ export default async function handler(req, res) {
     const known = new Set(slim.map((b) => b.key));
     const answer = (out?.boxes ?? [])
       .filter((b) => known.has(b.key))
-      .map((b) => ({ key: b.key, label: String(b.label ?? '').trim().slice(0, 40), box: b.box !== false }));
-    const missed = (out?.missed ?? []).slice(0, 8).map((m) => ({ text: String(m.text ?? '').slice(0, 60), label: String(m.label ?? '').slice(0, 40) })).filter((m) => m.text && String(plain ?? '').includes(m.text));
-    json(res, 200, { boxes: answer, missed, model: used });
+      .map((b) => ({ key: b.key, label: String(b.label ?? '').trim().slice(0, 40), box: b.box !== false, common: b.common === true, size: b.size === 'long' ? 'long' : 'short' }));
+    const missed = (out?.missed ?? []).slice(0, 8).map((m) => ({ text: String(m.text ?? '').slice(0, 60), label: String(m.label ?? '').slice(0, 40), common: m.common === true, size: m.size === 'long' ? 'long' : 'short' })).filter((m) => m.text && String(plain ?? '').includes(m.text));
+    json(res, 200, { boxes: answer, missed, model: used + (why.length ? ` · tried ${why.join(" · ")}` : "") });
   } catch (e) {
     json(res, 502, { error: `Gemini: ${e.message}` });
   }

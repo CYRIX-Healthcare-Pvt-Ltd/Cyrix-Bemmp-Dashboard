@@ -3994,9 +3994,9 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
         const Y1 = await readYellow(f2);
         const by = new Map(G.fields.map((x) => [x.key, x]));
         const fields = Y1.fields.map((x) => {
-          const g = by.get(x.key); if (g) return { ...x, label: g.label, kind: g.kind === 'fixed' ? 'fixed' : x.kind };
+          const g = by.get(x.key); if (g) return { ...x, label: g.label, kind: g.kind === 'fixed' ? 'fixed' : x.kind, common: g.common, size: g.size };
           const m = missed.find((mm) => mm.text && x.sample.includes(mm.text));
-          return { ...x, label: m?.label || x.label, added: true };
+          return { ...x, label: m?.label || x.label, added: true, ...(m ? { common: m.common, size: m.size } : {}) };
         });
         const { plain, ...rest } = Y1;
         Y = { ...rest, fields: rolesOf(fields, Y1.list), missed: missed.filter((m) => !added.includes(m.text)), ai: G.ai };
@@ -4748,7 +4748,11 @@ function YellowMaker({ r, start, onClose, onMade }) {
       const n = Math.max(2, Math.min(8, Math.max(String(v ?? '').split('\n').length, x.sample.split('\n').length)));
       return <Field key={x.key} label={x.label} wide><textarea rows={n} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
     }
-    return <Field key={x.key} label={x.label} wide={x.role !== 'ref' && x.sample.length > 18}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
+    // Gemini's size (the user, 25 Nov: "you know what all field needed more space"): a long one full width with room to
+    // wrap, a short one half; without it, the sample's length decides as before.
+    if (x.size === 'long') return <Field key={x.key} label={x.label} wide><textarea rows={2} value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
+    const wide = x.size ? false : x.role !== 'ref' && x.sample.length > 18;
+    return <Field key={x.key} label={x.label} wide={wide}><input value={v ?? ''} onChange={(e) => setF(x.key, e.target.value)} placeholder={hintOf(x)} /></Field>;
   };
   const qtyName = (x) => (Y.list && q.rows.length ? `${q.rows.length}${/\s*nos?\.?\s*$/i.exec(x.sample)?.[0] ?? ''}` : '1');
   // Our own hint for a box, never the uploaded file's customer.

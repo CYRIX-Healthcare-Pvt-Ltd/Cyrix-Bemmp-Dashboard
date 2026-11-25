@@ -593,6 +593,8 @@ export function startValue(f, ctx = {}) {
   if (f.kind === 'period') return { from: '', upto: '' };
   // Not a box (Gemini, quoteAi.js): the template's own text stays.
   if (f.kind === 'fixed') return f.sample;
+  // Standard terms, the same for every customer (Gemini: PM visits, response times; the user, 25 Nov): start as written.
+  if (f.common && !f.role && f.kind === 'text') return f.sample;
   return '';
 }
 
