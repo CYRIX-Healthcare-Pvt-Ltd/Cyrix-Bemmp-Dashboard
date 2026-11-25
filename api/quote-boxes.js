@@ -6,7 +6,9 @@ import { caller, configured, json, readBody } from './_lib/server.js';
  * coloured yellow). Quotation-tracker people only; the key (GEMINI_API_KEY, Vercel) never leaves this function.
  * Any failure answers 502 and the upload goes on with the rules' names.
  */
-const MODEL = 'gemini-2.5-flash';
+// Pro first, Flash if Pro fails or is slow (the user, 25 Nov); then the rules alone.
+const MODELS = [['gemini-2.5-pro', 40000], ['gemini-2.5-flash', 15000]];
+export const config = { maxDuration: 60 };
 
 const PROMPT = `You read a company quotation template (Word). People marked in yellow the parts that change in each quotation; a program turned each yellow part into a form box and guessed a label. For each box you get: key, kind, the guessed label, the yellow sample text, and the words around it (the yellow part is in [brackets]).
 For each box decide:
@@ -32,7 +34,7 @@ export default async function handler(req, res) {
   }));
 
   try {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    const ask = (model, ms) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
@@ -40,12 +42,15 @@ export default async function handler(req, res) {
         contents: [{ role: 'user', parts: [{ text: JSON.stringify({ boxes: slim, otherText: String(plain ?? '').slice(0, 12000) }) }] }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0 },
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(ms),
+    }).then(async (r) => {
+      const body = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(body?.error?.message ?? `${model} ${r.status}`);
+      return JSON.parse(body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '');
     });
-    const body = await r.json().catch(() => null);
-    if (!r.ok) { json(res, 502, { error: body?.error?.message ?? `Gemini ${r.status}` }); return; }
-    const text = body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-    const out = JSON.parse(text);
+    let out = null; let last = null;
+    for (const [model, ms] of MODELS) { try { out = await ask(model, ms); break; } catch (e) { last = e; } }
+    if (!out) { json(res, 502, { error: `Gemini: ${last?.message}` }); return; }
     const known = new Set(slim.map((b) => b.key));
     const answer = (out?.boxes ?? [])
       .filter((b) => known.has(b.key))

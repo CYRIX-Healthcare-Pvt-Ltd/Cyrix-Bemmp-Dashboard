@@ -18,7 +18,7 @@ export async function nameBoxes(Y) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token ?? ''}` },
       body: JSON.stringify({ boxes, plain }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(65000),
     });
     if (!r.ok) return { Y, ai: false };
     const ans = await r.json();
