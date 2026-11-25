@@ -675,13 +675,15 @@ export default function App() {
   const hasPm = Boolean(profile) && (profile.scope?.includes(PM_PROJECT.id) || profile.role === 'admin') && Boolean(pmMe);
   const projects = useMemo(() => [
     ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
+    // Care 360's contracts show before their first upload, so the first file can be uploaded there (25 Nov).
+    ...scoped.filter((s) => CARE_IDS.includes(s.id) && !available.some((a) => a.id === s.id)).map((s) => ({ id: s.id, short: s.short, name: s.name, rows: 0 })),
     ...(hasMt ? [MEDTRONIC] : []),
     ...(hasPm ? [PM_PROJECT] : []),
     // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role. A Quotation maker (0060) is
     // given in SW Admin → BEMMP → Quotation makers, which is the tick itself (the user, 16 Nov: "not showing in e1427").
     // A Quotation maker has only the quotation creator, kept to test accounts while it is rebuilt (19 Nov).
     ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin' || qtMe.role === 'maker') ? [QT_PROJECT] : []),
-  ], [available, hasMt, hasPm, qtMe, profile]);
+  ], [available, scoped, hasMt, hasPm, qtMe, profile]);
   const decided = !isConfigured() || (ready && session !== undefined
     && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));
   const project = !decided ? null
@@ -691,6 +693,8 @@ export default function App() {
   const inPm = project === PM_PROJECT.id;
   const inQt = project === QT_PROJECT.id;
   const contractOpen = Boolean(project) && !inMt && !inPm && !inQt;
+  /** A Care contract in scope but with no file yet: opens its own upload page, never another contract. */
+  const emptyCare = contractOpen && ready && CARE_IDS.includes(picked) && !available.some((a) => a.id === picked);
 
   const [careOpen, setCareOpen] = useState(false);
   const pickProject = useCallback((id) => {
@@ -706,7 +710,7 @@ export default function App() {
   // Dictionaries are per state, so the dataset and every filter reload together.
   // Nothing loads until a contract is open: the grid and Medtronic need none of it.
   useEffect(() => {
-    if (!ready || !available.length || !contractOpen) return undefined;
+    if (!ready || !available.length || !contractOpen || emptyCare) return undefined;
     const target = available.some((s) => s.id === stateId) ? stateId : available[0].id;
     if (target !== stateId) { setStateId(target); return undefined; }
 
@@ -814,7 +818,7 @@ export default function App() {
       })
       .catch((e) => { if (!cancelled) { setError(e.message); setBusy(false); } });
     return () => { cancelled = true; };
-  }, [ready, available, stateId, dataVersion, uploads, shared, contractOpen]);
+  }, [ready, available, stateId, dataVersion, uploads, shared, contractOpen, emptyCare]);
 
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
@@ -1211,7 +1215,7 @@ export default function App() {
 
   // Nothing built and nothing uploaded — the static-hosting case. Ask for a file
   // rather than showing an empty dashboard.
-  if (ready && !available.length) {
+  if ((ready && !available.length) || emptyCare) {
     return (
       <>
         <div className="app">
@@ -1219,6 +1223,7 @@ export default function App() {
             <div className="brand">
               {/* Plain anchor, not a router link: the portal sits above
                   this app's /bemmp base. */}
+              {emptyCare && <button type="button" className="project-home-back" onClick={toProjects} aria-label="Back to projects">‹</button>}
               <a className="brand-home" href="/" aria-label="All Cyrix modules" title="All Cyrix modules">
                 <Logo height={36} />
               </a>
@@ -1250,7 +1255,7 @@ export default function App() {
           {/* Only this account's contracts: offering a Kerala coordinator the
               Andhra slot invites an upload that scope would then hide. */}
           <UploadPanel
-            contracts={scoped}
+            contracts={emptyCare ? scoped.filter((x) => x.id === picked) : scoped}
             serverStates={states}
             shared={shared}
             onLoaded={onUploaded}
