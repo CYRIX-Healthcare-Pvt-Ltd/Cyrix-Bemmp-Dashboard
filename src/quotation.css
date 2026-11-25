@@ -1406,3 +1406,5 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-changes b { font-size: 12px; color: var(--text-muted); }
 .qt-bell { color: var(--role-text, var(--role, var(--ink))); border-color: color-mix(in srgb, var(--role, var(--ink)) 55%, var(--border)); background: color-mix(in srgb, var(--role, var(--ink)) 12%, transparent); }
 .qt-bell:hover, .qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }
+.qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
+.qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }

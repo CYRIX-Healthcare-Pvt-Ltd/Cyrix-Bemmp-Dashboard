@@ -223,6 +223,95 @@ function fillTerms(doc, terms, orig) {
   }
 }
 
+/*
+  Terms in sections (the user, 25 Nov: "terms and conditions are editable, each heading collapsible"): when the terms are
+  not one plain list (SUB AMC: Scope of services, Payment terms, Additional terms, then a contract with its own clauses),
+  every plain-text paragraph after the last yellow part (the price table, Contract Period) up to the signature or the
+  Annexure is read, grouped under the headings: a short line in capitals or all bold, without a full stop at the end.
+*/
+const STOP = /^(client\b|signature|with\s+regards|yours\s+(faithfully|sincerely|truly)|annex)/i;
+const paraYellow = (p) => all(p, 'w:r').some(isYellow);
+const allBold = (p) => { const rs = all(p, 'w:r').filter((r) => all(r, 'w:t').some((t) => t.textContent.trim())); return rs.length > 0 && rs.every((r) => { const b = kids(kids(r, 'w:rPr')[0] ?? r, 'w:b')[0]; return b && !/^(0|false)$/.test(b.getAttribute('w:val') ?? ''); }); };
+function isHead(p, t) {
+  if (t.length > 60 || /[.;,]$/.test(t)) return false;
+  const letters = t.replace(/[^A-Za-z]/g, '');
+  return letters.length >= 3 && (letters === letters.toUpperCase() || allBold(p));
+}
+function sectionsIn(doc) {
+  const body = kids(all(doc, 'w:body')[0] ?? doc, 'w:p');
+  // The stretch between the last yellow part and a signature line that has headings in it ("With Regards" under the
+  // letter has none; the CLIENT signature under the terms has).
+  let start = -1; let end = -1;
+  const lastYellow = (to) => { let k = -1; for (let i = 0; i < to; i++) if (paraYellow(body[i])) k = i; return k; };
+  const stops = body.map((p, i) => (STOP.test(norm(textOf(p))) ? i : -1)).filter((i) => i >= 0).concat(body.length);
+  for (const s of stops) {
+    const y = lastYellow(s); if (y < 0) continue;
+    if (body.slice(y + 1, s).some((p) => { const t = norm(tabText(p)); return t && isHead(p, t); })) { start = y; end = s; break; }
+  }
+  if (start < 0) return null;
+  const out = []; let cur = null;
+  for (let i = start + 1; i < end; i++) {
+    const p = body[i]; const t = norm(tabText(p));
+    if (!t) continue;
+    if (paraYellow(p)) break;
+    if (isHead(p, t)) { cur = { head: p, items: [] }; out.push(cur); continue; }
+    if (!cur) { cur = { head: null, items: [] }; out.push(cur); }
+    cur.items.push(p);
+  }
+  const keep = out.filter((s) => s.items.length);
+  return keep.length ? keep : null;
+}
+const headText = (p) => norm(textOf(p)).replace(/^\d{1,2}\s*[.)]\s*/, '').replace(/\s*:$/, '');
+
+/** The terms in sections as the template has them: [{ head, items }] (null: none after the yellow parts). */
+export async function readTermSections(file) {
+  const zip = await JSZip.loadAsync(file);
+  const f = zip.file('word/document.xml'); if (!f) return null;
+  const s = sectionsIn(parse(await f.async('string')));
+  return s ? s.map((x) => ({ head: x.head ? headText(x.head) : 'Terms', items: x.items.map((p) => norm(tabText(p))) })) : null;
+}
+
+/** A line rewritten keeping the look of what did not change: the bold "Service Scope:" lead, a typed "1." number. */
+function setKeep(doc, p, text) {
+  const ts = all(p, 'w:t');
+  const oldText = ts.map((t) => t.textContent).join('');
+  let k = 0; while (k < oldText.length && k < text.length && oldText[k] === text[k]) k++;
+  // Back to a word's start, so a changed word is written whole in one look.
+  while (k > 0 && /\S/.test(text[k - 1]) && /\S/.test(text[k] ?? '')) k--;
+  let left = k; let put = false;
+  ts.forEach((t, i) => {
+    if (put) { t.textContent = ''; return; }
+    const s0 = t.textContent;
+    if (left > s0.length || (left === s0.length && i < ts.length - 1)) { left -= s0.length; return; }
+    t.textContent = s0.slice(0, left) + text.slice(k); t.setAttributeNS(XS, 'xml:space', 'preserve'); put = true;
+  });
+  if (!put) setPara(doc, p, text);
+}
+
+/** The sections as written in the form: changed lines rewritten, lines taken out removed, new ones under the last. */
+function fillSections(doc, secs, orig) {
+  const ps = sectionsIn(doc); if (!ps) return;
+  ps.forEach((s, si) => {
+    const want = (secs?.[si]?.items ?? s.items.map((p) => norm(tabText(p)))).map(norm).filter(Boolean);
+    const was = s.items.map((p) => norm(tabText(p)));
+    const before = orig?.[si]?.items ?? was;
+    s.items.forEach((p, i) => {
+      if (i >= want.length) { p.parentNode.removeChild(p); return; }
+      if (want[i] !== norm(before[i] ?? '')) setKeep(doc, p, want[i]);
+    });
+    if (!want.length) { if (s.head) s.head.parentNode.removeChild(s.head); return; }
+    let last = s.items[Math.min(want.length, s.items.length) - 1];
+    const typed = MANUAL_NO.exec(norm(textOf(last)));
+    for (const [k, t] of want.slice(s.items.length).entries()) {
+      const c = last.cloneNode(true); last.parentNode.insertBefore(c, last.nextSibling);
+      for (const b of all(c, 'w:b')) b.parentNode.removeChild(b);
+      const n = s.items.length + k + 1;
+      setPara(doc, c, typed && !MANUAL_NO.test(t) ? `${n}${typed[2]}  ${t}` : t);
+      last = c;
+    }
+  });
+}
+
 /* ---------- Numbers, dates, amounts ---------- */
 
 const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
@@ -861,6 +950,8 @@ export async function fillYellow(file, Y, v) {
   const value = (key) => v.f?.[key];
   for (const name of partNames(zip)) {
     const doc = parse(await zip.file(name).async('string'));
+    // Terms in sections first, while the yellow still marks where they start (only plain text is touched).
+    if (name === 'word/document.xml' && !Array.isArray(v.terms) && Array.isArray(v.tsec)) fillSections(doc, v.tsec, v.tsecOrig);
     const s = scan(doc);
 
     // The price table: the yellow row once per item, its figures worked out, the totals under it.
@@ -1028,7 +1119,6 @@ export async function fillYellow(file, Y, v) {
     jobs.forEach((j) => setGroup(j.g, j.text));
     for (const h of holds) if (h) await rebuildPlace(L, doc, h).catch(() => {});
     if (name === 'word/document.xml' && Array.isArray(v.terms)) fillTerms(doc, v.terms, v.termsOrig);
-
     // The yellow and Word's comments taken away.
     for (const h of all(doc, 'w:highlight')) if (h.getAttribute('w:val') === 'yellow') h.parentNode.removeChild(h);
     for (const x of all(doc, 'w:shd')) if (/^ffff00$/i.test(x.getAttribute('w:fill') ?? '') && x.parentNode.nodeName === 'w:rPr') x.parentNode.removeChild(x);

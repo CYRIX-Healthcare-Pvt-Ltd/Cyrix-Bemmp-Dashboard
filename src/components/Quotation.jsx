@@ -13,7 +13,7 @@ import {
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { nameBoxes } from '../data/quoteAi.js';
-import { markYellow, readYellow, readTerms, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
+import { markYellow, readYellow, readTerms, readTermSections, fillYellow, startValue, clientFrom, totalsOf, itemsOf, fromRequest, rolesOf, oneBoxPerCell } from '../data/yellowDoc.js';
 import { readLayout, makeLayoutPdf, layoutTotals, qtyCol, upgradeLayout } from '../data/quoteLayout.js';
 import { readQuoteFile, qtnKey, loadPdf } from '../data/quoteRead.js';
 import { makeQuotePdf, quoteTotals, inWords, quoteFileName, DEFAULT_TERMS, DEFAULT_SUBJECT } from '../data/quoteMake.js';
@@ -3840,14 +3840,14 @@ const sampleDoc = (t) => ({
 });
 
 /** Terms numbered as the PDF numbers them, one box a term (the user, 18 Nov: "if terms having serial number, keep the same"). */
-function TermsList({ terms, onChange }) {
+function TermsList({ terms, onChange, plain }) {
   const fit = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } };
   return (
     <>
       <ol className="qt-terms-list">
         {terms.map((t, i) => (
           <li key={i}>
-            <span className="qt-terms-no">{i + 1}.</span>
+            <span className="qt-terms-no">{plain ? '•' : `${i + 1}.`}</span>
             <textarea ref={fit} rows={1} value={t}
               onChange={(e) => { onChange(terms.map((x, n) => (n === i ? e.target.value.replace(/\s*\n\s*/g, ' ') : x))); fit(e.target); }}
               onKeyDown={(e) => {
@@ -4614,6 +4614,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
   const [preview, setPreview] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [secOpen, setSecOpen] = useState(null);
   const [err, show, clear, at] = useErr();
   const roleOf = (role) => Y.fields.find((x) => x.role === role);
   const toOf = (f) => {
@@ -4639,8 +4640,9 @@ function YellowMaker({ r, start, onClose, onMade }) {
   useEffect(() => {
     if (q.terms !== undefined || !q.tplPath) return undefined;
     let live = true;
-    templateBlob(q.tplPath).then(readTerms).catch(() => null)
-      .then((list) => { if (live) setQ((o) => (o.terms !== undefined ? o : { ...o, terms: list ?? null, termsOrig: list ?? null })); });
+    // Not one plain list: the terms in sections under their headings (the user, 25 Nov: "each heading collapsible").
+    templateBlob(q.tplPath).then(async (b) => { const list = await readTerms(b); return { list, secs: list ? null : await readTermSections(b) }; }).catch(() => ({}))
+      .then(({ list, secs }) => { if (live) setQ((o) => (o.terms !== undefined ? o : { ...o, terms: list ?? null, termsOrig: list ?? null, ...(o.tsec ? {} : { tsec: secs ?? null, tsecOrig: secs ?? null }) })); });
     return () => { live = false; };
   }, [q.tplPath]); // eslint-disable-line react-hooks/exhaustive-deps
   const totals = totalsOf(Y, itemsOf(Y, q.items, q.rows), q.gst, q.lump);
@@ -4680,6 +4682,7 @@ function YellowMaker({ r, start, onClose, onMade }) {
     return {
       v: 2, tpl: q.tpl, tplPath: q.tplPath, Y, f: q.f, rows: q.rows, gst: Number(q.gst), lump: q.lump, clientOwn: q.clientOwn,
       ...(Array.isArray(q.terms) ? { terms: q.terms.map((t) => t.trim()).filter(Boolean), termsOrig: q.termsOrig } : {}),
+      ...(Array.isArray(q.tsec) ? { tsec: q.tsec.map((s) => ({ head: s.head, items: s.items.map((t) => t.trim()).filter(Boolean) })), tsecOrig: q.tsecOrig } : {}),
       // Each item's words kept as one line too, for the search of Quotations.
       items: q.items.map(({ key, ...it }) => ({ ...it, desc: own.map((x) => String(it[x.key] ?? '').trim()).filter(Boolean).join(' ') })),
       qtn_no: (ref && String(q.f[ref.key] ?? '').trim()) || q.qtn_no || (forSave ? null : 'Preview'), date: (date && q.f[date.key]) || todayIst(),
@@ -4835,6 +4838,19 @@ function YellowMaker({ r, start, onClose, onMade }) {
                   <span>Terms and conditions</span><small>{q.terms.filter((t) => t.trim()).length}</small><Icon d={I.chevron} size={16} />
                 </button>
                 {termsOpen && <TermsList terms={q.terms} onChange={(t) => set('terms', t)} />}
+              </div>
+            )}
+            {!Array.isArray(q.terms) && Array.isArray(q.tsec) && (
+              <div className="qt-maker-items qt-yl-secs">
+                <div className="qt-yl-secs-title">Terms and conditions</div>
+                {q.tsec.map((s, si) => (
+                  <div key={si} className={`qt-yl-terms${secOpen === si ? ' is-open' : ''}`}>
+                    <button type="button" className="qt-yl-terms-head" aria-expanded={secOpen === si} onClick={() => setSecOpen(secOpen === si ? null : si)}>
+                      <span>{s.head}</span><small>{s.items.filter((t) => t.trim()).length}</small><Icon d={I.chevron} size={16} />
+                    </button>
+                    {secOpen === si && <TermsList plain terms={s.items} onChange={(items) => set('tsec', q.tsec.map((x, n) => (n === si ? { ...x, items } : x)))} />}
+                  </div>
+                ))}
               </div>
             )}
           </div>
