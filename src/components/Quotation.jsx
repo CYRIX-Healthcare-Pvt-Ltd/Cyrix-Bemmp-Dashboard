@@ -2459,7 +2459,7 @@ function CoordInitial({ r, onDone }) {
   const pick = (c) => { set('contract', c); setA(c === 'CAMC' ? 'camc_pr' : (x) => (x === 'camc_pr' ? 'to_purchase' : x)); };
   const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(both ? { contract: v.contract } : {}), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date } : {}) };
   // Remarks on every action (the user, 19 Nov; 0074).
-  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the remarks.']]);
+  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.'], [a === 'to_purchase' || v.note, 'Write the remarks.']]); // Send to Purchase: remarks optional (the user, 25 Nov; 0089).
   return (
     <>
       {both && (
