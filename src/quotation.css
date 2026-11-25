@@ -1380,3 +1380,29 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-for { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; margin-bottom: 12px; border-radius: 14px; background: var(--track-bg); }
 .qt-for button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
 .qt-for button[data-on='true'] { background: var(--ink); color: var(--page); }
+
+/* Note: whom to notify, each chip in its role's colour (0086, 25 Nov). */
+.qt-notify { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 8px; }
+.qt-notify-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-right: 2px; }
+.qt-notify button { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--role-text, var(--role)); border: 1px solid color-mix(in srgb, var(--role) 55%, var(--border)); }
+.qt-notify button[aria-pressed='true'] { background: var(--role); border-color: var(--role); color: var(--role-ink, #fff); }
+.qt-note-box { margin-top: 14px; padding: 12px; border-radius: 16px; background: color-mix(in srgb, var(--role, var(--ink)) 6%, transparent); border: 1px solid color-mix(in srgb, var(--role, var(--ink)) 30%, var(--border)); }
+.qt-note-box textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; min-height: 72px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--page); color: inherit; font: inherit; font-size: 15px; }
+.qt-note-box textarea:focus { outline: none; border-color: var(--role, var(--ink)); }
+.qt-note-send { display: block; width: 100%; min-height: 46px; border: 0; border-radius: 12px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: var(--role, var(--ink)); color: var(--role-ink, var(--page)); }
+.qt-note-send:disabled { opacity: .6; }
+.qt-notify { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.qt-notify-label { grid-column: 1 / -1; grid-row: 1; margin: 0 0 -2px; }
+.qt-notify button { grid-row: 2; justify-content: center; min-width: 0; padding: 0 6px; font-size: 12.5px; white-space: nowrap; }
+.qt-notify button:not([data-role='team_lead']) { --role-text: var(--role); }
+.qt-tl-note-bell { display: flex; align-items: flex-start; gap: 8px; }
+.qt-tl-note-bell > span { flex: 1; min-width: 0; }
+.qt-bell { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin: -4px -6px -4px 0; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+.qt-bell:hover, .qt-bell[data-on='true'] { color: var(--ink); border-color: var(--ink); }
+.qt-ping { margin-top: 8px; }
+.qt-ping .qt-notify { margin-top: 0; }
+.qt-changes { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, #9333ea 10%, transparent); border: 1px solid color-mix(in srgb, #9333ea 35%, var(--border)); }
+.qt-changes b { font-size: 12px; color: var(--text-muted); }
+.qt-bell { color: var(--role-text, var(--role, var(--ink))); border-color: color-mix(in srgb, var(--role, var(--ink)) 55%, var(--border)); background: color-mix(in srgb, var(--role, var(--ink)) 12%, transparent); }
+.qt-bell:hover, .qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }

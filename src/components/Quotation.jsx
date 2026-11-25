@@ -6,7 +6,7 @@ import { ProjectMasthead } from './ProjectHome.jsx';
 import { supabase } from '../data/supabase.js';
 import {
   loadList, loadOne, loadFacilities, loadEquipmentAt, loadPeople, loadTargets, loadEvents,
-  raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, transfer, consume, resume, act,
+  raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, pingNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
   periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
@@ -690,7 +690,7 @@ function FileView({ path, name, onClose }) {
   Quotations or signed copies to attach, as many as there are (the user, 14 Nov: "dont keep quotation upload limit").
   Each is read as it is added (QTN number, To, total; a signed copy only its number) and uploaded beside it.
 */
-function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', onCreate, onEdit, onRemove, drafts = [], onDraft, onDropDraft }) {
+function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', createLabel = 'Create', onCreate, onEdit, onRemove, drafts = [], onDraft, onDropDraft }) {
   const input = useRef(null);
   const [busy, setBusy] = useState(0);
   const [err, setErr] = useState(null);
@@ -727,7 +727,7 @@ function QuoteAdd({ folder, files, onChange, signed = false, label = 'Attach', o
       <div className={onCreate ? 'qt-qadd-two' : 'qt-qadd-one'}>
         {onCreate && (
           <button type="button" className="qt-camera qt-qadd-btn qt-qadd-make" onClick={onCreate} disabled={busy > 0}>
-            <Icon d={I.doc} size={18} /><span>Create</span>
+            <Icon d={createLabel === 'Create' ? I.doc : I.revise} size={18} /><span>{createLabel}</span>
           </button>
         )}
         <button type="button" className="qt-camera qt-qadd-btn" onClick={() => input.current?.click()} disabled={busy > 0}>
@@ -955,7 +955,9 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
       const blob = await makeQuotePdf(d);
       // Save shows it first: Edit goes back to the form, Save keeps it (the user, 19 Nov).
       if (!save) { setPreview(blob); return; }
-      setConfirm({ blob, d, qtn, total: totals.with });
+      const changes = docChanges(start?.base, d);
+      if (changes && !changes.length) { show('Nothing is changed yet. Change the quotation to revise it.'); return; }
+      setConfirm({ blob, d, qtn, total: totals.with, changes });
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
   const [confirm, setConfirm] = useState(null);
@@ -1103,9 +1105,34 @@ function SparesMaker({ r, pick, start, onClose, onMade }) {
 }
 
 /** The PDF before it is kept: Edit back to the form, Save keeps it (the user, 19 Nov: "on saving, just show a pop up preview"). */
+/** What a revision changed from the quotation it revises (the user, 25 Nov: changes seen; none, no save). */
+function docChanges(a, b) {
+  if (!a || !b) return null;
+  const out = [];
+  const j = (x) => JSON.stringify(x ?? null);
+  if ((a.to ?? '') !== (b.to ?? '')) out.push(`To: ${b.to || '—'}`);
+  const ia = a.items ?? [], ib = b.items ?? [];
+  const name = (x) => x?.desc ?? Object.values(x ?? {}).find((y) => typeof y === 'string') ?? 'Item';
+  for (let i = 0; i < Math.max(ia.length, ib.length); i += 1) {
+    if (!ib[i]) out.push(`Removed: ${name(ia[i])}`);
+    else if (!ia[i]) out.push(`Added: ${name(ib[i])}`);
+    else if (j(ia[i]) !== j(ib[i])) out.push(String(ia[i].price ?? '') !== String(ib[i].price ?? '') ? `${name(ib[i])}: price ${ia[i].price ?? '—'} → ${ib[i].price ?? '—'}` : `Changed: ${name(ib[i])}`);
+  }
+  if (j(a.rows) !== j(b.rows)) out.push('Rows changed');
+  if ((a.gst ?? null) !== (b.gst ?? null)) out.push(`GST ${a.gst ?? '—'}% → ${b.gst ?? '—'}%`);
+  if (Boolean(a.lump) !== Boolean(b.lump)) out.push(b.lump ? 'Lump sum' : 'Item-wise prices');
+  if (j(a.terms) !== j(b.terms)) out.push('Terms changed');
+  const fa = a.f ?? {}, fb = b.f ?? {};
+  const skip = (k) => /^(date|text):/.test(k) && /date|qtn|ref/i.test(k);
+  for (const k of new Set([...Object.keys(fa), ...Object.keys(fb)])) if (!skip(k) && k !== 'block:to' && j(fa[k]) !== j(fb[k])) out.push(`${k.split(':').pop().trim() || 'Field'} changed`);
+  if ((a.total ?? null) !== (b.total ?? null)) out.push(`Total ${money(a.total)} → ${money(b.total)}`);
+  return out;
+}
+
 function SaveLook({ confirm, busy, onEdit, onSave, free }) {
   return (
     <SomeViewer word={confirm.word} blob={confirm.blob} name={quoteFileName(confirm.d)} onClose={() => !busy && onEdit()} actions={<>
+      {confirm.changes?.length > 0 && <div className="qt-changes"><b>Changed</b>{confirm.changes.map((c) => <span key={c}>{c}</span>)}</div>}
       <button type="button" className="mt-btn mt-btn-lg" onClick={onEdit} disabled={!!busy}><Icon d={I.pen} size={16} />Edit</button>
       <button type="button" className="mt-go" onClick={onSave} disabled={!!busy}>{busy ? 'Saving…' : free ? 'Save quotation' : 'Save and attach'}</button>
     </>} />
@@ -1157,10 +1184,12 @@ function Quotations({ me, onToast }) {
   const [pickTpl, tplBox] = useTemplatePick(create);
   const edit = (x) => setMaking({ r: { free: true, id: `free-${x.id}`, folder: x.id, editing: true }, start: { doc: x.doc, path: x.path } });
   const revise = (x) => {
-    const m = /^(.*?)(?: R(\d+))?$/.exec(x.qtn_no ?? '');
-    const base = m?.[1] ?? x.qtn_no;
-    const next = Math.max(0, ...(list ?? []).map((y) => { const k = /^(.*?) R(\d+)$/.exec(y.qtn_no ?? ''); return k && k[1] === base ? Number(k[2]) : 0; })) + 1;
-    setMaking({ r: { free: true, id: `free-rev-${x.id}`, folder: newId() }, start: { doc: { ...x.doc, qtn_no: `${base} R${next}`, date: todayIst() } } });
+    // QTN-1, QTN-2… from the first number (the user, 25 Nov); "2026-27" in a number is not a revision.
+    const nos = (list ?? []).map((y) => y.qtn_no ?? '');
+    const isRev = (a, b) => a.startsWith(`${b}-`) && /^\d+$/.test(a.slice(b.length + 1)) && nos.includes(b);
+    const base = nos.find((b) => b && isRev(x.qtn_no ?? '', b)) ?? x.qtn_no;
+    const next = Math.max(0, ...nos.filter((y) => isRev(y, base)).map((y) => Number(y.slice(base.length + 1)))) + 1;
+    setMaking({ r: { free: true, id: `free-rev-${x.id}`, folder: newId() }, start: { doc: { ...x.doc, qtn_no: `${base}-${next}`, date: todayIst() } } });
   };
   const close = () => { setMaking(null); reDrafts(); };
   const made = async (f) => {
@@ -1845,6 +1874,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
             <div className="qt-sheet-cols" data-acting={r.mine ? 'true' : undefined}>
               <div className="qt-sheet-col">
               {r.mine && <Action r={r} me={me} preset={preset} onDone={changed} onFinish={finish} />}
+              {r.step === 'eng_quote' && me?.role === 'coordinator' && <Requote r={r} onDone={changed} />}
               {!r.mine && !r.done && (
                 <p className="qt-with">{r.accepted_by_name
                   ? `With ${stepOf(r.step).who} · ${r.accepted_by_name} accepted ${whenText(r.accepted_at)}`
@@ -1878,7 +1908,7 @@ function RequestSheet({ id, preset, me, targets, now, onClose, onChanged, onFini
                 </section>
               )}
               <RoleTime r={r} now={now} />
-              <Timeline r={r} now={now} onDone={changed} />
+              <Timeline r={r} now={now} me={me} onDone={changed} />
               </div>
             </div>
           )}
@@ -2105,14 +2135,31 @@ function RoleTime({ r, now }) {
 }
 
 /** Every step with who, when and how long (idea 3), and the conversation on it (idea 11). */
-function Timeline({ r, now, onDone }) {
+// Who a note notifies (the user, 25 Nov): ticked at first by the writer's role; PV no one.
+const NOTE_ROLES = [['engineer', 'Engineer'], ['team_lead', 'Team Lead'], ['coordinator', 'Coordinator'], ['purchase', 'Purchase'], ['pv', 'PV']];
+const NOTE_DEFAULT = { engineer: ['team_lead', 'coordinator'], team_lead: ['engineer', 'coordinator'], coordinator: ['engineer', 'team_lead'], purchase: ['coordinator'], pv: [] };
+
+function Timeline({ r, now, me, onDone }) {
   const [note, setNote] = useState('');
+  const mine = me?.role ?? null;
+  const [tell, setTell] = useState(() => NOTE_DEFAULT[mine] ?? []);
+  const flip = (k) => setTell((x) => (x.includes(k) ? x.filter((y) => y !== k) : [...x, k]));
+  // The bell beside a note notifies again (0088, the user, 25 Nov).
+  const [ping, setPing] = useState(null);
+  const [pingTell, setPingTell] = useState([]);
+  const [pingBusy, setPingBusy] = useState(false);
+  const openPing = (id) => { setPing(ping === id ? null : id); setPingTell(NOTE_DEFAULT[mine] ?? []); };
+  const sendPing = async () => {
+    if (!pingTell.length) { show('Choose whom to notify.'); return; }
+    setPingBusy(true); clear();
+    try { await pingNote(ping, pingTell); setPing(null); onDone('Notified again.'); } catch (e) { show(e); } finally { setPingBusy(false); }
+  };
   const [busy, setBusy] = useState(false);
   const [err, show, clear, at] = useErr();
   const send = async () => {
     if (!note.trim()) { show('Write the note.'); return; }
     setBusy(true); clear();
-    try { await addNote(r.id, note.trim()); setNote(''); onDone('Note added.'); } catch (e) { show(e); } finally { setBusy(false); }
+    try { await addNote(r.id, note.trim(), tell); setNote(''); onDone('Note added.'); } catch (e) { show(e); } finally { setBusy(false); }
   };
   return (
     <section className="mt-card-block">
@@ -2128,15 +2175,41 @@ function Timeline({ r, now, onDone }) {
               <div className="qt-tl-text">
                 <span className="qt-tl-what">{ACTIONS[e.action] ?? e.action}{e.action === 'transfer' ? ` · ${e.by_name ?? ''} → ${e.to_name ?? ''}` : e.to_step && e.to_step !== e.step && STEPS[e.to_step] ? ` → ${STEPS[e.to_step].who ?? STEPS[e.to_step].label}` : e.action === 'accept' && STEPS[e.step]?.who ? ` · ${STEPS[e.step].who}` : e.action !== 'raise' && e.action !== 'note' && STEPS[e.step] ? ` · ${STEPS[e.step].label}` : ''}</span>
                 <span className="qt-tl-who">{person(e.by_name, e.by_code)} · {whenText(e.at)}</span>
-                {e.note && <span className="qt-tl-note">{e.note}</span>}
+                {e.note && (e.action === 'note' && e.id ? (
+                  <span className="qt-tl-note qt-tl-note-bell">
+                    <span>{e.note}</span>
+                    <button type="button" className="qt-bell" data-on={ping === e.id ? 'true' : undefined} aria-label="Notify again" title="Notify again" onClick={() => openPing(e.id)}><Icon d={I.bell} size={16} /></button>
+                  </span>
+                ) : <span className="qt-tl-note">{e.note}</span>)}
+                {ping === e.id && (
+                  <div className="qt-note-box qt-ping" data-role={mine ?? undefined}>
+                    <div className="qt-notify" role="group" aria-label="Notify again">
+                      <span className="qt-notify-label">Notify again</span>
+                      {NOTE_ROLES.filter(([k]) => k !== mine).map(([k, label]) => (
+                        <button key={k} type="button" data-role={k} aria-pressed={pingTell.includes(k)} onClick={() => setPingTell((x) => (x.includes(k) ? x.filter((y) => y !== k) : [...x, k]))}>
+                          {pingTell.includes(k) && <Icon d={I.check} size={14} />}{label}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" className="qt-note-send" onClick={sendPing} disabled={pingBusy}>{`Notify ${pingTell.length}`}</button>
+                  </div>
+                )}
               </div>
             </li>
           );
         })}
       </ol>
-      <div className="qt-note-row">
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Write a note" onKeyDown={(e) => e.key === 'Enter' && send()} />
-        <button type="button" className="mt-btn" onClick={send} disabled={busy}>Send</button>
+      <div className="qt-note-box" data-role={mine ?? undefined}>
+        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Write a note" />
+        <div className="qt-notify" role="group" aria-label="Notify">
+          <span className="qt-notify-label">Notify</span>
+          {NOTE_ROLES.filter(([k]) => k !== mine).map(([k, label]) => (
+            <button key={k} type="button" data-role={k} aria-pressed={tell.includes(k)} onClick={() => flip(k)}>
+              {tell.includes(k) && <Icon d={I.check} size={14} />}{label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="qt-note-send" onClick={send} disabled={busy}>{tell.length ? `Send · notify ${tell.length}` : 'Send'}</button>
       </div>
       <Err text={err} at={at} />
     </section>
@@ -2236,6 +2309,24 @@ function Action({ r, me, preset, onDone, onFinish }) {
   }
   const F = FORMS[r.step];
   return F ? <section className="qt-action" data-role={roleOfStep(r.step) ?? undefined}><p className="qt-action-title">{statusOf(r)}</p><F r={r} me={me} preset={preset} onDone={onFinish ?? onDone} /></section> : null;
+}
+
+/** While the customer decides, the Coordinator revises the quotation and sends it again (0087). */
+function Requote({ r, onDone }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="qt-action" data-role="coordinator">
+      {open ? (
+        <>
+          <p className="qt-action-title">Revise and send again</p>
+          <CoordQuote r={{ ...r, step: 'coord_quote' }} again onDone={(m) => { setOpen(false); onDone(m); }} />
+          <button type="button" className="mt-btn" onClick={() => setOpen(false)}>Close</button>
+        </>
+      ) : (
+        <button type="button" className="mt-go" onClick={() => setOpen(true)}><Icon d={I.revise} size={17} /> Revise and send again</button>
+      )}
+    </section>
+  );
 }
 
 /** Shared by forms: the decision asked first, sent, the message, the error beside the button. */
@@ -2560,9 +2651,10 @@ function Pv({ r, onDone }) {
 }
 
 /** Quotation before PR (the user, 11 Nov): the Coordinator attaches it; the engineer gets the customer's answer. */
-function CoordQuote({ r, onDone }) {
+function CoordQuote({ r, onDone, again = false }) {
   const [a, setA] = useState('quote');
-  const [v, setV] = useState({ files: [], quote_date: '', note: '' });
+  // Sending again: the date comes from the revised quotation, else today (the user, 25 Nov).
+  const [v, setV] = useState({ files: [], quote_date: again ? todayIst() : '', note: '' });
   const s = useSend(r, onDone);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const canPick = !r.picked && r.orig_rate != null && r.comp_rate != null;
@@ -2575,11 +2667,13 @@ function CoordQuote({ r, onDone }) {
   const [drafts, setDrafts] = useState(() => quoteDraft.all(r.id));
   const reDrafts = useCallback(() => setDrafts(quoteDraft.all(r.id)), [r.id]);
   const [ask, askBox] = useAsk();
+  // Each send again is the first number with -1, -2… (the user, 25 Nov: "quo-123A, then quo-123A-1").
   const lastMade = () => {
-    const prev = [...(r.files ?? [])].reverse().find((f) => f.kind === 'quote' && f.doc);
+    const made = (r.files ?? []).filter((f) => f.kind === 'quote' && f.doc);
+    const prev = made[made.length - 1];
     if (!prev) return null;
-    const m = /^(.*?)(?: R(\d+))?$/.exec(prev.doc.qtn_no ?? '');
-    return { doc: { ...prev.doc, qtn_no: m && m[1] ? `${m[1]} R${Number(m[2] ?? 0) + 1}` : null, date: todayIst() } };
+    const base = made[0].doc.qtn_no ?? made[0].qtn_no;
+    return { base: prev.doc, doc: { ...prev.doc, qtn_no: base ? `${base}-${made.length}` : null, date: todayIst() } };
   };
   // Editing a made one starts a new draft of its template: that template's unsaved draft is not replaced without asking.
   const askDraft = (id, go) => (quoteDraft.get(id)
@@ -2604,13 +2698,14 @@ function CoordQuote({ r, onDone }) {
       {making && <QuoteMaker r={{ ...r, folder: r.folder ?? r.id, id: making.id ?? r.id }} pick={pick} start={making.start} onClose={closeMaker} onMade={made} />}
       {askBox}{tplBox}
       {said && <p className="qt-question"><b>Customer did not approve:</b> {said.note}</p>}
-      <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />
-      <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />
+      {!again && <Quotes r={{ ...r, picked: pick }} onPick={canPick ? setPick : undefined} />}
+      {!again && <Choice value={a} onChange={setA} options={[['quote', 'Quotation', 'good', 'engineer'], ['hold', 'Hold', 'good', 'coordinator'], ['cancel', 'Cancel', 'bad']]} />}
       {a === 'quote' ? (
         <div className="qt-quote-row">
           <div className="pm-in qt-wide"><span>Quotation</span>
             <QuoteAdd folder={r.id} files={v.files} onChange={setFiles}
-              onCreate={make ? pickTpl : undefined}
+              createLabel={again && lastMade() ? `Revise ${(r.files ?? []).filter((f) => f.kind === 'quote' && f.doc).pop()?.qtn_no ?? ''}`.trim() : 'Create'}
+              onCreate={make ? (again && lastMade() ? () => { const last = lastMade(); const id = quoteDraft.idFor(r.id, { path: last.doc.tplPath }); askDraft(id, () => setMaking({ id, start: last })); } : pickTpl) : undefined}
               onEdit={make ? (f) => { const id = quoteDraft.idFor(r.id, { path: f.doc?.tplPath }); askDraft(id, () => setMaking({ id, start: { doc: f.doc, path: f.path } })); } : undefined}
               drafts={make ? drafts : []} onDraft={(x) => setMaking({ id: x.id, start: { draft: x.d } })}
               onDropDraft={(x) => ask({ title: 'Delete the draft quotation?', lines: [`${r.no} · ${r.spare}`, x.d.tpl, x.d.to, money(docGrand(x.d))].filter(Boolean), ok: 'Delete', tone: 'bad',
@@ -2621,11 +2716,11 @@ function CoordQuote({ r, onDone }) {
                     run: async () => { await releaseQtn(f.qtn_no); setV((o) => ({ ...o, files: o.files.filter((x) => x.path !== f.path) })); } })
                 : setFiles(v.files.filter((x) => x.path !== f.path)))} />
           </div>
-          <Field label="Quotation date"><input type="date" value={v.quote_date} max={todayIst()} onChange={(e) => set('quote_date', e.target.value)} /></Field>
-          <Field label="Remarks"><input value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
+          {!again && <Field label="Quotation date"><input type="date" value={v.quote_date} max={todayIst()} onChange={(e) => set('quote_date', e.target.value)} /></Field>}
+          <Field label="Remarks" wide={again}><input value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>
         </div>
       ) : <Field label="Reason" wide><textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} /></Field>}
-      {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.files.length > 0, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.']]) && s.go(`Submit the quotation of ${r.no}?`, [...v.files.map((f) => [f.qtn_no ?? 'Quotation', f.total != null && money(f.total)].filter(Boolean).join(' · ')), `To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>Submit quotation</button>}
+      {a === 'quote' && <button type="button" data-role="engineer" className="mt-go" onClick={() => s.need([[v.files.length > 0, 'Attach the quotation.'], [v.quote_date, 'Choose the quotation date.'], ...(again ? [[v.note, 'Write the remarks.']] : [])]) && s.go(`Submit the quotation of ${r.no}?`, [...v.files.map((f) => [f.qtn_no ?? 'Quotation', f.total != null && money(f.total)].filter(Boolean).join(' · ')), `To ${person(r.engineer_name, r.engineer_code)}`, 'The Team Lead is told too.'], again ? 'Send again' : 'Submit', p, `Quotation sent to ${r.engineer_name}.`)}>{again ? 'Send again' : 'Submit quotation'}</button>}
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Put on hold</button>}
       {a === 'cancel' && <button type="button" className="mt-go qt-btn-bad" onClick={() => s.need([[v.note, 'Write the reason.']]) && s.go(`Cancel ${r.no}?`, [person(r.engineer_name, r.engineer_code), v.note], 'Cancel request', p, `${r.no} cancelled.`, 'bad')}>Cancel the request</button>}
       <Err text={s.err} at={s.at} />
@@ -4251,7 +4346,9 @@ function LayoutMaker({ r, start, onClose, onMade }) {
       if (word && bl) blob = await cleanYellow(await fillWord(await fillBlanks(await templateBlob(q.tplPath), bl, d), lay, d));
       else blob = word ? await fillWord(await templateBlob(q.tplPath), lay, d) : await makeLayoutPdf(d, lay, templateArt);
       if (!save) { setPreview({ blob, word }); return; }
-      setConfirm({ blob, d, qtn, total: totals.with, word });
+      const changes = docChanges(start?.base, d);
+      if (changes && !changes.length) { show('Nothing is changed yet. Change the quotation to revise it.'); return; }
+      setConfirm({ blob, d, qtn, total: totals.with, word, changes });
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
   const keep = async () => {
@@ -4585,7 +4682,9 @@ function YellowMaker({ r, start, onClose, onMade }) {
       // The PDF from our server; when it cannot be made now the Word file is shown and kept alone.
       const shown = await wordShown(docx); const pdf = shown.word ? null : shown.blob;
       if (!save) { setPreview({ ...shown, name: quoteFileName(d) }); return; }
-      setConfirm({ blob: pdf ?? docx, word: !pdf, docx, pdf, d, total: totals.with });
+      const changes = docChanges(start?.base, d);
+      if (changes && !changes.length) { show('Nothing is changed yet. Change the quotation to revise it.'); return; }
+      setConfirm({ blob: pdf ?? docx, word: !pdf, docx, pdf, d, total: totals.with, changes });
     } catch (e) { show(e.message || 'The quotation could not be made.'); } finally { setBusy(null); }
   };
   const keep = async () => {
