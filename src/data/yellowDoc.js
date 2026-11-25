@@ -428,10 +428,18 @@ function tablesOf(doc) {
       });
       price = { t, rows, item: yrow, extra }; continue;
     }
-    const head = rows[0];
-    const cells = head ? kids(head, 'w:tc') : [];
-    const runs = head ? all(head, 'w:r').filter((r) => textOf(r).trim()) : [];
-    if (!list && cells.length >= 2 && runs.length && runs.every(isYellow)) list = { t, rows };
+    // The yellow heading row may sit under a title row ("Asset list - Orchid Medical Centre", SUB CAMC 25 Nov).
+    for (let h = 0; h < 2 && !list; h++) {
+      const head = rows[h];
+      const cells = head ? kids(head, 'w:tc') : [];
+      const runs = head ? all(head, 'w:r').filter((r) => textOf(r).trim()) : [];
+      if (cells.length >= 2 && runs.length && runs.every(isYellow)) {
+        // Its rows end where the shape changes: SUB CAMC's summary under the list (TOTAL ASSET VALUE | ₹ …) is not a row.
+        let end = h + 1; while (end < rows.length && kids(rows[end], 'w:tc').length === cells.length) end++;
+        list = { t, rows: rows.slice(h, end), tail: end < rows.length };
+      }
+      if (h === 0 && cells.length > 2) break; // a full first row that is not yellow: not a list
+    }
   }
   return { price, list };
 }
@@ -517,7 +525,7 @@ function scan(doc) {
   const { price, list } = tablesOf(doc);
   const skip = (p) => {
     const tbl = up(p, 'w:tbl');
-    if (list && tbl === list.t) return true;
+    if (list && tbl === list.t && list.rows.includes(up(p, 'w:tr'))) return true;
     // The price table's headings, item row and totals are its own: yellow there (Carmel, all yellow) makes no box. Other
     // rows of it keep their boxes (Giri Pushp's "Contract Period: 03/11/2026 to 02/11/2027").
     if (price && tbl === price.t) {
@@ -593,6 +601,9 @@ export async function readYellow(file) {
         const signer = /regards|yours|sincerely|faithfully|truly/i.test(b.heading);
         const lines = b.slots.map((p) => norm(groupsIn(p)[0]?.text));
         const f = { key, kind: signer ? 'signer' : 'lines', label: signer ? 'Signed by' : nameOf(b.heading) || 'Address', sample: lines.join('\n'), lines: lines.length, places: 1 };
+        // Each line's label in the cell before it, when the lines sit in a table (SUB CAMC: TOTAL ASSET VALUE | ₹ …).
+        const rl = b.slots.map((p) => { const tc = up(p, 'w:tc'); const tr = tc && up(tc, 'w:tr'); const first = tr && kids(tr, 'w:tc')[0]; return first && first !== tc ? norm(textOf(first)) : ''; });
+        if (rl.some(Boolean)) f.rowLabels = rl;
         byKey.set(key, f); fields.push(f);
         continue;
       }
@@ -669,7 +680,10 @@ export function markWorked(Y) {
   const which = (s) => { if (!MONEY.test(s) || !/[,.]/.test(s)) return null; const n = numIn(s); return sums.find(([, v]) => v && Math.abs(n - v) <= 1)?.[0] ?? null; };
   const fields = Y.fields.map((f) => {
     const g = { ...f }; delete g.worked; delete g.wlines;
-    if ((f.kind === 'text' || f.kind === 'num') && !f.role) { const w = which(f.sample); if (w) g.worked = w; }
+    if ((f.kind === 'text' || f.kind === 'num') && !f.role) {
+      const w = which(f.sample);
+      if (w) { g.worked = w; if (!/[a-z]{3}/i.test(f.label) || MONEY.test(f.label)) g.label = { total: 'Total', tax: 'GST amount', with: 'Grand total' }[w]; }
+    }
     if (f.kind === 'lines' && !f.role) { const ws = f.sample.split('\n').map((l) => which(l)); if (ws.some(Boolean)) g.wlines = ws; }
     return g;
   });
@@ -677,7 +691,8 @@ export function markWorked(Y) {
   for (const g of fields) {
     if (!g.wlines) continue;
     const tags = fields.find((x) => x !== g && x.sample.split('\n').length === g.wlines.length && !x.sample.split('\n').some((l) => /\d{3}/.test(l)));
-    const names = tags ? tags.sample.split('\n').filter((_, i) => !g.wlines[i]).map((l) => l.trim().toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())) : [];
+    const names = g.rowLabels ? g.rowLabels.filter((l, i) => l && !g.wlines[i]).map((l) => l.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()))
+      : tags ? tags.sample.split('\n').filter((_, i) => !g.wlines[i]).map((l) => l.trim().toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())) : [];
     if (names.length) g.label = names.join(' · ');
   }
   return { ...Y, fields };
@@ -1080,7 +1095,7 @@ export async function fillYellow(file, Y0, v) {
 
     // The list table (Annexure): its heading row and one row per row typed; none: the table and its title go.
     if (s.list && Y.list) {
-      const lt = s.list; const trs = lt.rows; const model = trs[1] ?? null;
+      const lt = s.list; const trs = lt.rows; const model = trs[1] ?? null; const after = trs[trs.length - 1].nextSibling;
       const numbered = SERIAL.test(Y.list.cols[0] ?? '');
       if (rows.length) {
         const base = model ?? trs[0];
@@ -1094,7 +1109,7 @@ export async function fillYellow(file, Y0, v) {
             if (!model) for (const b of [...all(p, 'w:b'), ...all(p, 'w:bCs')]) b.parentNode.removeChild(b);
             setPara(doc, p, numbered && k === 0 ? String(i + 1) : String(row[k] ?? ''));
           });
-          lt.t.appendChild(tr);
+          lt.t.insertBefore(tr, after);
         });
         for (const tr of trs.slice(1)) lt.t.removeChild(tr);
       } else {
@@ -1109,7 +1124,8 @@ export async function fillYellow(file, Y0, v) {
           }
           el = prev;
         }
-        lt.t.parentNode.removeChild(lt.t);
+        // A summary under the list keeps the table; only the list's rows go.
+        if (lt.tail) for (const tr of trs) lt.t.removeChild(tr); else lt.t.parentNode.removeChild(lt.t);
       }
     }
 
@@ -1121,6 +1137,8 @@ export async function fillYellow(file, Y0, v) {
         let lines = String(value(f.key) ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
         // Figures worked out in their own lines, the typed ones in the others, in the template's order.
         if (f.kind === 'fixed') lines = lines.map(gstText);
+        // The label cell beside each worked-out figure ("18% GST") says the GST chosen, yellow or not.
+        if (f.wlines) for (const p of b.slots) { const tc = up(p, 'w:tc'); const tr = tc && up(tc, 'w:tr'); const first = tr && kids(tr, 'w:tc')[0]; if (first && first !== tc) for (const q of kids(first, 'w:p')) { const s0 = textOf(q); const s1 = gstText(s0); if (s1 !== s0) setKeep(doc, q, s1); } }
         if (f.wlines) { const typed = [...lines]; const ss = f.sample.split('\n'); lines = f.wlines.map((w, i) => (w ? moneyLike(ss[i].trim(), tot[w]) : typed.shift() ?? '')); }
         // The address box no longer holds the template's own "TO," line: put back above the customer.
         const lead = f.sample.split('\n')[0];
