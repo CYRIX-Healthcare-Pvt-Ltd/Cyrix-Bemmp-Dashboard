@@ -1249,6 +1249,22 @@ function Quotations({ me, onToast }) {
 }
 
 /** Each quotation with its signed copy: same file, the same QTN number, another number, or none yet. */
+/*
+  Revised quotations: only the latest is shown (the user, 25 Nov) — QTN-27, QTN-27-1, QTN-27-2 shows QTN-27-2 alone.
+*/
+function latestOnly(cards) {
+  const no = (c) => (c.q?.qtn_no ?? '').trim();
+  const nos = cards.map(no).filter(Boolean);
+  const bases = nos.filter((b) => nos.some((x) => x.startsWith(b + '-') && /^\d+$/.test(x.slice(b.length + 1))));
+  return cards.filter((c) => {
+    const n = no(c); if (!n) return true;
+    if (bases.includes(n)) return false;
+    const b = bases.find((x) => n.startsWith(x + '-') && /^\d+$/.test(n.slice(x.length + 1)));
+    if (!b) return true;
+    const rev = (x) => Number(x.slice(b.length + 1));
+    return !nos.some((x) => x.startsWith(b + '-') && /^\d+$/.test(x.slice(b.length + 1)) && rev(x) > rev(n));
+  });
+}
 function matchQuotes(r) {
   const files = r.files?.length ? r.files
     : [r.quote_file && { kind: 'quote', path: r.quote_file }, r.quote_signed && { kind: 'signed', path: r.quote_signed }].filter(Boolean);
@@ -1287,7 +1303,7 @@ const STATE = {
   against our picked rate with tax × qty, on our cost.
 */
 function QuoteBlock({ r, me }) {
-  const { cards, extra } = useMemo(() => matchQuotes(r), [r]);
+  const { cards, extra } = useMemo(() => { const m = matchQuotes(r); return { ...m, cards: latestOnly(m.cards) }; }, [r]);
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState(null);
   const grid = useRef(null);
