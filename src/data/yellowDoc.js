@@ -681,9 +681,11 @@ export function rolesOf(fields, list) {
   // The Annexure's yellow heading is the Annexure section's own title, never a box of its own (SUB AMC, 25 Nov).
   if (list) for (const f of fields) if (f.kind === 'text' && /^annex/i.test(f.sample.trim())) f.kind = 'fixed';
   const ref = fields.find((f) => f.kind === 'text' && (/\b(ref|qtn|quotation\s*no)/i.test(f.label) || /^qtn/i.test(f.sample) || REF_LEAD.test(f.sample)));
-  if (ref) { ref.role = 'ref'; if (!/[a-z]{2}/i.test(ref.label)) ref.label = 'Ref number'; }
+  // A label that is the number itself ("Ref – QTN015/…", SUB CAMC 25 Nov) is no name: Ref number.
+  const looksRef = (l) => REF_LEAD.test(l) || /qtn|\d{2,}\/|\/\d{2,}/i.test(l);
+  if (ref) { ref.role = 'ref'; if (!/[a-z]{2}/i.test(ref.label) || looksRef(ref.label)) ref.label = 'Ref number'; }
   const date = fields.find((f) => f.kind === 'date' && /date/i.test(f.label)) ?? fields.find((f) => f.kind === 'date');
-  if (date) date.role = 'date';
+  if (date) { date.role = 'date'; if (looksRef(date.label)) date.label = 'Date'; }
   // The customer's address: named To or Address, or a whole yellow block starting "TO," (SUB AMC, the user, 19 Nov).
   const to = fields.find((f) => (f.kind === 'lines' || f.kind === 'text') && /^to\b/i.test(f.label))
     ?? fields.find((f) => f.kind === 'lines' && (/^address\b/i.test(f.label) || TO_LINE.test(f.sample.split('\n')[0])));

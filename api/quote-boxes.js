@@ -31,14 +31,15 @@ export const config = { maxDuration: 60 };
 
 const ABOUT = 'You read a company quotation template (Word). People marked in yellow the parts that change in each quotation; a program turned each yellow part into a form box and guessed a label.';
 const BOXES_PROMPT = `${ABOUT} For each box you get: key, kind, the guessed label, the yellow sample text, and the words around it (the yellow part is in [brackets]).
-For each box decide:
+Your job is to decide what the person making a quotation must actually type. For each box decide:
 - label: a short plain-English name a sales coordinator understands (2-4 words, Title case, no colon), e.g. "Doctor Name", "Hospital Address", "Contract Period", "Breakdown Response Time", "Number Of PM Visits". Keep the guessed label if it is already right. Never use the sample text itself, a number or an amount as the label.
 - common: true when the text is a standard term that stays the same for most customers (number of visits, response or support times, payment terms wording); false for anything about this customer or this quotation (names, hospital, address, dates, numbers, prices, subject, signer).
 - size: "short" when a typical value fits in about 25 characters (a time, a count, a code), "long" when it is a phrase or sentence.
 - box: false only when the yellow text is a heading or fixed wording that never changes between quotations (e.g. "Annexure 1", "SIGNATURE", a section title, a table's column heading); otherwise true.
-Answer JSON only: {"boxes":[{"key":"...","label":"...","box":true,"common":false,"size":"short"}]} with every box key given, in the same order.`;
+- calc: true when the value is worked out from other figures in the quotation (a GST amount, a total, a grand total, an amount that is a percentage of another, a sum of rows), so nobody should type it; otherwise false.
+Answer JSON only: {"boxes":[{"key":"...","label":"...","box":true,"calc":false,"common":false,"size":"short"}]} with every box key given, in the same order.`;
 const FINDS_PROMPT = `${ABOUT} You get the template's text and the yellow samples already made into boxes.
-List up to 8 places in the text, not already yellow, that would change in each quotation: a customer or doctor name, hospital or address, a date, a quotation or reference number, a contract period, a price, a quantity, a person's name, designation or phone in the signature. Skip company boilerplate, terms and conditions, and Cyrix's own address. For each give the exact words (as written, max 60 characters), a short label (2-4 words, Title case), common (true only for standard terms the same for most customers) and size ("short" up to about 25 characters, else "long").
+List up to 8 places in the text, not already yellow, that would change in each quotation: a customer or doctor name, hospital or address, a date, a quotation or reference number, a contract period, a price, a quantity, a person's name, designation or phone in the signature. Skip company boilerplate, terms and conditions, Cyrix's own address, and figures worked out from others (totals, GST, percentages). For each give the exact words (as written, max 60 characters), a short label (2-4 words, Title case), common (true only for standard terms the same for most customers) and size ("short" up to about 25 characters, else "long").
 Answer JSON only: {"missed":[{"text":"...","label":"...","common":false,"size":"short"}]}`;
 
 export default async function handler(req, res) {
@@ -119,7 +120,7 @@ export default async function handler(req, res) {
   const known = new Set(slim.map((x) => x.key));
   const answer = (b?.out?.boxes ?? [])
     .filter((x) => known.has(x.key))
-    .map((x) => ({ key: x.key, label: String(x.label ?? '').trim().slice(0, 40), box: x.box !== false, common: x.common === true, size: x.size === 'long' ? 'long' : 'short' }));
+    .map((x) => ({ key: x.key, label: String(x.label ?? '').trim().slice(0, 40), box: x.box !== false, calc: x.calc === true, common: x.common === true, size: x.size === 'long' ? 'long' : 'short' }));
   const missed = (f?.out?.missed ?? []).slice(0, 8)
     .map((m) => ({ text: String(m.text ?? '').slice(0, 60), label: String(m.label ?? '').slice(0, 40), common: m.common === true, size: m.size === 'long' ? 'long' : 'short' }))
     .filter((m) => m.text && text.includes(m.text));

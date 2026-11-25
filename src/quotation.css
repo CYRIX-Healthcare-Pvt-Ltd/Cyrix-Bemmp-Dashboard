@@ -1408,3 +1408,4 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-bell:hover, .qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }
 .qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
 .qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }
+.qt-yc-calc { color: #b45309 !important; }

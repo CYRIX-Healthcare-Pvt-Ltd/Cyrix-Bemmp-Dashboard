@@ -3997,7 +3997,7 @@ function TemplateEdit({ t, app, onClose, onSaved }) {
         const Y1 = await readYellow(f2);
         const by = new Map(G.fields.map((x) => [x.key, x]));
         const fields = Y1.fields.map((x) => {
-          const g = by.get(x.key); if (g) return { ...x, label: g.label, kind: g.kind === 'fixed' ? 'fixed' : x.kind, common: g.common, size: g.size };
+          const g = by.get(x.key); if (g) return { ...x, label: g.label, kind: g.kind === 'fixed' ? 'fixed' : x.kind, common: g.common, size: g.size, ...(g.calc ? { calc: true } : {}) };
           const m = missed.find((mm) => mm.text && x.sample.includes(mm.text));
           return { ...x, label: m?.label || x.label, added: true, ...(m ? { common: m.common, size: m.size } : {}) };
         });
@@ -4906,7 +4906,9 @@ function PageWriting() {
 
 /** What a yellow template asks, shown when it is uploaded, so a missed or wrong yellow is seen at once. */
 function YellowCheck({ lay, onChange }) {
-  const Y = lay.yellow;
+  // As the form will show it: roles named, amounts that follow the price table marked worked out.
+  const Y = markWorked({ ...lay.yellow, fields: rolesOf(lay.yellow.fields.map((x) => ({ ...x })), lay.yellow.list) });
+  const shown = (x) => x.kind !== 'words' && x.kind !== 'fixed' && !x.worked && !(x.wlines && x.wlines.every(Boolean));
   const own = (Y.price?.fields ?? []).filter((x) => !x.link);
   const role = (k) => {
     if (k === Y.price.price) return 'Price';
@@ -4918,10 +4920,10 @@ function YellowCheck({ lay, onChange }) {
   return (
     <div className="qt-yc">
       <section className="qt-yc-sec">
-        <h3>Boxes · {Y.fields.filter((x) => x.kind !== 'words' && x.kind !== 'fixed').length}</h3>
+        <h3>Boxes · {Y.fields.filter(shown).length}</h3>
         <ul className="qt-yc-list">
           {Y.fields.map((x) => (
-            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.sample.split('\n').join(' · ')}</span>{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
+            <li key={x.key}><b>{x.label}</b><span>{x.kind === 'words' || x.worked ? 'Worked out' : x.kind === 'fixed' ? 'Kept as in the file' : x.wlines ? `${x.sample.split('\n').filter((_, i) => !x.wlines[i]).join(' · ')} · the rest worked out` : x.sample.split('\n').join(' · ')}</span>{x.calc && !x.worked && !x.wlines && <em className="qt-yc-calc">Calculated · check</em>}{x.kind === 'period' && <em>From – To</em>}{x.kind === 'date' && <em>Date</em>}{x.places > 1 && <em>×{x.places}</em>}</li>
           ))}
         </ul>
         {Y.missed?.length > 0 && (
