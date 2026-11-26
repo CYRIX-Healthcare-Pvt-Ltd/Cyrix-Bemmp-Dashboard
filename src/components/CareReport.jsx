@@ -86,15 +86,17 @@ export default function CareReport({ ds, filters }) {
             <tr>
               <th rowSpan={2}>{first}</th>
               {by === 'facility' && <th rowSpan={2}>State</th>}
-              <th rowSpan={2} className="num">Total Calls</th>
-              <th rowSpan={2} className="num">Completed</th>
-              <th rowSpan={2} className="num band-end">Pending</th>
+              {/* The counts are the To month's, named over them as the TAT groups name theirs (the user, 26 Nov). */}
+              <th colSpan={3} className="summary-type band-end">{A}</th>
               <th colSpan={3} className="summary-type">Response TAT</th>
               <th colSpan={3} className="summary-type">Resolution TAT · closed in month</th>
               <th colSpan={3} className="summary-type">Logged &amp; closed same month</th>
               <th colSpan={3} className="summary-type">FTFR</th>
             </tr>
             <tr>
+              <th className="num summary-sub">Total Calls</th>
+              <th className="num summary-sub">Completed</th>
+              <th className="num summary-sub band-end">Pending</th>
               <th className="num summary-sub group-start">{B}</th>
               <th className="num summary-sub">{A}</th>
               <th className="num summary-sub">{A} vs {B}</th>
