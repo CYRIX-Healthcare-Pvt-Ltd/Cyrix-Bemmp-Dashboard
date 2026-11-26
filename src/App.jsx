@@ -42,6 +42,7 @@ import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
+import { fixedFirstTime } from './data/careFix.js';
 import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
 import ContractPanel from './components/ContractPanel.jsx';
@@ -323,7 +324,7 @@ const PERFORMANCE = [
  * Fractional days from the export's date-times, as on the tiles and the Report.
  */
 const CARE_PERF = [
-  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed the same day or the next, worst first' },
+  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed within 24 hours (Saturday: by Monday), worst first' },
   {
     id: 'response', label: 'Response TAT', tab: 'Response TAT', color: 'var(--series-1)', sort: 'desc', minSamples: 5,
     format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} started`,
@@ -1171,7 +1172,7 @@ export default function App() {
       // not marked a failure for the Sunday nobody works — the same rule the
       // tile and the chart use.
       value: base.id === 'ftfr'
-        ? (i) => (isFirstTimeFix(cols.loggedDay[i], cols.resolvedDay[i]) ? 1 : 0)
+        ? (i) => (fixedFirstTime(ds, i) ? 1 : 0)
         : (i) => cols.resolvedDay[i] - cols.loggedDay[i],
     };
   }, [ds, perfId, care, perfList]);

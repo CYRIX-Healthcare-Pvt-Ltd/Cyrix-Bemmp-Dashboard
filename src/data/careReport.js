@@ -8,7 +8,7 @@
  * Their workbook counts Breakdown Support calls only, so the report opens on that job type.
  */
 import { filterRows } from './query.js';
-import { isFirstTimeFix } from '../../shared/schema.mjs';
+import { fixedFirstTime } from './careFix.js';
 
 export const CARE_IDS = ['c360', 'pvt'];
 export const isCare = (ds) => CARE_IDS.includes(ds?.meta?.id);
@@ -172,8 +172,8 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
   for (const i of eb) at(i).eb.push(i);
   const line = (name, state, g) => {
     const ta = averageTat(ds, g.a, g.ea); const tb = averageTat(ds, g.b, g.eb);
-    // FTFR: of the calls raised in the month, the share fixed the same day or the next, as on the FTFR tile.
-    const ftfr = (rows) => (rows.length ? (100 * rows.filter((i) => isFirstTimeFix(ds.cols.loggedDay[i], ds.cols.resolvedDay[i])).length) / rows.length : null);
+    // FTFR: of the calls raised in the month, the share fixed within 24 hours (Saturday: by Monday), as on the tile.
+    const ftfr = (rows) => (rows.length ? (100 * rows.filter((i) => fixedFirstTime(ds, i)).length) / rows.length : null);
     const fa = ftfr(g.a); const fb = against ? ftfr(g.b) : null;
     // Raised and closed in the same month (the user, 26 Nov).
     const sa = mean(ds, endedIn(ds, g.a, month.from, month.to), 'resolution');
@@ -228,7 +228,7 @@ export function ftfrOf(ds, rows) {
     const i = rows[k];
     if (!bd(i)) continue;
     calls++;
-    if (isFirstTimeFix(ds.cols.loggedDay[i], ds.cols.resolvedDay[i])) fixed++;
+    if (fixedFirstTime(ds, i)) fixed++;
   }
   return { calls, fixed, pct: calls ? (100 * fixed) / calls : null };
 }

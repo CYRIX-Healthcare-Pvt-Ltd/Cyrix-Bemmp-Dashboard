@@ -10,6 +10,7 @@
  */
 import { BUCKET } from './store.js';
 import { FTFR_MAX_DAYS, ftfrWindowEnd, isFirstTimeFix } from '../../shared/schema.mjs';
+import { fixedFirstTime } from './careFix.js';
 
 /**
  * First Time Fix Rate window, in days. A call logged today and resolved today or
@@ -476,7 +477,7 @@ export function summarize(ds, idx, referenceDay, { ftfrThrough = Infinity } = {}
      */
     if (cols.loggedDay[i] <= ftfrThrough) {
       ftfrLogged++;
-      if (r > 0 && isFirstTimeFix(cols.loggedDay[i], r)) firstTimeFixes++;
+      if (r > 0 && fixedFirstTime(ds, i, r)) firstTimeFixes++;
     }
   }
 
@@ -821,7 +822,7 @@ export function buildSeries(ds, idx, granularity, referenceDay) {
     else if (bucket === BUCKET.PARKED) p.parked++;
     else p.resolved++;
 
-    if (isFirstTimeFix(day, cols.resolvedDay[i])) p.fixes++;
+    if (fixedFirstTime(ds, i)) p.fixes++;
 
     if (isRepeat.has(i)) p.repeats++;
     if (isPenalty(ds, windows, referenceDay, i)) p.penalties++;
