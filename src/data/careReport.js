@@ -188,3 +188,92 @@ function change(now, before) {
   if (now == null || before == null || before === 0) return null;
   return (now - before) / before;
 }
+
+/*
+ * Contract type (AMC, CAMC, …) from the asset master, by the call's barcode (the user, 26 Nov: "amc camc we need a
+ * clear picture"). A barcode not in the asset master is "Not in asset master", so nothing silently drops out.
+ */
+export const NOT_IN_ASSETS = 'Not in asset master';
+export const CONTRACT_ORDER = ['AMC', 'CAMC', 'Non Contract', 'Warranty', 'In House', 'Rental'];
+
+export function contractOf(ds, assets, i) {
+  const id = ds.cols.barcode[i];
+  const code = id == null || id < 0 ? '' : String(ds.dict.barcode[id] ?? '').trim();
+  return (code && assets.get(code)) || NOT_IN_ASSETS;
+}
+
+const isBreakdown = (ds) => {
+  const memo = new Map();
+  return (i) => {
+    const id = ds.cols.lifecycle[i];
+    if (!memo.has(id)) memo.set(id, /breakdown/i.test(ds.dict.lifecycle?.[id] ?? ''));
+    return memo.get(id);
+  };
+};
+
+/** First-time fixes over Breakdown calls: { calls, fixed, pct }. */
+export function ftfrOf(ds, rows) {
+  const bd = isBreakdown(ds);
+  let calls = 0; let fixed = 0;
+  for (let k = 0; k < rows.length; k++) {
+    const i = rows[k];
+    if (!bd(i)) continue;
+    calls++;
+    if (isFirstTimeFix(ds.cols.loggedDay[i], ds.cols.resolvedDay[i])) fixed++;
+  }
+  return { calls, fixed, pct: calls ? (100 * fixed) / calls : null };
+}
+
+/**
+ * The dashboard's contract table: per contract type, calls raised in range, open, not started, FTFR (Breakdown
+ * calls whose window has closed), response (raised in range) and resolution (closed in range).
+ */
+export function contractTable(ds, assets, { raised, ended, ftfrRows }) {
+  const groups = new Map();
+  const at = (name) => {
+    if (!groups.has(name)) groups.set(name, { name, raised: [], ended: [], ftfr: [] });
+    return groups.get(name);
+  };
+  for (const i of raised) at(contractOf(ds, assets, i)).raised.push(i);
+  for (const i of ended) at(contractOf(ds, assets, i)).ended.push(i);
+  for (const i of ftfrRows) at(contractOf(ds, assets, i)).ftfr.push(i);
+  const rank = (n) => (n === NOT_IN_ASSETS ? 99 : CONTRACT_ORDER.indexOf(n) < 0 ? 50 : CONTRACT_ORDER.indexOf(n));
+  return [...groups.values()]
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
+    .map((g) => {
+      const open = g.raised.filter((i) => !done(ds, i));
+      return {
+        name: g.name,
+        calls: g.raised.length,
+        open: open.length,
+        notStarted: notStarted(ds, open),
+        ftfr: ftfrOf(ds, g.ftfr),
+        response: mean(ds, g.raised, 'response'),
+        resolution: mean(ds, g.ended, 'resolution'),
+      };
+    })
+    .filter((g) => g.calls || g.resolution != null);
+}
+
+/**
+ * Their "FTFR Summary": per month from From to To, for each contract type, Breakdown calls received, fixed the same
+ * day or the next, and the share. Totals over the months at the foot.
+ */
+export function ftfrByContract(ds, filters, assets, months, types = ['AMC', 'CAMC']) {
+  const lines = months.map((m) => {
+    const idx = filterRows(ds, { ...filters, dayFrom: m.from, dayTo: m.to });
+    const by = Object.fromEntries(types.map((t) => [t, []]));
+    for (let k = 0; k < idx.length; k++) {
+      const c = contractOf(ds, assets, idx[k]);
+      if (by[c]) by[c].push(idx[k]);
+    }
+    return { label: m.label, ...Object.fromEntries(types.map((t) => [t, ftfrOf(ds, by[t])])) };
+  });
+  const total = { label: 'Grand Total' };
+  for (const t of types) {
+    const calls = lines.reduce((s, l) => s + l[t].calls, 0);
+    const fixed = lines.reduce((s, l) => s + l[t].fixed, 0);
+    total[t] = { calls, fixed, pct: calls ? (100 * fixed) / calls : null };
+  }
+  return { types, lines, total };
+}

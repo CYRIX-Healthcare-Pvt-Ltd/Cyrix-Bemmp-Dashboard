@@ -42,7 +42,7 @@ function c(ref, value, style) {
 /**
  * `report` from careReport(); A is the To month's label, B the From month's; `by` is 'state' or 'facility'.
  */
-export async function careReportXlsx({ report, A, B, by, sheetName }) {
+export async function careReportXlsx({ report, A, B, by, sheetName, ftfr }) {
   const facility = by === 'facility';
   const lead = facility ? [['Facility', 'name', 'text'], ['State', 'state', 'text']] : [['State', 'name', 'text']];
   const counts = [[`Total Calls
@@ -118,5 +118,42 @@ ${B}` });
 <mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>
 ${cf}
 </worksheet>`;
-  return writeStyledBook([{ name: sheetName, xml }], STYLES);
+  const sheets = [{ name: sheetName, xml }];
+  if (ftfr) sheets.push({ name: 'FTFR Summary', xml: ftfrSheet(ftfr) });
+  return writeStyledBook(sheets, STYLES);
+}
+
+/** FTFR by AMC / CAMC, a row per month and a Grand Total, as their own FTFR sheet (the user, 26 Nov). */
+function ftfrSheet(ftfr) {
+  const n = ftfr.types.length;
+  const r1 = [c('A1', 'Month', S.head)]; const r2 = [c('A2', '', S.head)];
+  const merges = ['A1:A2'];
+  ftfr.types.forEach((t, g) => {
+    const at = 1 + g * 3;
+    r1.push(c(`${colName(at)}1`, t, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
+    merges.push(`${colName(at)}1:${colName(at + 2)}1`);
+    r2.push(c(`${colName(at)}2`, 'Total calls received', S.sub), c(`${colName(at + 1)}2`, 'Completed in 24 hrs', S.sub), c(`${colName(at + 2)}2`, 'FTFR %', S.sub));
+  });
+  const lines = [...ftfr.lines, ftfr.total];
+  const body = lines.map((l, k) => {
+    const r = k + 3; const total = k === lines.length - 1;
+    const cells = [c(`A${r}`, l.label, total ? S.tText : S.text)];
+    ftfr.types.forEach((t, g) => {
+      const at = 1 + g * 3; const v = l[t];
+      cells.push(
+        c(`${colName(at)}${r}`, v.calls, total ? S.tInt : S.int),
+        c(`${colName(at + 1)}${r}`, v.fixed, total ? S.tInt : S.int),
+        c(`${colName(at + 2)}${r}`, v.pct == null ? null : v.pct / 100, total ? S.tFtfr : S.ftfr),
+      );
+    });
+    return `<row r="${r}" ht="18" customHeight="1">${cells.join('')}</row>`;
+  }).join('');
+  const widths = `<col min="1" max="1" width="14" customWidth="1"/><col min="2" max="${1 + n * 3}" width="13" customWidth="1"/>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="2" topLeftCell="B3" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<cols>${widths}</cols>
+<sheetData><row r="1" ht="22" customHeight="1">${r1.join('')}</row><row r="2" ht="34" customHeight="1">${r2.join('')}</row>${body}</sheetData>
+<mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>
+</worksheet>`;
 }

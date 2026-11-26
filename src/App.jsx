@@ -42,7 +42,9 @@ import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
-import { allDates, averageTat, byJob, endedIn, isCare, jobSplit, notStarted } from './data/careReport.js';
+import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, tatOf } from './data/careReport.js';
+import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
+import ContractPanel from './components/ContractPanel.jsx';
 
 /*
  * The width where the rail becomes a strip along the bottom. The same
@@ -315,6 +317,30 @@ const PERFORMANCE = [
   },
 ];
 
+/*
+ * Care 360's FTFR and TAT views (the user, 26 Nov): FTFR on Breakdown calls; Response over calls raised in range;
+ * Resolution over calls closed in range ("if nov filtered ie nov closed calls"); and raised and closed in range.
+ * Fractional days from the export's date-times, as on the tiles and the Report.
+ */
+const CARE_PERF = [
+  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed the same day or the next, worst first' },
+  {
+    id: 'response', label: 'Response TAT', tab: 'Response TAT', color: 'var(--series-1)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} started`,
+    caption: 'Mean days from raised to job start, calls raised in range, slowest first',
+  },
+  {
+    id: 'resolution', label: 'Resolution TAT', tab: 'Resolution TAT', color: 'var(--series-2)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} closed`,
+    caption: 'Mean days from raised to job end, calls closed in range, slowest first',
+  },
+  {
+    id: 'same', label: 'Logged & closed', tab: 'Logged & closed', color: 'var(--series-5)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} closed`,
+    caption: 'Mean days from raised to job end, calls raised and closed in range, slowest first',
+  },
+];
+
 const STATE_KEY = 'bemmp-state';
 /**
  * Where you were, so a reload puts you back.
@@ -445,6 +471,7 @@ export default function App() {
   const [uploads, setUploads] = useState(null); // stateId -> summary
   const [shared, setShared] = useState({}); // stateId -> row in `dataset`
   const [showUpload, setShowUpload] = useState(false);
+  useEffect(() => { setShowUpload(false); }, [tab]);
   const [showAssistant, setShowAssistant] = useState(false);
   // undefined while the stored session is being restored, null when signed out.
   const [session, setSession] = useState(isConfigured() ? undefined : null);
@@ -582,6 +609,11 @@ export default function App() {
   /* What the team has already published. This is what makes one person's upload
      everyone's data — without it a deployment with no server artifact is empty
      until each person goes and finds the workbook themselves. */
+  // Care 360 / Private Service asset masters (0091, the user, 26 Nov).
+  const [assetRows, setAssetRows] = useState({});
+  const reloadAssets = useCallback(() => { listAssetMasters().then(setAssetRows).catch(() => {}); }, []);
+  useEffect(() => { if (isConfigured()) reloadAssets(); }, [reloadAssets, session]);
+
   const reloadShared = useCallback(() => {
     listSharedDatasets().then((next) => {
       /*
@@ -898,10 +930,23 @@ export default function App() {
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
   // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
+  const assetRow = care ? assetRows[ds?.meta.id] : null;
+  const [assets, setAssets] = useState(null);
+  useEffect(() => {
+    let live = true;
+    setAssets(null);
+    if (assetRow) fetchAssets(assetRow.state, assetRow.version).then((m) => { if (live) setAssets(m); }).catch(() => {});
+    return () => { live = false; };
+  }, [assetRow?.state, assetRow?.version]);
+  // Closed in range, whenever raised: what Resolution TAT is measured over.
+  const careEnded = useMemo(
+    () => (idx && care ? endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo) : []),
+    [ds, idx, care, filters],
+  );
   const careTat = useMemo(
     () => {
       if (!idx || !care) return null;
-      const ended = endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo);
+      const ended = careEnded;
       // Each measure again on Breakdown and on PMS jobs alone, shown small on the tile (the user, 26 Nov).
       const raisedBy = byJob(ds, idx); const endedBy = byJob(ds, ended);
       const part = (key) => {
@@ -909,12 +954,18 @@ export default function App() {
         const s = summarize(ds, raisedBy[key], referenceDay, { ftfrThrough });
         return { repeats: analyzeRepeats(ds, raisedBy[key]).followUps, ftfrPct: s.ftfrPct, ...t };
       };
+      // FTFR is Breakdown calls only (the user, 26 Nov: "ftfr pms not needed"), by AMC / CAMC once assets are in.
+      const settled = Array.from(idx).filter((i) => ds.cols.loggedDay[i] <= ftfrThrough);
+      const byType = (t) => ftfrOf(ds, settled.filter((i) => contractOf(ds, assets, i) === t)).pct;
       return {
         ...averageTat(ds, idx, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
         breakdown: part('breakdown'), pms: part('pms'),
+        ftfr: ftfrOf(ds, settled),
+        ftfrByType: assets ? { AMC: byType('AMC'), CAMC: byType('CAMC') } : null,
+        contracts: assets ? contractTable(ds, assets, { raised: Array.from(idx), ended, ftfrRows: settled }) : null,
       };
     },
-    [ds, idx, care, filters, referenceDay, ftfrThrough],
+    [ds, idx, care, careEnded, referenceDay, ftfrThrough, assets],
   );
 
   // Until the user picks one, granularity follows the width of the selected range.
@@ -982,6 +1033,19 @@ export default function App() {
     [ds, idx, ftfrThrough],
   );
 
+  const carePerfRows = useMemo(() => {
+    if (!care || !idx) return null;
+    const bd = byJob(ds, ftfrRows).breakdown;
+    const ok = (key) => (i) => Number.isFinite(tatOf(ds, i)[key]);
+    const inRange = new Set(idx);
+    return {
+      ftfr: Array.from(bd),
+      response: Array.from(idx).filter(ok('response')),
+      resolution: careEnded.filter(ok('resolution')),
+      same: careEnded.filter((i) => inRange.has(i) && ok('resolution')(i)),
+    };
+  }, [care, ds, idx, ftfrRows, careEnded]);
+
   const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
 
   // Closure penalty is scoped by Resolved Date; every other view is scoped by
@@ -1046,9 +1110,14 @@ export default function App() {
     [moneyRows, moneyMeasure],
   );
 
+  const perfList = care ? CARE_PERF : PERFORMANCE;
   const perfMeasure = useMemo(() => {
-    const base = PERFORMANCE.find((m) => m.id === perfId) ?? PERFORMANCE[0];
+    const base = perfList.find((m) => m.id === perfId) ?? perfList[0];
     const { cols } = ds ?? {};
+    if (care && base.id !== 'ftfr') {
+      const key = base.id === 'response' ? 'response' : 'resolution';
+      return { ...base, value: (i) => tatOf(ds, i)[key] };
+    }
     return {
       ...base,
       // `isFirstTimeFix` rather than a bare subtraction, so a Saturday call is
@@ -1058,7 +1127,7 @@ export default function App() {
         ? (i) => (isFirstTimeFix(cols.loggedDay[i], cols.resolvedDay[i]) ? 1 : 0)
         : (i) => cols.resolvedDay[i] - cols.loggedDay[i],
     };
-  }, [ds, perfId]);
+  }, [ds, perfId, care, perfList]);
 
   const breakdowns = useMemo(() => {
     if (!idx) return null;
@@ -1428,12 +1497,14 @@ export default function App() {
 
         {showUpload && (
           <UploadPanel
-            contracts={scoped}
+            contracts={scoped.filter((x) => (care ? x.id === stateId : !CARE_IDS.includes(x.id)))}
             serverStates={states}
             shared={shared}
             onLoaded={onUploaded}
             onPublished={reloadShared}
             onClose={() => setShowUpload(false)}
+            assetRows={assetRows}
+            onAssetsPublished={reloadAssets}
           />
         )}
 
@@ -1457,12 +1528,20 @@ export default function App() {
               penaltyDays={meta.penaltyDays}
               money={moneySummary}
               careTat={careTat}
+              onOpenReport={() => setTab('report')}
               onOpenBucket={openBucket}
               onOpenPenalty={() => { setMoneyId('calls'); setTab('money'); }}
               onOpenRepeats={() => setTab('repeats')}
               onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
               onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
             />
+            {care && (
+              <ContractPanel
+                table={careTat?.contracts}
+                hasAssets={Boolean(assetRow)}
+                onUpload={() => setShowUpload(true)}
+              />
+            )}
             <div className="panel chart-panel" style={{ '--i': 0 }}>
               <div className="chart-head">
                 <div className="chart-tabs" role="tablist" aria-label="Metric">
@@ -1503,7 +1582,7 @@ export default function App() {
               {splitSeries && (
                 <div className="split-legend">
                   <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
-                  <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>
+                  {!metric.percent && <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>}
                 </div>
               )}
               <MetricChart series={plotted} metric={metric} split={splitSeries} />
@@ -1668,10 +1747,10 @@ export default function App() {
           <>
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Performance measure">
-                {PERFORMANCE.map((m) => (
+                {perfList.map((m) => (
                   <button
                     key={m.id} type="button" role="tab"
-                    aria-selected={perfId === m.id}
+                    aria-selected={perfMeasure.id === m.id}
                     onClick={() => setPerfId(m.id)}
                   >
                     {m.tab}
@@ -1682,15 +1761,15 @@ export default function App() {
             <DrillExplorer
               key={`perf-${stateId}-${perfId}`}
               ds={ds}
-              rows={perfId === 'ftfr' ? ftfrRows : resolved}
+              rows={carePerfRows ? carePerfRows[perfMeasure.id] : (perfId === 'ftfr' ? ftfrRows : resolved)}
               referenceDay={referenceDay}
               onSelectRow={setDrawerRow}
               measure={perfMeasure}
               /* Only for resolution. Over the FTFR row set most rows are still
                  open, so a "days to fix" column would be mostly blank and the
                  slowest-first sort would rank on a number half of them lack. */
-              showResolutionColumn={perfId === 'resolution'}
-              intro={(n) => (perfId === 'ftfr'
+              showResolutionColumn={!care && perfId === 'resolution'}
+              intro={(n) => (care ? `${perfMeasure.caption} · ${n.toLocaleString()} calls.` : perfId === 'ftfr'
                 ? `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} calls `
                   + `logged in range whose window has closed — a call still open is a call `
                   + `that was not fixed in time, so it counts against the rate rather than `
@@ -1706,7 +1785,7 @@ export default function App() {
 
         {activeTab === 'report' && care && (
           <Boundary name="The report" resetKey={stateId}>
-            <CareReport key={stateId} ds={ds} filters={filters} />
+            <CareReport key={stateId} ds={ds} filters={filters} assets={assets} />
           </Boundary>
         )}
 

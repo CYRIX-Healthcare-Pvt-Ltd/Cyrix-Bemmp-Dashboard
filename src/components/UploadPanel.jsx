@@ -3,6 +3,7 @@ import { STATES, detectState } from '../../shared/schema.mjs';
 import { deleteUpload, getUpload, listUploads, putUpload } from '../data/uploads.js';
 import { publishDataset } from '../data/datasets.js';
 import { isConfigured, supabase } from '../data/supabase.js';
+import { publishAssets, readAssetFile } from '../data/assetMaster.js';
 
 /** Runs one workbook through the parser worker, reporting progress. */
 function parseInWorker(file, stateId, onProgress) {
@@ -63,7 +64,7 @@ function ago(iso) {
  */
 export default function UploadPanel({
   serverStates, onLoaded, onClose, onPublished, landing = false, contracts = STATES,
-  shared = {},
+  shared = {}, assetRows = {}, onAssetsPublished,
 }) {
   const [stored, setStored] = useState({});
   const [busy, setBusy] = useState(null); // { stateId, phase, pct, detail }
@@ -71,6 +72,30 @@ export default function UploadPanel({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
   const pendingState = useRef(null);
+  // Care 360 / Private Service asset master, uploaded from the same row (the user, 26 Nov).
+  const assetRef = useRef(null);
+  const assetFor = useRef(null);
+  const [assetBusy, setAssetBusy] = useState(null);
+  const [assetError, setAssetError] = useState(null);
+  const pickAssets = (stateId) => {
+    assetFor.current = stateId;
+    assetRef.current.value = '';
+    assetRef.current.click();
+  };
+  const handleAssets = async (file) => {
+    const stateId = assetFor.current;
+    setAssetError(null);
+    setAssetBusy(stateId);
+    try {
+      const pairs = await readAssetFile(file);
+      await publishAssets(stateId, pairs, file.name);
+      onAssetsPublished?.();
+    } catch (e) {
+      setAssetError({ id: stateId, message: e.message });
+    } finally {
+      setAssetBusy(null);
+    }
+  };
 
   const reload = useCallback(() => { listUploads().then(setStored); }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -180,6 +205,13 @@ export default function UploadPanel({
   return (
     <div className={landing ? 'upload-landing' : 'upload-sheet'}>
       <input
+        ref={assetRef}
+        type="file"
+        accept=".xlsx"
+        hidden
+        onChange={(e) => { const file = e.target.files?.[0]; if (file) handleAssets(file); }}
+      />
+      <input
         ref={inputRef}
         type="file"
         accept=".xlsx,.xls"
@@ -194,10 +226,6 @@ export default function UploadPanel({
         <div className="panel-head">
           <div>
             <h2>{landing ? 'Load a BEMMP ticket export' : 'Data sources'}</h2>
-            <p className="caption">
-              Files are read in this browser and stored on this device only — nothing is
-              uploaded to a server.
-            </p>
           </div>
           {!landing && (
             <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -289,6 +317,18 @@ export default function UploadPanel({
                             : `Shared${sharedBy(pub)} · ${ago(pub?.uploaded_at)}`}
                         </div>
                       )}
+                      {s.group === 'care360' && (
+                        <div className="upload-sub asset-sub">
+                          {assetBusy === s.id
+                            ? 'Reading the asset master…'
+                            : assetRows[s.id]
+                              ? `Assets ${assetRows[s.id].rows.toLocaleString()} · ${Object.entries(assetRows[s.id].categories ?? {})
+                                .filter(([k]) => k === 'AMC' || k === 'CAMC').map(([k, v]) => `${k} ${v.toLocaleString()}`).join(' · ')}`
+                                + ` · ${assetRows[s.id].uploaded_by_name ? `${assetRows[s.id].uploaded_by_name}${assetRows[s.id].uploaded_by_code ? ` (${assetRows[s.id].uploaded_by_code})` : ''} · ` : ''}${ago(assetRows[s.id].uploaded_at)}`
+                              : 'No asset master'}
+                        </div>
+                      )}
+                      {assetError?.id === s.id && <div className="asset-error" role="alert">{assetError.message}</div>}
                     </>
                   )}
                 </div>
@@ -318,22 +358,24 @@ export default function UploadPanel({
                     disabled={!!busy}
                     onClick={() => pick(s.id)}
                   >
-                    {up ? 'Replace' : 'Upload'}
+                    {s.group === 'care360' ? (up || pub ? 'Replace TM' : 'Upload TM') : (up ? 'Replace' : 'Upload')}
                   </button>
+                  {s.group === 'care360' && isConfigured() && (
+                    <button
+                      type="button"
+                      className="upload-btn"
+                      disabled={!!busy || !!assetBusy}
+                      onClick={() => pickAssets(s.id)}
+                    >
+                      {assetRows[s.id] ? 'Replace assets' : 'Upload assets'}
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        <p className="caption upload-foot">
-          {/* Kerala is the big one; naming it to somebody who only has Andhra
-              quotes a size and a wait that are not theirs. */}
-          {contracts.some((c) => c.id === 'kl')
-            ? 'A Kerala export is about 46 MB and takes roughly 5–15 seconds to read.'
-            : 'An export is tens of megabytes and takes a few seconds to read.'}
-          {' '}Keep the tab open while it runs.
-        </p>
       </div>
     </div>
   );

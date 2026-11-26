@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { careReport, jobTypesOf, monthsOf } from '../data/careReport.js';
+import { careReport, ftfrByContract, jobTypesOf, monthsOf } from '../data/careReport.js';
 import { saveBlob } from '../data/xlsx.js';
 import { careReportXlsx } from '../data/careReportXlsx.js';
 
@@ -21,7 +21,7 @@ function Change({ value, up }) {
 }
 
 /** Care 360's Report tab: state or facility wise TATs, one month against another, and the Excel of it. */
-export default function CareReport({ ds, filters }) {
+export default function CareReport({ ds, filters, assets }) {
   const months = useMemo(() => monthsOf(ds), [ds]);
   const jobTypes = useMemo(() => jobTypesOf(ds), [ds]);
   // From the earlier month To the later one (the user, 26 Nov): last month against the month before, Breakdown calls.
@@ -36,6 +36,17 @@ export default function CareReport({ ds, filters }) {
     () => (month ? careReport(ds, filters, { month, against, jobType, by }) : null),
     [ds, filters, month, against, jobType, by],
   );
+  // FTFR by AMC / CAMC, month by month From → To, like their own FTFR sheet (the user, 26 Nov).
+  const span = useMemo(() => {
+    if (!month) return [];
+    const lo = Math.min(month.from, against?.from ?? month.from);
+    const hi = Math.max(month.from, against?.from ?? month.from);
+    return months.filter((m) => m.from >= lo && m.from <= hi).reverse();
+  }, [months, month, against]);
+  const ftfr = useMemo(
+    () => (assets && span.length ? ftfrByContract(ds, filters, assets, span) : null),
+    [ds, filters, assets, span],
+  );
   if (!report) return <div className="panel"><p className="empty">No calls in this export.</p></div>;
 
   const A = month.label; const B = against?.label ?? '–';
@@ -45,7 +56,7 @@ export default function CareReport({ ds, filters }) {
   const download = async () => {
     const name = by === 'facility' ? 'Customer Wise Summary' : 'State Wise Summary';
     saveBlob(
-      await careReportXlsx({ report, A, B, by, sheetName: name }),
+      await careReportXlsx({ report, A, B, by, sheetName: name, ftfr }),
       `${ds.meta.name} ${name} ${B} to ${A}.xlsx`,
     );
   };
@@ -157,6 +168,51 @@ export default function CareReport({ ds, filters }) {
           </tfoot>
         </table>
       </div>
+
+      {ftfr && (
+        <>
+          <h2 className="care-ftfr-title">FTFR · AMC and CAMC</h2>
+          <div className="summary-scroll">
+            <table className="summary-grid care-grid care-ftfr">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>Month</th>
+                  {ftfr.types.map((t) => <th key={t} colSpan={3} className="summary-type">{t}</th>)}
+                </tr>
+                <tr>
+                  {ftfr.types.map((t) => [
+                    <th key={`${t}c`} className="num summary-sub group-start">Total calls received</th>,
+                    <th key={`${t}f`} className="num summary-sub">Completed in 24 hrs</th>,
+                    <th key={`${t}p`} className="num summary-sub">FTFR %</th>,
+                  ])}
+                </tr>
+              </thead>
+              <tbody>
+                {ftfr.lines.map((l) => (
+                  <tr key={l.label}>
+                    <td><strong>{l.label}</strong></td>
+                    {ftfr.types.map((t) => [
+                      <td key={`${t}c`} className="num group-start">{l[t].calls.toLocaleString()}</td>,
+                      <td key={`${t}f`} className="num">{l[t].fixed.toLocaleString()}</td>,
+                      <td key={`${t}p`} className="num">{p1(l[t].pct)}</td>,
+                    ])}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><strong>Grand Total</strong></td>
+                  {ftfr.types.map((t) => [
+                    <td key={`${t}c`} className="num strong group-start">{ftfr.total[t].calls.toLocaleString()}</td>,
+                    <td key={`${t}f`} className="num strong">{ftfr.total[t].fixed.toLocaleString()}</td>,
+                    <td key={`${t}p`} className="num strong">{p1(ftfr.total[t].pct)}</td>,
+                  ])}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

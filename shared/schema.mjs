@@ -187,14 +187,24 @@ function deriveUp(field) {
  * "24-01-2026 10:12:58"; a call is resolved once Completed or Closed, on its end (else closed) date; Critical /
  * Non-Critical is the penalty type.
  */
-/** Care 360 and Private BEMMP keep Breakdown Support and PMS jobs only; Mapping Requests are left out (26 Nov). */
+/*
+ * A FieldPro date as text ("24-01-2026 10:12:58") or, when Excel kept it as a date, its serial (45838.44): the
+ * 26 Nov export had Job End Date as serials, and read as blank every call was "fixed" the day it was raised.
+ */
+const fpDay = (v) => {
+  const s = String(v ?? '').trim();
+  if (/^\d{5}(\.\d+)?$/.test(s)) return Math.floor(Number(s));
+  return excelDayOfText(s);
+};
+
+/** Care 360 and Private Service keep Breakdown Support and PMS jobs only; Mapping Requests are left out (26 Nov). */
 const breakdownOrPms = (field) => /breakdown|pms/i.test(String(field.lifecycle ?? ''));
 
 function deriveFieldPro(field) {
   field.ticket = String(field.ticket ?? '').trim().replace('_', '');
-  field.loggedDay = excelDayOfText(field.receivedAt);
+  field.loggedDay = fpDay(field.receivedAt);
   const done = /^(completed|closed)$/i.test(String(field.status ?? '').trim());
-  field.resolvedDay = done ? (excelDayOfText(field.completedAt) || excelDayOfText(field.closedAt) || field.loggedDay) : '';
+  field.resolvedDay = done ? (fpDay(field.completedAt) || fpDay(field.closedAt) || field.loggedDay) : '';
   const cls = String(field.equipmentType ?? '').trim().toUpperCase().replace('-', ' ');
   field.equipmentType = cls;
   if (!done && !String(field.parkedReason ?? '').trim() && /hold|wait|parked/i.test(String(field.subStatus ?? ''))) field.parkedReason = field.subStatus;
@@ -345,7 +355,7 @@ export const STATES = [
     required: ['PMPT ID', 'Facility Name', 'Status', 'Raised Date'],
     rowCheck: (field) => {
       if (!/^[A-Za-z]+_?\d+$/.test(String(field.ticket ?? '').trim())) return `PMPT ID is "${String(field.ticket ?? '').trim() || 'blank'}", not a ticket`;
-      if (excelDayOfText(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
+      if (fpDay(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
       return null;
     },
   },
@@ -355,9 +365,9 @@ export const STATES = [
      * accounts only until its reports are agreed. No penalty rate card.
      */
     id: 'pvt',
-    name: 'Private BEMMP',
+    name: 'Private Service',
     short: 'PVT',
-    file: 'Private BEMMP.xlsx',
+    file: 'Private Service.xlsx',
     barcodeWidth: 0,
     penaltyDays: { CRITICAL: 2, 'NON CRITICAL': 7 },
     penaltyRates: null,
@@ -378,7 +388,7 @@ export const STATES = [
     required: ['MPT ID', 'Facility Name', 'Status', 'Raised Date'],
     rowCheck: (field) => {
       if (!/^[A-Za-z]+_?\d+$/.test(String(field.ticket ?? '').trim())) return `MPT ID is "${String(field.ticket ?? '').trim() || 'blank'}", not a ticket`;
-      if (excelDayOfText(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
+      if (fpDay(field.receivedAt) === '') return `Raised Date is "${String(field.receivedAt ?? '').trim() || 'blank'}", not a date`;
       return null;
     },
   },

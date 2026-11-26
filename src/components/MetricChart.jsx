@@ -291,7 +291,8 @@ function SplitChart({ series, metric, split, height = 300 }) {
       return metric.value(p);
     };
     const bd = series.map((d) => part(split.bd, d));
-    const pm = series.map((d) => part(split.pm, d));
+    // FTFR is Breakdown only (the user, 26 Nov: "ftfr pms not needed").
+    const pm = series.map((d) => (percent ? null : part(split.pm, d)));
     const totals = series.map((_, i) => (bd[i] ?? 0) + (pm[i] ?? 0));
     const top = percent ? 100 : niceMax(Math.max(...totals, 1));
     const n = series.length;
@@ -434,7 +435,7 @@ function SplitChart({ series, metric, split, height = 300 }) {
         >
           <div className="t-title">{series[h].label}</div>
           <div className="t-row"><span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span><span>{fmt(geom.bd[h])}</span></div>
-          <div className="t-row"><span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span><span>{fmt(geom.pm[h])}</span></div>
+          {!percent && <div className="t-row"><span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span><span>{fmt(geom.pm[h])}</span></div>}
           {!percent && <div className="t-row t-primary"><span>Total</span><span>{fmt(geom.totals[h])}</span></div>}
         </div>
       )}

@@ -54,8 +54,7 @@ function Tile({ label, dot, value, format, note, onClick, accent, children, inde
         <div className="k-value">{format(animated)}</div>
         {split && (
           <div className="k-split">
-            <span>Breakdown <b>{typeof split.breakdown === 'number' ? split.breakdown.toLocaleString() : split.breakdown}</b></span>
-            <span>PMS <b>{typeof split.pms === 'number' ? split.pms.toLocaleString() : split.pms}</b></span>
+            {split.map(([label, v]) => <span key={label}>{label} <b>{v}</b></span>)}
           </div>
         )}
         {children}
@@ -121,7 +120,7 @@ function slaNote(penaltyDays) {
  * a confident ₹0 — Andhra supplies its own penalty figures instead of a card.
  */
 export default function KpiTiles({
-  summary, repeats, penaltyDays, money, careTat,
+  summary, repeats, penaltyDays, money, careTat, onOpenReport,
   onOpenBucket, onOpenPenalty, onOpenRepeats, onOpenPerformance, onOpenMoney,
 }) {
   const share = (n) => (summary.total ? `${((n / summary.total) * 100).toFixed(1)}% of calls` : '—');
@@ -134,35 +133,55 @@ export default function KpiTiles({
    */
   if (careTat) {
     const dd = (n) => (n == null ? '—' : `${n.toFixed(2)} d`);
+    const pc = (n) => (n == null ? '—' : pct1(n));
+    const num = (n) => n.toLocaleString();
+    const bdPms = (b, p, f = num) => [['Breakdown', f(b)], ['PMS', f(p)]];
+    const ftfr = careTat.ftfr;
+    /*
+     * Every tile opens its view (the user, 26 Nov: "all grids should be dynamic"). Repeat calls and FTFR lead with
+     * Breakdown ("pms not that imp"; "ftfr pms not needed"); FTFR's small lines are AMC and CAMC once the asset
+     * master is in.
+     */
     return (
       <div className="kpis kpis-care">
-        <Tile index={0} label="Total calls" icon="total" value={summary.total} format={int} note="Tickets logged in range" split={careTat.split.total} />
-        <Tile index={1} label="Resolved" icon="resolved" dot="resolved" value={summary.resolved} format={int} note={share(summary.resolved)} split={careTat.split.resolved} />
+        <Tile
+          index={0} label="Total calls" icon="total" value={summary.total} format={int} note="Tickets logged in range · report"
+          split={bdPms(careTat.split.total.breakdown, careTat.split.total.pms)} onClick={onOpenReport}
+        />
+        <Tile
+          index={1} label="Resolved" icon="resolved" dot="resolved" value={summary.resolved} format={int} note={`${share(summary.resolved)} · drill in`}
+          split={bdPms(careTat.split.resolved.breakdown, careTat.split.resolved.pms)} onClick={() => onOpenPerformance('resolution')}
+        />
         <Tile
           index={2} label="Open calls" icon="open" dot="open" accent="critical"
-          value={summary.open + summary.parked} format={int} note="Not completed · drill in" split={careTat.split.open}
-          onClick={() => onOpenBucket(0)}
+          value={summary.open + summary.parked} format={int} note="Not completed · drill in"
+          split={bdPms(careTat.split.open.breakdown, careTat.split.open.pms)} onClick={() => onOpenBucket(0)}
         />
         <Tile
           index={3} label="Not started" icon="parked" dot="parked" accent="warning"
-          value={careTat.notStarted} format={int} note="Open, no job start yet" split={careTat.split.notStarted}
+          value={careTat.notStarted} format={int} note="Open, no job start yet · drill in"
+          split={bdPms(careTat.split.notStarted.breakdown, careTat.split.notStarted.pms)} onClick={() => onOpenBucket(0)}
         />
         <Tile
-          index={4} label="Repeat calls" icon="repeat" value={repeats.followUps} format={int}
-          note={`2nd+ call on ${repeats.repeatAssets.toLocaleString()} assets · drill in`}
-          onClick={onOpenRepeats} split={{ breakdown: careTat.breakdown.repeats, pms: careTat.pms.repeats }}
+          index={4} label="Repeat calls · Breakdown" icon="repeat" value={careTat.breakdown.repeats} format={int}
+          note="2nd+ Breakdown call on an asset · drill in"
+          onClick={onOpenRepeats} split={[['Total', num(repeats.followUps)], ['PMS', num(careTat.pms.repeats)]]}
         />
         <Tile
-          index={5} label="FTFR" icon="ftfr" accent="good" value={summary.ftfrPct} format={pct1}
-          note={`${summary.firstTimeFixes.toLocaleString()} of ${summary.ftfrLogged.toLocaleString()} logged, fixed within ${FTFR_MAX_DAYS} day · drill in`}
+          index={5} label="FTFR · Breakdown" icon="ftfr" accent="good" value={ftfr.pct ?? 0} format={(n) => (ftfr.pct == null ? '—' : pct1(n))}
+          note={`${ftfr.fixed.toLocaleString()} of ${ftfr.calls.toLocaleString()} fixed within ${FTFR_MAX_DAYS} day · drill in`}
           onClick={() => onOpenPerformance('ftfr')}
-          split={{ breakdown: pct1(careTat.breakdown.ftfrPct), pms: pct1(careTat.pms.ftfrPct) }}
+          split={careTat.ftfrByType ? [['AMC', pc(careTat.ftfrByType.AMC)], ['CAMC', pc(careTat.ftfrByType.CAMC)]] : null}
         />
-        <Tile index={6} label="Response TAT" icon="response" value={careTat.response ?? 0} format={(n) => (careTat.response == null ? "—" : `${n.toFixed(2)} d`)} note="Raised in range, to job start" split={{ breakdown: dd(careTat.breakdown.response), pms: dd(careTat.pms.response) }} />
         <Tile
-          index={7} label="Resolution TAT" icon="resolution" value={careTat.resolution ?? 0} format={(n) => (careTat.resolution == null ? "—" : `${n.toFixed(2)} d`)}
-          note="Closed in range · drill in" onClick={() => onOpenPerformance('resolution')}
-          split={{ breakdown: dd(careTat.breakdown.resolution), pms: dd(careTat.pms.resolution) }}
+          index={6} label="Response TAT" icon="response" value={careTat.response ?? 0}
+          format={(n) => (careTat.response == null ? '—' : `${n.toFixed(2)} d`)} note="Raised in range, to job start · drill in"
+          split={bdPms(careTat.breakdown.response, careTat.pms.response, dd)} onClick={() => onOpenPerformance('response')}
+        />
+        <Tile
+          index={7} label="Resolution TAT" icon="resolution" value={careTat.resolution ?? 0}
+          format={(n) => (careTat.resolution == null ? '—' : `${n.toFixed(2)} d`)} note="Closed in range · drill in"
+          split={bdPms(careTat.breakdown.resolution, careTat.pms.resolution, dd)} onClick={() => onOpenPerformance('resolution')}
         />
       </div>
     );
