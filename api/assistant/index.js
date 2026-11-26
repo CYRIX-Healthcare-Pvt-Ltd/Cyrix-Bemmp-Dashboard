@@ -1,4 +1,4 @@
-import { configured, json, readBody, requireCyra, secret } from '../_lib/server.js';
+import { configured, json, meterAi, readBody, requireCyra, secret } from '../_lib/server.js';
 
 const ALLOWED_MODELS = new Set(['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1']);
 
@@ -35,6 +35,9 @@ export default async function handler(req, res) {
       body: JSON.stringify({ ...body, model }),
     });
     const text = await r.text();
+    // Tokens to app.cyrix.in/ops's AI panel (KPI 0236), awaited so the function is not frozen before it lands.
+    // Counts and the model only — the question and the answer never leave this function.
+    if (r.ok) await meterAi(req, 'assistant', text);
     res.status(r.status).setHeader('Content-Type', 'application/json');
     // Passed through verbatim on success; on failure OpenAI's own message is
     // the useful one, and it never contains the key.

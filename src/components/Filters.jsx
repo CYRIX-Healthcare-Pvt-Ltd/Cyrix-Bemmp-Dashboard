@@ -142,7 +142,7 @@ function Search({ label, dict, value, onChange, allLabel, allow }) {
   );
 }
 
-export default function Filters({ ds, filters, setFilters }) {
+export default function Filters({ ds, filters, setFilters, contractTypes, slotRef, slotTall = false }) {
   const { dict } = ds;
   const dateRange = ds.meta.dateRange;
   const stateId = ds.meta.id;
@@ -289,6 +289,8 @@ export default function Filters({ ds, filters, setFilters }) {
             {saved ? 'Back to saved view' : 'Reset all filters'}
           </button>
         )}
+        {/* Care 360 summary cards on pages without sub-tabs sit here, opposite Filters (the user, 26 Nov). */}
+        {slotRef && <div className={`bar-stats-slot${slotTall ? ' is-tall' : ''}`} ref={slotRef} />}
       </div>
 
       {/* A drawer rather than a band across the page. Expanded in place it cost a
@@ -407,6 +409,20 @@ export default function Filters({ ds, filters, setFilters }) {
             {BUCKET_LABEL.map((l, i) => <option key={l} value={i}>{l}</option>)}
           </select>
         </div>
+
+        {contractTypes?.length > 0 && (
+          <div className="field">
+            <label htmlFor="f-contract">Contract type</label>
+            <select
+              id="f-contract"
+              value={filters.contract ?? ''}
+              onChange={(e) => set({ contract: e.target.value || null })}
+            >
+              <option value="">All contract types</option>
+              {contractTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
 
         {/*
           * At the bottom, where a selection is finished, rather than in the

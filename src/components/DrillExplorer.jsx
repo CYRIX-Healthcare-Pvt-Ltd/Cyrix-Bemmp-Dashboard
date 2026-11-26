@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   formatDay, label, parseEngineer, ticketLabel, BUCKET, BUCKET_LABEL,
 } from '../data/store.js';
@@ -7,6 +8,14 @@ import {
   penaltyWindows, isPenalty, aggregateBy, closurePenalty,
 } from '../data/query.js';
 import BarList from './BarList.jsx';
+import { careTimes, isCare, tatOf } from '../data/careReport.js';
+
+// Care 360's export carries date-times; shown as "24 Jan 2026, 10:12".
+const fmtMs = (ms) => (Number.isFinite(ms)
+  ? new Date(ms).toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
+  })
+  : '—');
 
 const MAX_ROWS = 400;
 const MAX_ASSETS = 100;
@@ -19,6 +28,9 @@ const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
  * service manager narrows down — with engineer and department available at any level.
  */
 export const DIMENSIONS = [
+  // Care 360 / Private Service only: AMC, CAMC… from the asset master, first in the drill (the user, 26 Nov). Other
+  // contracts have no such dictionary, so the panel never shows there.
+  { key: 'contractType', label: 'Contract types', noun: 'contract type', color: 'var(--series-5)', all: true },
   // Two values in Kerala and none at all in Andhra, whose export has no zone
   // column. An empty dictionary drops the panel rather than drawing a heading
   // over nothing, which is why `dimensionsFor` exists.
@@ -107,7 +119,7 @@ function displayValue(key, raw) {
 export default function DrillExplorer({
   ds, rows, mode = 'tickets', referenceDay, onSelectRow,
   intro, showPenaltyColumn = false, showAgeing = false, showParkedReasons = false,
-  measure = null, showResolutionColumn = false,
+  measure = null, showResolutionColumn = false, showAverages = false, statsSlot = null, statsLabel = 'Calls',
 }) {
   const { cols, dict } = ds;
   const [path, setPath] = useState([]);
@@ -140,7 +152,7 @@ export default function DrillExplorer({
   const counted = mode === 'repeats' ? repeats.rows : scoped;
 
   const remaining = useMemo(
-    () => dimensionsFor(ds).filter((d) => !path.some((p) => p.key === d.key)),
+    () => dimensionsFor(ds).filter((d) => d.key !== 'contractType' && !path.some((p) => p.key === d.key)),
     [ds, path],
   );
 
@@ -177,6 +189,53 @@ export default function DrillExplorer({
     return { dim, groupCount: groups.length, items: groups };
   }), [ds, counted, remaining, dict, measure]);
 
+  /*
+   * Care 360 summary cards (the user, 26 Nov): the figure at this drill level, overall and for AMC and CAMC — an
+   * average on the performance tabs, a count on Open calls, repeat calls on Repeats.
+   */
+  const stats = useMemo(() => {
+    if (!showAverages || !rows.length) return null;
+    const names = dict.contractType;
+    const typeIds = names
+      ? ['AMC', 'CAMC'].map((t) => [t, names.indexOf(t)]).filter(([, id]) => id >= 0)
+      : [];
+    const ofType = (list, id) => Array.from(list).filter((i) => cols.contractType[i] === id);
+    let figure;
+    let label = statsLabel;
+    let color = 'var(--series-1)';
+    if (measure && measure.kind !== 'sum') {
+      label = measure.label;
+      color = measure.color;
+      figure = (list) => {
+        let sum = 0; let n = 0;
+        for (const i of list) { const v = measure.value(i); if (Number.isFinite(v)) { sum += v; n++; } }
+        return n ? { value: measure.format(sum / n), sub: `${n.toLocaleString()} calls` } : null;
+      };
+    } else if (mode === 'repeats') {
+      figure = (list) => {
+        const r = analyzeRepeats(ds, list);
+        return { value: r.followUps.toLocaleString(), sub: `${r.repeatAssets.toLocaleString()} assets` };
+      };
+    } else {
+      figure = (list) => ({
+        value: list.length.toLocaleString(),
+        sub: counted.length ? `${Math.round((list.length / counted.length) * 100)}% of calls` : '',
+      });
+    }
+    // The cards are figured without the contract step, so AMC and CAMC both stay in view while one is picked.
+    let source = rows;
+    for (const step of path) {
+      if (step.key === 'contractType') continue;
+      source = step.key === AGE_KEY ? rowsInBand(ds, source, step.band, referenceDay) : rowsWhere(ds, source, step.key, step.id);
+    }
+    const picked = path.find((p) => p.key === 'contractType')?.id ?? null;
+    return {
+      label, color, picked,
+      all: figure(source),
+      types: typeIds.map(([t, id]) => ({ t, id, f: figure(ofType(source, id)) })),
+    };
+  }, [showAverages, measure, counted, rows, mode, dict, cols, path, ds, statsLabel, referenceDay]);
+
   const ageUsed = path.some((p) => p.key === AGE_KEY);
   const reasonUsed = path.some((p) => p.key === REASON_KEY);
 
@@ -198,9 +257,18 @@ export default function DrillExplorer({
 
   const windows = useMemo(() => penaltyWindows(ds), [ds]);
 
+  const care = isCare(ds);
+  const careTat = useMemo(() => (care && measure && measure.kind !== 'sum'
+    ? (measure.id === 'ftfr' ? (i) => tatOf(ds, i).resolution : measure.value)
+    : null), [care, measure, ds]);
+  const careTatLabel = measure?.id === 'ftfr' ? 'Resolution TAT' : measure?.label;
+
   const ticketRows = useMemo(() => {
     const list = Array.from(counted);
-    if (measure && measure.kind === 'sum') {
+    if (careTat) {
+      const v = (i) => { const x = careTat(i); return Number.isFinite(x) ? x : -1; };
+      list.sort((a, b) => v(b) - v(a));
+    } else if (measure && measure.kind === 'sum') {
       // Biggest money first. Sorting a rupee view by logged date buries the rows
       // the total is actually made of behind the oldest, often zero-value, tickets.
       list.sort((a, b) => measure.value(b) - measure.value(a));
@@ -212,7 +280,7 @@ export default function DrillExplorer({
       list.sort((a, b) => cols.loggedDay[a] - cols.loggedDay[b]);
     }
     return list;
-  }, [counted, cols, showResolutionColumn, measure]);
+  }, [counted, cols, showResolutionColumn, measure, careTat]);
 
   const assets = useMemo(
     () => (repeats ? repeats.assets.slice(0, MAX_ASSETS) : []),
@@ -234,6 +302,35 @@ export default function DrillExplorer({
     : displayValue(step.key, label(dict[step.key], step.id)));
 
   const total = counted.length;
+  // A card picks its contract type for everything below; the first card, or the picked one again, is all of them.
+  const pickContract = (id) => {
+    setPath((p) => {
+      const rest = p.filter((x) => x.key !== 'contractType');
+      return id == null ? rest : [{ key: 'contractType', id }, ...rest];
+    });
+    setAsset(null);
+  };
+  const statsCards = stats?.all ? (
+    <div className="drill-stats">
+      <button
+        type="button" className={`drill-stat is-main${stats.picked == null ? ' is-picked' : ''}`} style={{ '--c': stats.color }}
+        aria-pressed={stats.picked == null} onClick={() => pickContract(null)}
+      >
+        <span>{stats.label}</span>
+        <div><strong>{stats.all.value}</strong><em>{stats.all.sub}</em></div>
+      </button>
+      {stats.types.map(({ t, id, f }) => (
+        <button
+          key={t} type="button" className={`drill-stat${stats.picked === id ? ' is-picked' : ''}`} style={{ '--c': stats.color }}
+          aria-pressed={stats.picked === id} disabled={!f}
+          onClick={() => pickContract(stats.picked === id ? null : id)}
+        >
+          <span>{t}</span>
+          <div><strong>{f ? f.value : '–'}</strong><em>{f ? f.sub : 'No calls'}</em></div>
+        </button>
+      ))}
+    </div>
+  ) : null;
   const drillable = [
     ...remaining.map((d) => d.noun),
     ...(ages ? ['age'] : []),
@@ -242,6 +339,10 @@ export default function DrillExplorer({
 
   return (
     <div className="grid" style={{ gap: 16 }}>
+      {statsCards && !statsSlot && <div className="drill-top">{statsCards}</div>}
+      {statsCards && statsSlot && createPortal(statsCards, statsSlot)}
+      {/* The path card only once something is drilled into, when the cards stand in for the intro; no hint line. */}
+      {(!statsCards || path.some((p) => p.key !== 'contractType')) && (
       <div className="panel" style={{ '--i': 0 }}>
         <nav className="crumbs" aria-label="Drill-down path">
           <button type="button" onClick={() => popTo(0)} disabled={path.length === 0}>
@@ -264,13 +365,9 @@ export default function DrillExplorer({
             </button>
           )}
         </nav>
-        <p className="caption drill-intro">{intro(total, repeats)}</p>
-        {drillable.length > 0 && total > 0 && (
-          <p className="caption drill-hint">
-            Select any bar below to drill deeper — {drillable.join(', ')}.
-          </p>
-        )}
+        {!statsCards && <p className="caption drill-intro">{intro(total, repeats)}</p>}
       </div>
+      )}
 
       {total === 0 ? (
         <div className="panel"><p className="empty">Nothing matches this drill-down.</p></div>
@@ -394,7 +491,7 @@ export default function DrillExplorer({
               <p className="caption">
                 {measure && measure.kind === 'sum'
                   ? 'Largest first'
-                  : (showResolutionColumn ? 'Slowest fix first' : 'Oldest first')} · showing{' '}
+                  : (showResolutionColumn || careTat ? 'Slowest first' : 'Oldest first')} · showing{' '}
                 {Math.min(MAX_ROWS, ticketRows.length)} of{' '}
                 {ticketRows.length.toLocaleString()} · select a row for full detail
               </p>
@@ -402,7 +499,16 @@ export default function DrillExplorer({
                 <table>
                   <thead>
                     <tr>
-                      <th>Ticket</th><th className="num">Down Days</th><th>Logged</th>
+                      <th>Ticket</th>
+                      {care ? (
+                        <>
+                          <th>Raised</th><th>Job start</th><th>Job end</th>
+                          <th className="num">{careTat ? careTatLabel : 'Down days'}</th>
+                          {dict.contractType && <th>Contract</th>}
+                        </>
+                      ) : (
+                        <><th className="num">Down Days</th><th>Logged</th></>
+                      )}
                       <th>Equipment</th><th>Facility</th>
                       {hasZone && <th>Zone</th>}
                       <th>District</th>
@@ -424,8 +530,24 @@ export default function DrillExplorer({
                       return (
                         <tr key={i} className="clickable" onClick={() => onSelectRow(i)}>
                           <td>{ticketLabel(ds, i)}</td>
-                          <td className="num">{age}d</td>
-                          <td>{formatDay(cols.loggedDay[i])}</td>
+                          {care ? (() => {
+                            const t = careTimes(ds, i);
+                            const v = careTat ? careTat(i) : NaN;
+                            return (
+                              <>
+                                <td className="nowrap">{fmtMs(t.raised)}</td>
+                                <td className="nowrap">{fmtMs(t.start)}</td>
+                                <td className="nowrap">{fmtMs(t.end)}</td>
+                                <td className="num">{careTat ? (Number.isFinite(v) ? `${v.toFixed(2)} d` : '—') : `${age}d`}</td>
+                                {dict.contractType && <td>{label(dict.contractType, cols.contractType[i])}</td>}
+                              </>
+                            );
+                          })() : (
+                            <>
+                              <td className="num">{age}d</td>
+                              <td>{formatDay(cols.loggedDay[i])}</td>
+                            </>
+                          )}
                           <td>{label(dict.equipment, cols.equipment[i])}</td>
                           <td>{label(dict.facilityName, cols.facilityName[i])}</td>
                           {hasZone && <td>{label(dict.zone, cols.zone[i])}</td>}

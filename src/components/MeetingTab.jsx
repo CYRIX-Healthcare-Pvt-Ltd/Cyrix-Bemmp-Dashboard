@@ -1358,14 +1358,19 @@ export default function MeetingTab({
       ]);
       setTypes((list.data ?? []).map((r) => r.name));
 
+      // Marking which calls are still open must never hide the entries: on 23 Nov it
+      // ran past the 8 s limit for Kerala and every row showed blank (0080 fixed the
+      // cause). The entries load anyway and the failure shows above the grid.
+      let syncFailed = null;
       if (canEdit) {
         phase('closed');
-        setSync(await reconcileOpen(state, ids));
+        try { setSync(await reconcileOpen(state, ids)); } catch (e) { syncFailed = e; }
       }
 
       const loaded = await loadNotes(state, ids, phase('entries'));
       setProgress({ pct: 100, label: 'Ready' });
       setNotes(loaded);
+      if (syncFailed) setError(`Entries are shown, but marking closed calls failed: ${syncFailed.message}. Reload to try again.`);
       setEpoch((n) => n + 1);
     } catch (e) {
       setError(e.message);

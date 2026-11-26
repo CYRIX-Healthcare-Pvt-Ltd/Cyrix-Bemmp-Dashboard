@@ -5,6 +5,9 @@ import {
 import { listUploads, getUpload } from './data/uploads.js';
 import { listSharedDatasets, fetchSharedDataset } from './data/datasets.js';
 import { STATES } from '../shared/schema.mjs';
+
+/** The Care 360 module's contracts (the user, 25 Nov). */
+const CARE_IDS = ['c360', 'pvt'];
 import UploadPanel from './components/UploadPanel.jsx';
 import {
   filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
@@ -22,15 +25,27 @@ import {
 } from './data/supabase.js';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import Avatar from './components/Avatar.jsx';
-import StateSwitcher from './components/StateSwitcher.jsx';
+import ProjectSwitcher from './components/ProjectSwitcher.jsx';
+import ProjectHome from './components/ProjectHome.jsx';
+import MedtronicApp from './components/Medtronic.jsx';
+import { MEDTRONIC, loadMtMe, roleOf } from './data/medtronic.js';
+import PmApp from './components/PmChecklist.jsx';
+import { PM_PROJECT, loadPmMe } from './data/pm.js';
+import QuotationApp from './components/Quotation.jsx';
+import { QT_PROJECT, loadQtMe } from './data/quotation.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
-import MetricChart from './components/MetricChart.jsx';
+import MetricChart, { SPLIT_COLORS } from './components/MetricChart.jsx';
 import BarList from './components/BarList.jsx';
 import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
+import CareReport from './components/CareReport.jsx';
+import { fixedFirstTime } from './data/careFix.js';
+import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, tatOf } from './data/careReport.js';
+import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
+import ContractPanel from './components/ContractPanel.jsx';
 
 /*
  * The width where the rail becomes a strip along the bottom. The same
@@ -102,11 +117,42 @@ function ToPortal() {
 }
 
 /**
+ * Signing in on the dev server only. There is no portal on localhost to send
+ * anybody to, so a local check of a signed-in screen had no way in (the user,
+ * 31 Oct: "i will login in local"). `import.meta.env.DEV` keeps it out of
+ * every build Vercel makes.
+ */
+function DevSignIn() {
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const go = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: `${code.trim().toLowerCase()}@cyrix.local`, password,
+    });
+    if (error) { setErr('Wrong employee code or password.'); setBusy(false); }
+  };
+  return (
+    <form className="status-msg dev-signin" onSubmit={go}>
+      <p><strong>Local sign-in</strong></p>
+      <input className="mt-select" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Employee code" autoComplete="username" />
+      <input className="mt-select" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" />
+      <button type="submit" className="mt-btn mt-btn-primary" disabled={busy || !code || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      {err && <p className="mt-err">{err}</p>}
+    </form>
+  );
+}
+
+/**
  * The portal owns the session, so signing out here signs you out of every
  * module — and the way out is its front door rather than this app's, which
  * would only render a spinner on the way to the same place.
  */
 async function signOutToPortal() {
+  try { sessionStorage.removeItem('bemmp_nav_open'); } catch { /* none kept */ } // the next sign-in starts expanded
   await signOut();
   window.location.assign('/');
 }
@@ -171,6 +217,8 @@ const TABS = [
   // they are sub-tabs of one section rather than two sections asking the same
   // question.
   { id: 'money', label: 'Penalty', short: 'Penalty' },
+  // Care 360 only, in place of Penalty (the user, 26 Nov).
+  { id: 'report', label: 'Report', short: 'Report' },
 ];
 
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -270,6 +318,30 @@ const PERFORMANCE = [
   },
 ];
 
+/*
+ * Care 360's FTFR and TAT views (the user, 26 Nov): FTFR on Breakdown calls; Response over calls raised in range;
+ * Resolution over calls closed in range ("if nov filtered ie nov closed calls"); and raised and closed in range.
+ * Fractional days from the export's date-times, as on the tiles and the Report.
+ */
+const CARE_PERF = [
+  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed within 24 hours (Saturday: by Monday), worst first' },
+  {
+    id: 'response', label: 'Response TAT', tab: 'Response TAT', color: 'var(--series-1)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} started`,
+    caption: 'Mean days from raised to job start, calls raised in range, slowest first',
+  },
+  {
+    id: 'resolution', label: 'Resolution TAT', tab: 'Resolution TAT', color: 'var(--series-2)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} closed`,
+    caption: 'Mean days from raised to job end, calls closed in range, slowest first',
+  },
+  {
+    id: 'same', label: 'Logged & closed', tab: 'Logged & closed', color: 'var(--series-5)', sort: 'desc', minSamples: 5,
+    format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} closed`,
+    caption: 'Mean days from raised to job end, calls raised and closed in range, slowest first',
+  },
+];
+
 const STATE_KEY = 'bemmp-state';
 /**
  * Where you were, so a reload puts you back.
@@ -299,6 +371,15 @@ const VIEW_KEY = 'bemmp-view';
  * API is absent in older Safari, where the honest default is to treat an
  * arrival as an arrival.
  */
+/*
+ * The project open, kept for a reload only. A fresh visit opens on the grid of
+ * projects, the way the portal opens on its modules (the user, 31 Oct).
+ */
+const PROJECT_KEY = 'bemmp-project';
+function savedProject() {
+  try { return wasReloaded() ? localStorage.getItem(PROJECT_KEY) || null : null; } catch { return null; }
+}
+
 function wasReloaded() {
   try {
     const [nav] = performance.getEntriesByType('navigation');
@@ -347,11 +428,14 @@ function slaExample(penaltyDays) {
 export default function App() {
   const narrow = useNarrow();
   const [states, setStates] = useState(null);
-  const [stateId, setStateId] = useState(() => localStorage.getItem(STATE_KEY) || 'kl');
+  const [picked, setPicked] = useState(savedProject);
+  const [stateId, setStateId] = useState(() => (
+    picked && picked !== MEDTRONIC.id && picked !== PM_PROJECT.id && picked !== QT_PROJECT.id ? picked : localStorage.getItem(STATE_KEY) || 'kl'
+  ));
   const [ds, setDs] = useState(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState(null);
+  const [chosenFilters, setFilters] = useState(null);
   /*
    * The tab from last time, if it is still a tab.
    *
@@ -380,7 +464,8 @@ export default function App() {
   });
   const [drawerRow, setDrawerRow] = useState(null);
   const [metricId, setMetricId] = useState('volume');
-  const [perfId, setPerfId] = useState('ftfr');
+  // Kept across a reload, like the page and the Open calls view (the user, 26 Nov).
+  const [perfId, setPerfId] = useState(() => savedView().perfId ?? 'ftfr');
   const [moneyId, setMoneyId] = useState('perday');
   const [granularity, setGranularity] = useState(null); // null = follow the range
   // Bumped after a refresh; busts the HTTP cache and re-runs the loader below.
@@ -388,10 +473,17 @@ export default function App() {
   const [uploads, setUploads] = useState(null); // stateId -> summary
   const [shared, setShared] = useState({}); // stateId -> row in `dataset`
   const [showUpload, setShowUpload] = useState(false);
+  useEffect(() => { setShowUpload(false); }, [tab]);
   const [showAssistant, setShowAssistant] = useState(false);
   // undefined while the stored session is being restored, null when signed out.
   const [session, setSession] = useState(isConfigured() ? undefined : null);
   const [profile, setProfile] = useState(null);
+  const [profileDone, setProfileDone] = useState(false);
+  // What this person is in Medtronic: undefined while asking, null for nothing.
+  const [mtMe, setMtMe] = useState(undefined);
+  // The same for the PM checklist.
+  const [pmMe, setPmMe] = useState(undefined);
+  const [qtMe, setQtMe] = useState(undefined);
   /* Which export the current filter selection was built for. See the loader. */
   const loadedSig = useRef(null);
 
@@ -414,6 +506,8 @@ export default function App() {
    * another's.
    */
   const trackerOnly = ds?.meta.id === 'up';
+  // Care 360 and Private BEMMP: one open calls list, no penalty, a Report tab (the user, 26 Nov).
+  const care = isCare(ds);
 
   /*
    * Cyra, for the people it has been turned on for in SW Admin — nobody until
@@ -479,7 +573,7 @@ export default function App() {
   // Role and scope decide which tabs exist, so they are loaded before the app
   // renders rather than fetched by the tab that needs them.
   useEffect(() => {
-    if (!session) { setProfile(null); return; }
+    if (!session) { setProfile(null); setProfileDone(false); return; }
     // Same reasoning as above, one level down: an identical row must not arrive
     // as a new object, or every consumer of `profile` recomputes for nothing.
     loadProfile()
@@ -487,7 +581,23 @@ export default function App() {
         prev && p && prev.id === p.id && prev.role === p.role && prev.cyra === p.cyra
           && String(prev.scope) === String(p.scope) ? prev : p
       )))
-      .catch(() => setProfile(null));
+      .catch(() => setProfile(null))
+      .finally(() => setProfileDone(true));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setMtMe(undefined); return; }
+    loadMtMe().then((m) => setMtMe(m ?? null)).catch(() => setMtMe(null));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setPmMe(undefined); return; }
+    loadPmMe().then((m) => setPmMe(m ?? null)).catch(() => setPmMe(null));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) { setQtMe(undefined); return; }
+    loadQtMe().then((m) => setQtMe(m ?? null)).catch(() => setQtMe(null));
   }, [session]);
 
   useEffect(() => {
@@ -501,6 +611,11 @@ export default function App() {
   /* What the team has already published. This is what makes one person's upload
      everyone's data — without it a deployment with no server artifact is empty
      until each person goes and finds the workbook themselves. */
+  // Care 360 / Private Service asset masters (0091, the user, 26 Nov).
+  const [assetRows, setAssetRows] = useState({});
+  const reloadAssets = useCallback(() => { listAssetMasters().then(setAssetRows).catch(() => {}); }, []);
+  useEffect(() => { if (isConfigured()) reloadAssets(); }, [reloadAssets, session]);
+
   const reloadShared = useCallback(() => {
     listSharedDatasets().then((next) => {
       /*
@@ -590,9 +705,52 @@ export default function App() {
     [profile],
   );
 
+  /*
+   * Projects: the contracts with data, then Medtronic for those it is assigned
+   * to. One project opens straight away; more open on the grid until one is
+   * picked.
+   */
+  const hasMt = Boolean(profile) && (profile.scope?.includes(MEDTRONIC.id) || profile.role === 'admin')
+    && Boolean(roleOf(mtMe));
+  const hasPm = Boolean(profile) && (profile.scope?.includes(PM_PROJECT.id) || profile.role === 'admin') && Boolean(pmMe);
+  const projects = useMemo(() => [
+    ...available.map((s) => ({ id: s.id, short: s.short, name: s.name, rows: s.rows })),
+    // Care 360's contracts show before their first upload, so the first file can be uploaded there (25 Nov).
+    ...scoped.filter((s) => CARE_IDS.includes(s.id) && !available.some((a) => a.id === s.id)).map((s) => ({ id: s.id, short: s.short, name: s.name, rows: 0 })),
+    ...(hasMt ? [MEDTRONIC] : []),
+    ...(hasPm ? [PM_PROJECT] : []),
+    // Ticked as a BEMMP module in SW Admin (KPI 0279; the user, 11 Nov), and a tracker role. A Quotation maker (0060) is
+    // given in SW Admin → BEMMP → Quotation makers, which is the tick itself (the user, 16 Nov: "not showing in e1427").
+    // A Quotation maker has only the quotation creator, kept to test accounts while it is rebuilt (19 Nov).
+    ...(qtMe && (profile?.scope?.includes('qt') || profile?.role === 'admin' || qtMe.role === 'maker') ? [QT_PROJECT] : []),
+  ], [available, scoped, hasMt, hasPm, qtMe, profile]);
+  const decided = !isConfigured() || (ready && session !== undefined
+    && (!session || (profileDone && mtMe !== undefined && pmMe !== undefined && qtMe !== undefined)));
+  const project = !decided ? null
+    : projects.some((x) => x.id === picked) ? picked
+      : projects.length === 1 ? projects[0].id : null;
+  const inMt = project === MEDTRONIC.id;
+  const inPm = project === PM_PROJECT.id;
+  const inQt = project === QT_PROJECT.id;
+  const contractOpen = Boolean(project) && !inMt && !inPm && !inQt;
+  /** A Care contract in scope but with no file yet: opens its own upload page, never another contract. */
+  const emptyCare = contractOpen && ready && CARE_IDS.includes(picked) && !available.some((a) => a.id === picked);
+
+  const [careOpen, setCareOpen] = useState(false);
+  const pickProject = useCallback((id) => {
+    setPicked(id);
+    try { localStorage.setItem(PROJECT_KEY, id); } catch { /* forgets on reload, nothing more */ }
+    if (id !== MEDTRONIC.id && id !== PM_PROJECT.id && id !== QT_PROJECT.id) setStateId(id);
+  }, []);
+  const toProjects = useCallback(() => {
+    setPicked(null);
+    try { localStorage.removeItem(PROJECT_KEY); } catch { /* as above */ }
+  }, []);
+
   // Dictionaries are per state, so the dataset and every filter reload together.
+  // Nothing loads until a contract is open: the grid and Medtronic need none of it.
   useEffect(() => {
-    if (!ready || !available.length) return undefined;
+    if (!ready || !available.length || !contractOpen || emptyCare) return undefined;
     const target = available.some((s) => s.id === stateId) ? stateId : available[0].id;
     if (target !== stateId) { setStateId(target); return undefined; }
 
@@ -700,7 +858,7 @@ export default function App() {
       })
       .catch((e) => { if (!cancelled) { setError(e.message); setBusy(false); } });
     return () => { cancelled = true; };
-  }, [ready, available, stateId, dataVersion, uploads, shared]);
+  }, [ready, available, stateId, dataVersion, uploads, shared, contractOpen, emptyCare]);
 
   /** A freshly parsed workbook becomes the active dataset immediately. */
   const onUploaded = useCallback((id, meta, buffer) => {
@@ -754,6 +912,49 @@ export default function App() {
     return limit;
   }, [ds, profile]);
 
+  const assetRow = care ? assetRows[ds?.meta.id] : null;
+  const [assets, setAssets] = useState(null);
+  useEffect(() => {
+    let live = true;
+    setAssets(null);
+    if (assetRow) fetchAssets(assetRow.state, assetRow.version).then((m) => { if (live) setAssets(m); }).catch(() => {});
+    return () => { live = false; };
+  }, [assetRow?.state, assetRow?.version]);
+  // Care 360's AMC / CAMC filter (the user, 26 Nov): the contract type comes from the asset master by barcode, so it
+  // rides into every filterRows as a row mask rather than a column.
+  const contractMask = useMemo(() => {
+    const want = chosenFilters?.contract;
+    if (!care || !assets || !want || !ds) return null;
+    const m = new Uint8Array(ds.rows);
+    for (let i = 0; i < ds.rows; i++) if (contractOf(ds, assets, i) === want) m[i] = 1;
+    return m;
+  }, [care, assets, ds, chosenFilters?.contract]);
+  const filters = useMemo(
+    () => (chosenFilters && contractMask ? { ...chosenFilters, keepMask: contractMask } : chosenFilters),
+    [chosenFilters, contractMask],
+  );
+  // The drill panels read contract type as one more column (the user, 26 Nov: "contract type also, before zone").
+  const [barSlot, setBarSlot] = useState(null);
+  const drillDs = useMemo(() => {
+    if (!care || !assets || !ds) return ds;
+    const names = [];
+    const ids = new Map();
+    const col = new Int32Array(ds.rows);
+    for (let i = 0; i < ds.rows; i++) {
+      const t = contractOf(ds, assets, i);
+      let id = ids.get(t);
+      if (id === undefined) { id = names.length; names.push(t); ids.set(t, id); }
+      col[i] = id;
+    }
+    return { ...ds, cols: { ...ds.cols, contractType: col }, dict: { ...ds.dict, contractType: names } };
+  }, [care, assets, ds]);
+  const contractTypes = useMemo(
+    () => (care && assets && assetRow
+      ? Object.entries(assetRow.categories ?? {}).sort((a, b) => b[1] - a[1]).map(([k]) => k)
+      : null),
+    [care, assets, assetRow],
+  );
+
   const idx = useMemo(
     () => (ds && filters ? filterRows(ds, filters) : null),
     [ds, filters, area],
@@ -773,6 +974,36 @@ export default function App() {
     [ds, idx, referenceDay, ftfrThrough],
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
+  // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
+  // Closed in range, whenever raised: what Resolution TAT is measured over.
+  const careEnded = useMemo(
+    () => (idx && care ? endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo) : []),
+    [ds, idx, care, filters],
+  );
+  const careTat = useMemo(
+    () => {
+      if (!idx || !care) return null;
+      const ended = careEnded;
+      // Each measure again on Breakdown and on PMS jobs alone, shown small on the tile (the user, 26 Nov).
+      const raisedBy = byJob(ds, idx); const endedBy = byJob(ds, ended);
+      const part = (key) => {
+        const t = averageTat(ds, raisedBy[key], endedBy[key]);
+        const s = summarize(ds, raisedBy[key], referenceDay, { ftfrThrough });
+        return { repeats: analyzeRepeats(ds, raisedBy[key]).followUps, ftfrPct: s.ftfrPct, ...t };
+      };
+      // FTFR is Breakdown calls only (the user, 26 Nov: "ftfr pms not needed"), by AMC / CAMC once assets are in.
+      const settled = Array.from(idx).filter((i) => ds.cols.loggedDay[i] <= ftfrThrough);
+      const byType = (t) => ftfrOf(ds, settled.filter((i) => contractOf(ds, assets, i) === t)).pct;
+      return {
+        ...averageTat(ds, idx, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
+        breakdown: part('breakdown'), pms: part('pms'),
+        ftfr: ftfrOf(ds, settled),
+        ftfrByType: assets ? { AMC: byType('AMC'), CAMC: byType('CAMC') } : null,
+        contracts: assets ? contractTable(ds, assets, { raised: Array.from(idx), ended, ftfrRows: settled }) : null,
+      };
+    },
+    [ds, idx, care, careEnded, referenceDay, ftfrThrough, assets],
+  );
 
   // Until the user picks one, granularity follows the width of the selected range.
   const autoGranularity = filters
@@ -784,7 +1015,27 @@ export default function App() {
     () => (idx ? buildSeries(ds, idx, activeGranularity, referenceDay) : []),
     [ds, idx, activeGranularity, referenceDay],
   );
-  const metric = METRICS.find((m) => m.id === metricId) ?? METRICS[0];
+  // Care 360 has no penalty, so no penalty chart (the user, 26 Nov).
+  const metrics = care ? METRICS.filter((m) => m.id !== 'penalty') : METRICS;
+  const metric = metrics.find((m) => m.id === metricId) ?? metrics[0];
+  // Breakdown and PMS each on their own, for Care 360's split chart.
+  const splitSeries = useMemo(() => {
+    if (!care || !idx) return null;
+    const parts = byJob(ds, idx);
+    const by = (rows) => new Map(buildSeries(ds, rows, activeGranularity, referenceDay).map((p) => [p.key, p]));
+    // FTFR: Breakdown calls as one line per contract type, AMC and CAMC (the user, 26 Nov); Breakdown alone until
+    // the asset master is in.
+    if (metric.percent) {
+      const lines = assets
+        ? [['AMC', 'var(--series-1)'], ['CAMC', 'var(--series-2)']].map(([t, color]) => ({
+          key: t, label: t, color, map: by(Array.from(parts.breakdown).filter((i) => contractOf(ds, assets, i) === t)),
+        }))
+        : [{ key: 'bd', label: 'Breakdown', color: SPLIT_COLORS.breakdown, map: by(parts.breakdown) }];
+      // A contract type with no calls here (the AMC / CAMC filter) leaves the chart and its legend.
+      return { lines: lines.filter((l) => [...l.map.values()].some((p) => p.volume)) };
+    }
+    return { bd: by(parts.breakdown), pm: by(parts.pms) };
+  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, assets]);
 
   /**
    * Two of the four metrics cannot be judged right up to the reference date, and
@@ -801,8 +1052,10 @@ export default function App() {
   }, [series, metric, ds, referenceDay]);
 
   const bucketRows = useMemo(
-    () => (idx && callView !== TRACKER ? rowsInBucket(ds, idx, callView) : []),
-    [ds, idx, callView],
+    () => (idx && callView !== TRACKER
+      ? (care ? [...rowsInBucket(ds, idx, BUCKET.OPEN), ...rowsInBucket(ds, idx, BUCKET.PARKED)] : rowsInBucket(ds, idx, callView))
+      : []),
+    [ds, idx, callView, care],
   );
   const penalties = useMemo(
     () => (idx ? penaltyRows(ds, idx, referenceDay) : []),
@@ -827,6 +1080,19 @@ export default function App() {
     () => (idx ? idx.filter((i) => ds.cols.loggedDay[i] <= ftfrThrough) : []),
     [ds, idx, ftfrThrough],
   );
+
+  const carePerfRows = useMemo(() => {
+    if (!care || !idx) return null;
+    const bd = byJob(ds, ftfrRows).breakdown;
+    const ok = (key) => (i) => Number.isFinite(tatOf(ds, i)[key]);
+    const inRange = new Set(idx);
+    return {
+      ftfr: Array.from(bd),
+      response: Array.from(idx).filter(ok('response')),
+      resolution: careEnded.filter(ok('resolution')),
+      same: careEnded.filter((i) => inRange.has(i) && ok('resolution')(i)),
+    };
+  }, [care, ds, idx, ftfrRows, careEnded]);
 
   const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
 
@@ -892,19 +1158,24 @@ export default function App() {
     [moneyRows, moneyMeasure],
   );
 
+  const perfList = care ? CARE_PERF : PERFORMANCE;
   const perfMeasure = useMemo(() => {
-    const base = PERFORMANCE.find((m) => m.id === perfId) ?? PERFORMANCE[0];
+    const base = perfList.find((m) => m.id === perfId) ?? perfList[0];
     const { cols } = ds ?? {};
+    if (care && base.id !== 'ftfr') {
+      const key = base.id === 'response' ? 'response' : 'resolution';
+      return { ...base, value: (i) => tatOf(ds, i)[key] };
+    }
     return {
       ...base,
       // `isFirstTimeFix` rather than a bare subtraction, so a Saturday call is
       // not marked a failure for the Sunday nobody works — the same rule the
       // tile and the chart use.
       value: base.id === 'ftfr'
-        ? (i) => (isFirstTimeFix(cols.loggedDay[i], cols.resolvedDay[i]) ? 1 : 0)
+        ? (i) => (fixedFirstTime(ds, i) ? 1 : 0)
         : (i) => cols.resolvedDay[i] - cols.loggedDay[i],
     };
-  }, [ds, perfId]);
+  }, [ds, perfId, care, perfList]);
 
   const breakdowns = useMemo(() => {
     if (!idx) return null;
@@ -942,18 +1213,19 @@ export default function App() {
       ? [showMeeting
         ? { id: 'calls', label: 'Ticket tracker', short: 'Tracker' }
         : TABS.find((t) => t.id === 'calls')]
-      : TABS;
+      : TABS.filter((t) => (care ? t.id !== 'money' : t.id !== 'report'));
     return isAdmin(profile)
       ? [...base, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
       : base;
-  }, [profile, trackerOnly, showMeeting]);
+  }, [profile, trackerOnly, showMeeting, care]);
 
   /*
    * The section on screen: the one chosen, unless this contract does not have
    * it. Derived rather than written back, like `callView` above, so going from
    * Uttar Pradesh back to Kerala returns to wherever Kerala was.
    */
-  const activeTab = trackerOnly && tab !== 'accounts' ? 'calls' : tab;
+  const activeTab = trackerOnly && tab !== 'accounts' ? 'calls'
+    : (care && tab === 'money') || (!care && tab === 'report') ? 'dashboard' : tab;
 
   /*
    * Remember the view.
@@ -964,9 +1236,9 @@ export default function App() {
    */
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView: wantedCallView }));
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView: wantedCallView, perfId }));
     } catch { /* site data blocked; the app works, it just forgets */ }
-  }, [tab, wantedCallView]);
+  }, [tab, wantedCallView, perfId]);
 
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
@@ -987,7 +1259,82 @@ export default function App() {
    * A location assignment, not a router push: the portal sits above this
    * app's /bemmp base and is a different application entirely.
    */
-  if (isConfigured() && !session) return <ToPortal />;
+  if (isConfigured() && !session) return import.meta.env.DEV ? <DevSignIn /> : <ToPortal />;
+
+  if (!decided) {
+    return (
+      <div className="status-msg">
+        <div className="loader" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (!project && projects.length > 1) {
+    // Care 360 is one module holding its two contracts, Care 360 and Private BEMMP (the user, 25 Nov).
+    const care = projects.filter((x) => CARE_IDS.includes(x.id));
+    const tiles = care.length ? [...projects.filter((x) => !CARE_IDS.includes(x.id)), { id: 'care360', short: 'C360', name: 'Care 360', rows: care.reduce((t, x) => t + (x.rows ?? 0), 0) }] : projects;
+    if (care.length && (careOpen || tiles.length === 1)) {
+      return <ProjectHome projects={care} title="Care 360" onBack={tiles.length > 1 ? () => setCareOpen(false) : undefined} onPick={pickProject} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
+    }
+    return <ProjectHome projects={tiles} onPick={(id) => (id === 'care360' ? setCareOpen(true) : pickProject(id))} profile={profile} narrow={narrow} onSignOut={signOutToPortal} />;
+  }
+
+  if (inMt) {
+    return (
+      <MedtronicApp
+        me={mtMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={MEDTRONIC.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
+
+  if (inQt) {
+    return (
+      <QuotationApp
+        me={qtMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={QT_PROJECT.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
+
+  if (inPm) {
+    return (
+      <PmApp
+        me={pmMe}
+        profile={profile}
+        narrow={narrow}
+        onSignOut={signOutToPortal}
+        switcher={(
+          <ProjectSwitcher
+            projects={projects}
+            active={PM_PROJECT.id}
+            onChange={pickProject}
+            onHome={projects.length > 1 ? toProjects : undefined}
+          />
+        )}
+      />
+    );
+  }
 
   if (error) {
     return (
@@ -1013,7 +1360,7 @@ export default function App() {
   if (ready && profile && !scoped.length) {
     return (
       <div className="status-msg">
-        <p>No BEMMP contract is assigned to <strong>{profile.code}</strong>.</p>
+        <p>No BEMMP project is assigned to <strong>{profile.code}</strong>.</p>
         <p>Ask your project head to add one, then sign in again.</p>
         <button type="button" className="sign-out" onClick={signOutToPortal} title="Sign out"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 17l5-5-5-5" /><path d="M20 12H9" /><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" /></svg><span>Sign out</span></button>
       </div>
@@ -1022,7 +1369,7 @@ export default function App() {
 
   // Nothing built and nothing uploaded — the static-hosting case. Ask for a file
   // rather than showing an empty dashboard.
-  if (ready && !available.length) {
+  if ((ready && !available.length) || emptyCare) {
     return (
       <>
         <div className="app">
@@ -1030,6 +1377,7 @@ export default function App() {
             <div className="brand">
               {/* Plain anchor, not a router link: the portal sits above
                   this app's /bemmp base. */}
+              {emptyCare && <button type="button" className="project-home-back" onClick={toProjects} aria-label="Back to projects">‹</button>}
               <a className="brand-home" href="/" aria-label="All Cyrix modules" title="All Cyrix modules">
                 <Logo height={36} />
               </a>
@@ -1061,7 +1409,7 @@ export default function App() {
           {/* Only this account's contracts: offering a Kerala coordinator the
               Andhra slot invites an upload that scope would then hide. */}
           <UploadPanel
-            contracts={scoped}
+            contracts={emptyCare ? scoped.filter((x) => x.id === picked) : scoped}
             serverStates={states}
             shared={shared}
             onLoaded={onUploaded}
@@ -1106,12 +1454,15 @@ export default function App() {
             </div>
           </div>
           <div className="masthead-right">
-            <StateSwitcher
-              states={available}
-              active={stateId}
-              onChange={setStateId}
-              busy={busy}
-            />
+            {!narrow && (
+              <ProjectSwitcher
+                projects={projects}
+                active={stateId}
+                onChange={pickProject}
+                onHome={projects.length > 1 ? toProjects : undefined}
+                busy={busy}
+              />
+            )}
             <div className="toggle-group">
               <RefreshButton onRefreshed={onRefreshed} />
               {/* On a desktop, loading data, the theme and signing out live
@@ -1166,6 +1517,19 @@ export default function App() {
           </div>
         </header>
 
+        {/* On a phone the masthead is the mark and four icons; the project gets the row below it. */}
+        {narrow && (
+          <div className="project-row">
+            <ProjectSwitcher
+              projects={projects}
+              active={stateId}
+              onChange={pickProject}
+              onHome={projects.length > 1 ? toProjects : undefined}
+              busy={busy}
+            />
+          </div>
+        )}
+
         <div className="shell">
         <SideNav
           tabs={visibleTabs}
@@ -1181,12 +1545,14 @@ export default function App() {
 
         {showUpload && (
           <UploadPanel
-            contracts={scoped}
+            contracts={scoped.filter((x) => (care ? x.id === stateId : !CARE_IDS.includes(x.id)))}
             serverStates={states}
             shared={shared}
             onLoaded={onUploaded}
             onPublished={reloadShared}
             onClose={() => setShowUpload(false)}
+            assetRows={assetRows}
+            onAssetsPublished={reloadAssets}
           />
         )}
 
@@ -1195,8 +1561,11 @@ export default function App() {
         {!trackerOnly && (
           <Filters
             ds={ds}
-            filters={filters}
+            filters={chosenFilters}
             setFilters={setFilters}
+            contractTypes={contractTypes}
+            slotRef={care ? setBarSlot : null}
+            slotTall={activeTab === 'performance' || (activeTab === 'calls' && callView !== TRACKER)}
           />
         )}
 
@@ -1209,19 +1578,28 @@ export default function App() {
               repeats={repeats}
               penaltyDays={meta.penaltyDays}
               money={moneySummary}
+              careTat={careTat}
+              onOpenReport={() => setTab('report')}
               onOpenBucket={openBucket}
               onOpenPenalty={() => { setMoneyId('calls'); setTab('money'); }}
               onOpenRepeats={() => setTab('repeats')}
               onOpenPerformance={(id) => { setPerfId(id); setTab('performance'); }}
               onOpenMoney={(id) => { setMoneyId(id); setTab('money'); }}
             />
+            {care && (
+              <ContractPanel
+                table={careTat?.contracts}
+                hasAssets={Boolean(assetRow)}
+                onUpload={() => setShowUpload(true)}
+              />
+            )}
             <div className="panel chart-panel" style={{ '--i': 0 }}>
               <div className="chart-head">
                 <div className="chart-tabs" role="tablist" aria-label="Metric">
-                  {METRICS.map((m) => (
+                  {metrics.map((m) => (
                     <button
                       key={m.id} type="button" role="tab"
-                      aria-selected={m.id === metricId}
+                      aria-selected={m.id === metric.id}
                       className="chart-tab"
                       style={{ '--tab-accent': m.color }}
                       onClick={() => setMetricId(m.id)}
@@ -1252,7 +1630,19 @@ export default function App() {
                 {metric.note && plotted.length < series.length
                   && ` · ${metric.note(ds, referenceDay)}`}
               </p>
-              <MetricChart series={plotted} metric={metric} />
+              {splitSeries && (
+                <div className="split-legend">
+                  {splitSeries.lines
+                    ? splitSeries.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)
+                    : (
+                      <>
+                        <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
+                        <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>
+                      </>
+                    )}
+                </div>
+              )}
+              <MetricChart series={plotted} metric={metric} split={splitSeries} />
             </div>
 
             <div className="grid grid-2">
@@ -1331,10 +1721,10 @@ export default function App() {
         {activeTab === 'calls' && (
           <>
             {/* Uttar Pradesh has one view of its calls, so nothing to switch. */}
-            {!trackerOnly && (
+            {!trackerOnly && !(care && !showMeeting) && (
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Backlog view">
-                {[BUCKET.OPEN, BUCKET.PARKED].map((b) => (
+                {(care ? [BUCKET.OPEN] : [BUCKET.OPEN, BUCKET.PARKED]).map((b) => (
                   <button
                     key={b} type="button" role="tab"
                     aria-selected={callView === b}
@@ -1394,15 +1784,18 @@ export default function App() {
             ) : (
               <DrillExplorer
                 key={`calls-${stateId}-${callView}`}
-                ds={ds}
+                ds={drillDs}
+                showAverages={care}
+                statsLabel="Open calls"
+                statsSlot={care ? barSlot : null}
                 rows={bucketRows}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
                 showAgeing
                 // Only the parked bucket has remarks to explain; on the open
                 // bucket the panel would be empty by definition.
-                showParkedReasons={callView === BUCKET.PARKED}
-                intro={(n) => (callView === BUCKET.OPEN
+                showParkedReasons={!care && callView === BUCKET.PARKED}
+                intro={(n) => (care ? `${n.toLocaleString()} open calls.` : callView === BUCKET.OPEN
                   ? `${n.toLocaleString()} open calls — Resolved Date blank and no Ticket Remark. This is the live, actionable backlog.`
                   : `${n.toLocaleString()} unresolved calls — no Resolved Date, but out of service scope, with the reason held in Ticket Remark.`)}
               />
@@ -1412,12 +1805,12 @@ export default function App() {
 
         {activeTab === 'performance' && (
           <>
-            <div className="segmented-row">
+            <div className="segmented-row perf-row">
               <div className="segmented" role="tablist" aria-label="Performance measure">
-                {PERFORMANCE.map((m) => (
+                {perfList.map((m) => (
                   <button
                     key={m.id} type="button" role="tab"
-                    aria-selected={perfId === m.id}
+                    aria-selected={perfMeasure.id === m.id}
                     onClick={() => setPerfId(m.id)}
                   >
                     {m.tab}
@@ -1427,16 +1820,18 @@ export default function App() {
             </div>
             <DrillExplorer
               key={`perf-${stateId}-${perfId}`}
-              ds={ds}
-              rows={perfId === 'ftfr' ? ftfrRows : resolved}
+              ds={drillDs}
+              showAverages={care}
+              statsSlot={care ? barSlot : null}
+              rows={carePerfRows ? carePerfRows[perfMeasure.id] : (perfId === 'ftfr' ? ftfrRows : resolved)}
               referenceDay={referenceDay}
               onSelectRow={setDrawerRow}
               measure={perfMeasure}
               /* Only for resolution. Over the FTFR row set most rows are still
                  open, so a "days to fix" column would be mostly blank and the
                  slowest-first sort would rank on a number half of them lack. */
-              showResolutionColumn={perfId === 'resolution'}
-              intro={(n) => (perfId === 'ftfr'
+              showResolutionColumn={!care && perfId === 'resolution'}
+              intro={(n) => (care ? `${perfMeasure.caption} · ${n.toLocaleString()} calls.` : perfId === 'ftfr'
                 ? `${perfMeasure.caption}. Measured over the ${n.toLocaleString()} calls `
                   + `logged in range whose window has closed — a call still open is a call `
                   + `that was not fixed in time, so it counts against the rate rather than `
@@ -1448,6 +1843,12 @@ export default function App() {
               )}
             />
           </>
+        )}
+
+        {activeTab === 'report' && care && (
+          <Boundary name="The report" resetKey={stateId}>
+            <CareReport key={stateId} ds={ds} filters={filters} assets={assets} />
+          </Boundary>
         )}
 
         {activeTab === 'money' && (
@@ -1468,7 +1869,7 @@ export default function App() {
             {money.money === false ? (
               <DrillExplorer
                 key={`penalty-${stateId}`}
-                ds={ds}
+                ds={drillDs}
                 rows={penalties}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
@@ -1494,7 +1895,7 @@ export default function App() {
             ) : (
               <DrillExplorer
                 key={`money-${stateId}-${moneyId}`}
-                ds={ds}
+                ds={drillDs}
                 rows={moneyRows}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
@@ -1518,7 +1919,10 @@ export default function App() {
         {activeTab === 'repeats' && (
           <DrillExplorer
             key={`repeats-${stateId}`}
-            ds={ds}
+            ds={drillDs}
+            showAverages={care}
+            statsLabel="Repeat calls"
+                statsSlot={care ? barSlot : null}
             rows={idx}
             mode="repeats"
             referenceDay={referenceDay}

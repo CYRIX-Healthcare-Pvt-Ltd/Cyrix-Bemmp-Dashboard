@@ -23,9 +23,10 @@ const ICONS = {
     <path d="M9.5 15l1.8 1.8 3.4-3.6" /></>,
   ftfr: <><path d="M3 17l5-6 4 4 5-8 4 5" /></>,
   resolution: <><circle cx="12" cy="12" r="8.4" /><path d="M12 7.4V12l3 1.8" /></>,
+  response: <><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z" /></>,
 };
 
-function Tile({ label, dot, value, format, note, onClick, accent, children, index, icon }) {
+function Tile({ label, dot, value, format, note, onClick, accent, children, index, icon, split }) {
   const animated = useCountUp(value);
   const Root = onClick ? 'button' : 'div';
 
@@ -51,6 +52,11 @@ function Tile({ label, dot, value, format, note, onClick, accent, children, inde
       </div>
       <div className="k-main">
         <div className="k-value">{format(animated)}</div>
+        {split && (
+          <div className="k-split">
+            {split.map(([label, v]) => <span key={label}>{label} <b>{v}</b></span>)}
+          </div>
+        )}
         {children}
       </div>
       {note && <div className="k-note">{note}</div>}
@@ -114,12 +120,72 @@ function slaNote(penaltyDays) {
  * a confident ₹0 — Andhra supplies its own penalty figures instead of a card.
  */
 export default function KpiTiles({
-  summary, repeats, penaltyDays, money,
+  summary, repeats, penaltyDays, money, careTat, onOpenReport,
   onOpenBucket, onOpenPenalty, onOpenRepeats, onOpenPerformance, onOpenMoney,
 }) {
   const share = (n) => (summary.total ? `${((n / summary.total) * 100).toFixed(1)}% of calls` : '—');
   const hasRateCard = money.hasRateCard;
   const rupees = (v) => (hasRateCard ? inr(v) : '—');
+
+  /*
+   * Care 360 and Private BEMMP (the user, 26 Nov): one Open calls tile, no penalty tiles, and TATs from the
+   * export's date-times in fractional days (raised to job start, raised to job end).
+   */
+  if (careTat) {
+    const dd = (n) => (n == null ? '—' : `${n.toFixed(2)} d`);
+    const pc = (n) => (n == null ? '—' : pct1(n));
+    const num = (n) => n.toLocaleString();
+    const bdPms = (b, p, f = num) => [['Breakdown', f(b)], ['PMS', f(p)]];
+    const ftfr = careTat.ftfr;
+    /*
+     * Every tile opens its view (the user, 26 Nov: "all grids should be dynamic"). Repeat calls and FTFR lead with
+     * Breakdown ("pms not that imp"; "ftfr pms not needed"); FTFR's small lines are AMC and CAMC once the asset
+     * master is in.
+     */
+    return (
+      <div className="kpis kpis-care">
+        <Tile
+          index={0} label="Total calls" icon="total" value={summary.total} format={int} note="Tickets logged in range · report"
+          split={bdPms(careTat.split.total.breakdown, careTat.split.total.pms)} onClick={onOpenReport}
+        />
+        <Tile
+          index={1} label="Resolved" icon="resolved" dot="resolved" value={summary.resolved} format={int} note={`${share(summary.resolved)} · drill in`}
+          split={bdPms(careTat.split.resolved.breakdown, careTat.split.resolved.pms)} onClick={() => onOpenPerformance('resolution')}
+        />
+        <Tile
+          index={2} label="Open calls" icon="open" dot="open" accent="critical"
+          value={summary.open + summary.parked} format={int} note="Not completed · drill in"
+          split={bdPms(careTat.split.open.breakdown, careTat.split.open.pms)} onClick={() => onOpenBucket(0)}
+        />
+        <Tile
+          index={3} label="Not started" icon="parked" dot="parked" accent="warning"
+          value={careTat.notStarted} format={int} note="Open, no job start yet · drill in"
+          split={bdPms(careTat.split.notStarted.breakdown, careTat.split.notStarted.pms)} onClick={() => onOpenBucket(0)}
+        />
+        <Tile
+          index={4} label="Repeat calls · Breakdown" icon="repeat" value={careTat.breakdown.repeats} format={int}
+          note="2nd+ Breakdown call on an asset · drill in"
+          onClick={onOpenRepeats} split={[['Total', num(repeats.followUps)], ['PMS', num(careTat.pms.repeats)]]}
+        />
+        <Tile
+          index={5} label="FTFR · Breakdown" icon="ftfr" accent="good" value={ftfr.pct ?? 0} format={(n) => (ftfr.pct == null ? '—' : pct1(n))}
+          note={`${ftfr.fixed.toLocaleString()} of ${ftfr.calls.toLocaleString()} fixed within ${FTFR_MAX_DAYS} day · drill in`}
+          onClick={() => onOpenPerformance('ftfr')}
+          split={careTat.ftfrByType ? [['AMC', pc(careTat.ftfrByType.AMC)], ['CAMC', pc(careTat.ftfrByType.CAMC)]] : null}
+        />
+        <Tile
+          index={6} label="Response TAT" icon="response" value={careTat.response ?? 0}
+          format={(n) => (careTat.response == null ? '—' : `${n.toFixed(2)} d`)} note="Raised in range, to job start · drill in"
+          split={bdPms(careTat.breakdown.response, careTat.pms.response, dd)} onClick={() => onOpenPerformance('response')}
+        />
+        <Tile
+          index={7} label="Resolution TAT" icon="resolution" value={careTat.resolution ?? 0}
+          format={(n) => (careTat.resolution == null ? '—' : `${n.toFixed(2)} d`)} note="Closed in range · drill in"
+          split={bdPms(careTat.breakdown.resolution, careTat.pms.resolution, dd)} onClick={() => onOpenPerformance('resolution')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="kpis">

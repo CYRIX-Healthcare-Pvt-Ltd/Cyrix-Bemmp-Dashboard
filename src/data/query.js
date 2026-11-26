@@ -10,6 +10,7 @@
  */
 import { BUCKET } from './store.js';
 import { FTFR_MAX_DAYS, ftfrWindowEnd, isFirstTimeFix } from '../../shared/schema.mjs';
+import { fixedFirstTime } from './careFix.js';
 
 /**
  * First Time Fix Rate window, in days. A call logged today and resolved today or
@@ -391,7 +392,7 @@ export function facetOptions(ds, filters, { dateField = 'loggedDay' } = {}) {
 
 export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
-  const { dayFrom, dayTo, bucket } = filters;
+  const { dayFrom, dayTo, bucket, keepMask } = filters;
   // dateField null means "every date" — used by the accrual view, where a ticket
   // logged long before the period is still running up penalty inside it.
   const dateCol = dateField ? cols[dateField] : null;
@@ -430,6 +431,7 @@ export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
     }
     if (!keep) continue;
     if (bucket.size && !bucket.has(cols.bucket[i])) continue;
+    if (keepMask && !keepMask[i]) continue;
     out[n++] = i;
   }
   return out.subarray(0, n);
@@ -475,7 +477,7 @@ export function summarize(ds, idx, referenceDay, { ftfrThrough = Infinity } = {}
      */
     if (cols.loggedDay[i] <= ftfrThrough) {
       ftfrLogged++;
-      if (r > 0 && isFirstTimeFix(cols.loggedDay[i], r)) firstTimeFixes++;
+      if (r > 0 && fixedFirstTime(ds, i, r)) firstTimeFixes++;
     }
   }
 
@@ -820,7 +822,7 @@ export function buildSeries(ds, idx, granularity, referenceDay) {
     else if (bucket === BUCKET.PARKED) p.parked++;
     else p.resolved++;
 
-    if (isFirstTimeFix(day, cols.resolvedDay[i])) p.fixes++;
+    if (fixedFirstTime(ds, i)) p.fixes++;
 
     if (isRepeat.has(i)) p.repeats++;
     if (isPenalty(ds, windows, referenceDay, i)) p.penalties++;

@@ -1,0 +1,1461 @@
+/* Quotation tracker (Quotation.jsx) — built on the Medtronic and PM classes. */
+
+[data-tone='blue']   { --tone: #2563eb; }
+[data-tone='violet'] { --tone: #9333ea; }
+[data-tone='indigo'] { --tone: #4f46e5; }
+[data-tone='teal']   { --tone: #0d9488; }
+[data-tone='green']  { --tone: var(--status-good); }
+[data-tone='amber']  { --tone: var(--status-warning); }
+[data-tone='red']    { --tone: var(--status-critical); }
+[data-tone='grey']   { --tone: var(--text-muted); }
+
+.qt-head-right { display: flex; align-items: center; gap: 8px; }
+
+.qt-badge {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: var(--radius-pill);
+  font-size: 12px; font-weight: 650; white-space: nowrap;
+  color: var(--tone, var(--text-secondary)); background: color-mix(in srgb, var(--tone, var(--text-muted)) 13%, transparent);
+}
+.qt-clock {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 650;
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.qt-clock[data-tone='near'] { color: var(--status-warning); }
+.qt-clock[data-tone='late'] { color: var(--status-critical); }
+
+.qt-h { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.qt-h span { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.qt-todo { display: grid; gap: 18px; padding-bottom: 90px; }
+.qt-todo section { min-width: 0; }
+
+/* ---------------------------------------------------------------- cards -- */
+
+.qt-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.qt-card {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  border-radius: 16px; background: var(--surface); border: 1px solid var(--border);
+  border-left: 4px solid var(--tone, var(--border)); overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.qt-card[data-picked='true'] { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
+.qt-card-body {
+  display: grid; gap: 5px; padding: 13px 14px 12px; text-align: left; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; min-width: 0;
+}
+/* Hover lights the whole card, not a box round its text (the user, 11 Nov). */
+.qt-card { transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.qt-card:has(.qt-card-body:hover) {
+  background: color-mix(in srgb, var(--role, var(--text-muted)) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--role, var(--text-muted)) 45%, var(--border));
+  border-left-color: var(--role, var(--tone, var(--border)));
+}
+.qt-card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-right: 34px; }
+.qt-no { font-weight: 750; font-size: 14px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-card-spare { font-size: 16px; font-weight: 650; color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-card-spare b { font-weight: 650; color: var(--text-secondary); }
+.qt-card-line, .qt-card-foot { font-size: 13.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-card-foot { color: var(--text-muted); font-size: 12.5px; }
+.qt-card > .mt-go, .qt-card > .mt-btn { margin: 0 14px 13px; width: calc(100% - 28px); }
+.qt-card-acts { display: flex; gap: 8px; padding: 0 14px 13px; }
+.qt-card-acts > * { flex: 1 1 0; min-width: 0; width: auto; margin: 0; padding-left: 8px; padding-right: 8px; }
+.qt-card-acts > .mt-go { flex-grow: 1.4; }
+.qt-card-acts > * { font-size: 15px; min-height: 46px; }
+
+/* One spare photo on the card (the user, 11 Nov). */
+.qt-card-body { grid-template-columns: minmax(0, 1fr) auto; }
+.qt-card-body > :not(.qt-card-photo) { grid-column: 1; }
+.qt-card-photo {
+  grid-column: 2; grid-row: 2 / span 3; align-self: start; width: 64px; height: 64px;
+  border-radius: 12px; overflow: hidden; background: var(--track-bg); border: 1px solid var(--border);
+}
+.qt-card-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Every button answers the pointer (the user, 11 Nov: "no hover for review?"). */
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three, .qt-note-row, .qt-filters, .modal-foot) .mt-btn {
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+}
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three, .qt-note-row, .qt-filters, .modal-foot) .mt-btn:not(:disabled):hover {
+  background: var(--hover-wash); border-color: var(--text-muted); color: var(--text-primary);
+}
+.qt-card-acts .qt-btn-line-bad:not(:disabled):hover, .qt-action .qt-btn-line-bad:not(:disabled):hover {
+  background: color-mix(in srgb, var(--status-critical) 12%, transparent); border-color: var(--status-critical); color: var(--status-critical);
+}
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three) .mt-go:not(:disabled):hover { filter: brightness(1.08); }
+:is(.qt-card-acts, .qt-action, .qt-two, .qt-three) :is(.mt-btn, .mt-go):not(:disabled):active { transform: scale(0.97); }
+.qt-select:hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-accept { min-height: 46px; }
+.qt-left { font-size: 13px; font-weight: 700; color: var(--status-good); }
+
+.qt-pick {
+  position: absolute; top: 11px; right: 11px; z-index: 1; width: 26px; height: 26px; padding: 0;
+  display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+  border: 1.5px solid var(--control-border); background: var(--control-bg); color: var(--page);
+}
+.qt-pick[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); }
+
+.qt-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(640px, calc(100% - 32px)); }
+@media (max-width: 860px) { .qt-bar { bottom: 78px; } }
+.qt-bar-n { flex: 1; font-weight: 700; font-size: 14px; }
+.qt-bar-x { background: transparent; color: var(--page); border-color: color-mix(in srgb, var(--page) 35%, transparent); }
+.qt-bar-go { width: auto; flex: none; padding: 11px 20px; box-shadow: none; }
+.qt-bar-note { font-size: 13px; opacity: 0.75; }
+
+.qt-empty { display: grid; justify-items: center; gap: 10px; padding: 56px 16px; text-align: center; }
+.qt-empty h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
+.qt-empty-mark { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; color: var(--status-good); background: color-mix(in srgb, var(--status-good) 13%, transparent); }
+
+/* --------------------------------------------------------------- lists -- */
+
+.qt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.qt-search { flex: 1 1 240px; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.qt-search input { flex: 1; min-width: 0; }
+.qt-total { font-weight: 700; color: var(--status-good); font-size: 14px; }
+
+.qt-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-rows button {
+  width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 14px;
+  border-radius: 14px; border: 1px solid var(--border); background: var(--surface); text-align: left;
+  font: inherit; color: var(--text-secondary); cursor: pointer;
+}
+.qt-rows button:hover { background: var(--hover-wash); }
+.qt-rows strong { color: var(--text-primary); font-weight: 650; flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.qt-rows span { font-size: 13.5px; }
+.qt-rows small { flex-basis: 100%; font-size: 12px; color: var(--text-muted); }
+
+/* --------------------------------------------------------------- sheet -- */
+
+.qt-sheet .mt-sheet-title h2 { font-variant-numeric: tabular-nums; }
+.qt-sheet .mt-sheet-body { display: flex; flex-direction: column; gap: 14px; }
+.qt-sheet .mt-sheet-body > * { flex: none; }
+.qt-with { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--track-bg); font-size: 14px; color: var(--text-secondary); }
+.qt-closed-note { margin: 0; font-size: 14px; color: var(--text-secondary); }
+
+.qt-action {
+  display: grid; gap: 12px; padding: 14px; border-radius: 16px;
+  background: color-mix(in srgb, var(--series-1) 6%, var(--surface)); border: 1.5px solid color-mix(in srgb, var(--series-1) 35%, var(--border));
+}
+.qt-action-title { margin: 0; font-size: 16px; font-weight: 750; color: var(--text-primary); }
+.qt-action-sub { margin: -6px 0 0; font-size: 13px; color: var(--text-muted); }
+.qt-action .mt-go { width: 100%; }
+.qt-question { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-question b { color: var(--text-primary); }
+
+.qt-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.qt-choices .pm-choice { flex: 1 1 auto; min-height: 42px; padding: 8px 12px; font-size: 14px; }
+
+.qt-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); }
+.qt-grid.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qt-grid.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 480px) { .qt-grid.is-three { grid-template-columns: 1fr; } }
+.qt-wide { grid-column: 1 / -1; }
+.qt-two, .qt-three { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qt-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 480px) { .qt-two, .qt-three { grid-template-columns: 1fr; } }
+.qt-two > *, .qt-three > * { width: 100%; }
+.qt-btn-bad, .mt-go.qt-btn-bad, .mt-btn-primary.qt-btn-bad { background: var(--status-critical); border-color: var(--status-critical); }
+.qt-btn-line-bad { color: var(--status-critical); border-color: color-mix(in srgb, var(--status-critical) 45%, var(--border)); }
+.qt-err { margin: 0; }
+.qt-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); }
+.qt-check input { width: 20px; height: 20px; }
+
+.qt-stepper-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; }
+.qt-stepper-row .mt-btn { padding: 0; min-height: 44px; font-size: 20px; }
+.qt-stepper-row input { text-align: center; font-weight: 700; min-width: 0; }
+
+/* quotes side by side */
+.qt-quotes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.qt-quote, .qt-quote-in {
+  display: grid; gap: 4px; align-content: start; padding: 12px; border-radius: 14px; text-align: left;
+  border: 1.5px solid var(--border); background: var(--surface); font: inherit; color: inherit; min-width: 0;
+}
+.qt-quote-in { gap: 10px; }
+.qt-quote.is-pick { cursor: pointer; transition: border-color 0.15s, transform 0.12s; }
+.qt-quote.is-pick:hover { border-color: var(--status-good); }
+.qt-quote.is-pick:active { transform: scale(0.98); }
+.qt-quote[data-picked='true'] { border-color: var(--status-good); background: color-mix(in srgb, var(--status-good) 7%, var(--surface)); }
+.qt-quote-kind { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.qt-quote-mark { display: inline-flex; align-items: center; gap: 3px; color: var(--status-good); text-transform: none; letter-spacing: 0; }
+.qt-quote-vendor { font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.qt-quote-total { font-size: 22px; font-weight: 750; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-quote-sub { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.qt-quote-more { margin: 8px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* timeline */
+.qt-timeline { list-style: none; margin: 4px 0 0; padding: 0; display: grid; }
+.qt-timeline li { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding-bottom: 14px; }
+.qt-timeline li::before { content: ''; position: absolute; left: 8px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
+.qt-timeline li:last-child::before { display: none; }
+/* Each dot in the colour of the role of who did it (the user, 11 Nov: "role colors only"). */
+.qt-tl-dot { width: 12px; height: 12px; margin: 4px 0 0 3px; border-radius: 50%; background: var(--role, var(--text-muted)); z-index: 1; }
+.qt-tl-text { display: grid; gap: 2px; min-width: 0; }
+.qt-tl-what { font-size: 14px; font-weight: 650; color: var(--text-primary); }
+.qt-tl-who { font-size: 12.5px; color: var(--text-muted); }
+.qt-tl-note { margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: var(--track-bg); font-size: 13.5px; color: var(--text-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
+.qt-note-row { display: flex; gap: 8px; }
+.qt-note-row input { flex: 1; min-width: 0; }
+
+/* photos */
+.qt-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.qt-thumb, .qt-camera {
+  width: 72px; height: 72px; padding: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
+  border: 1px solid var(--border); background: var(--track-bg); display: grid; place-items: center;
+}
+.qt-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.qt-thumb-pdf { font-size: 13px; font-weight: 750; color: var(--status-critical); }
+.qt-thumb-wait { width: 20px; height: 20px; border-radius: 50%; background: var(--border); }
+.qt-thumb-wrap { position: relative; }
+.qt-thumb-x {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; border: 2px solid var(--surface); background: var(--ink); color: var(--page); cursor: pointer;
+}
+.qt-camera { gap: 2px; align-content: center; border-style: dashed; border-width: 1.5px; color: var(--text-secondary); font: inherit; font-size: 11.5px; font-weight: 650; }
+.qt-lightbox { position: fixed; inset: 0; z-index: 1200; background: rgba(0, 0, 0, 0.9); overflow: hidden; touch-action: none; user-select: none; }
+.qt-lb-stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px 64px; cursor: zoom-in; }
+.qt-lb-stage img { max-width: 100%; max-height: calc(100vh - 32px); object-fit: contain; border-radius: 8px; transition: transform 0.12s ease-out; will-change: transform; }
+.qt-lb-stage img.qt-lb-zoomed { cursor: grab; transition: none; }
+.qt-lb-stage img.qt-lb-zoomed:active { cursor: grabbing; }
+/* Download and close stay visible on any photo: dark discs, white marks (the user, 11 Nov). */
+.qt-lb-bar { position: absolute; top: 14px; right: 14px; z-index: 2; display: flex; align-items: center; gap: 8px; }
+.qt-lb-count { padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.qt-lightbox .qt-lb-btn {
+  position: static; color: #fff; background: rgba(0, 0, 0, 0.62); border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.qt-lightbox .qt-lb-btn:hover { color: #fff; background: var(--status-critical); border-color: var(--status-critical); }
+.qt-lb-arrow {
+  position: absolute; top: 50%; z-index: 2; width: 48px; height: 48px; margin-top: -24px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.qt-lb-arrow:hover { background: var(--status-critical); border-color: var(--status-critical); }
+.qt-lb-prev { left: 12px; }
+.qt-lb-next { right: 12px; }
+.qt-lb-next svg { transform: rotate(180deg); }
+@media (max-width: 639px) {
+  .qt-lb-stage { padding: 60px 8px; }
+  .qt-lb-arrow { width: 40px; height: 40px; margin-top: -20px; top: auto; bottom: 20px; }
+  .qt-lb-prev { left: calc(50% - 52px); }
+  .qt-lb-next { right: calc(50% - 52px); }
+}
+
+/* Confirm boxes open above the request sheet (.mt-scrim is 70; .modal-scrim's own 60 was winning). */
+.modal-scrim.qt-scrim-top { z-index: 1100; }
+.qt-modal-body { display: grid; gap: 12px; }
+
+/* --------------------------------------------------------------- raise -- */
+
+.qt-raise { padding-bottom: 20px; }
+.qt-steps { display: flex; gap: 8px; margin-bottom: 12px; }
+.qt-steps span { flex: 1; padding: 8px 10px; border-radius: var(--radius-pill); text-align: center; font-size: 13px; font-weight: 650; background: var(--track-bg); color: var(--text-muted); }
+.qt-steps span[data-on='true'] { background: var(--ink); color: var(--page); }
+.qt-summary-card { display: flex; align-items: center; gap: 10px; }
+.qt-summary-card div { display: grid; gap: 2px; min-width: 0; }
+.qt-summary-card strong { color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-summary-card span { font-size: 13px; color: var(--text-muted); }
+.qt-another { width: 100%; display: inline-flex; justify-content: center; align-items: center; gap: 6px; margin: 4px 0 14px; min-height: 46px; }
+
+.qt-hosp { position: relative; }
+.qt-hosp-picked {
+  display: grid; gap: 2px; padding: 11px 12px; border-radius: 12px; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--status-good); background: color-mix(in srgb, var(--status-good) 6%, var(--surface)); font: inherit; color: inherit;
+}
+.qt-hosp-picked strong, .qt-hosp-list strong { color: var(--text-primary); font-weight: 650; }
+.qt-hosp-picked span, .qt-hosp-list span { font-size: 12.5px; color: var(--text-muted); }
+.qt-hosp-list {
+  list-style: none; margin: 6px 0 0; padding: 4px; max-height: 300px; overflow-y: auto;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.qt-hosp-list button { width: 100%; display: grid; gap: 1px; padding: 9px 10px; border: 0; border-radius: 9px; background: none; text-align: left; font: inherit; cursor: pointer; }
+.qt-hosp-list button:hover { background: var(--hover-wash); }
+.qt-hosp-none { padding: 10px; font-size: 13.5px; color: var(--text-muted); }
+
+.qt-before { display: grid; gap: 6px; }
+.qt-before-label { font-size: 12.5px; font-weight: 650; color: var(--text-muted); }
+.qt-before-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.qt-chip {
+  padding: 7px 12px; border-radius: var(--radius-pill); cursor: pointer; font: inherit; font-size: 13px;
+  border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+}
+.qt-chip:hover { border-color: var(--series-1); color: var(--text-primary); }
+
+/* ----------------------------------------------------------------- TAT -- */
+
+.qt-tat { display: grid; gap: 14px; }
+.qt-panel-h { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.qt-stage-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); }
+.qt-stage { display: grid; gap: 5px; padding: 12px; border-radius: 14px; border: 1px solid var(--border); border-top: 3px solid var(--tone); background: var(--surface); }
+.qt-stage-name { font-weight: 700; font-size: 14px; color: var(--text-primary); }
+.qt-stage-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.qt-stage-row b { color: var(--text-primary); font-size: 15px; font-variant-numeric: tabular-nums; }
+.qt-stage-row em, .qt-person-n em { font-style: normal; font-weight: 700; font-size: 12px; color: var(--status-critical); }
+.qt-stage-target { font-size: 12px; color: var(--text-muted); }
+.qt-people, .qt-late { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-person {
+  width: 100%; display: grid; gap: 4px 14px; grid-template-columns: minmax(0, 1.4fr) 1fr 1fr; align-items: center;
+  padding: 11px 13px; border-radius: 13px; border: 1px solid var(--border); background: var(--surface);
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.qt-person:disabled { cursor: default; }
+.qt-person:not(:disabled):hover { background: var(--hover-wash); }
+.qt-person-name { display: grid; font-weight: 650; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
+.qt-person-name small { font-weight: 500; font-size: 12px; color: var(--text-muted); }
+.qt-person-n { display: grid; font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .qt-person { grid-template-columns: 1fr 1fr; } .qt-person-name { grid-column: 1 / -1; } }
+.qt-late button { width: 100%; display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
+.qt-late strong { color: var(--text-primary); }
+.qt-late span, .qt-late time { font-size: 13px; color: var(--text-muted); }
+
+/* ------------------------------------------------------------ settings -- */
+
+.qt-settings { display: grid; gap: 14px; }
+.qt-targets { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) 84px 84px; align-items: center; margin-bottom: 14px; }
+.qt-target-row { display: contents; }
+.qt-target-row span { font-size: 14px; color: var(--text-secondary); }
+.qt-target-row input { text-align: center; min-width: 0; }
+.qt-target-h { font-size: 12px; font-weight: 700; color: var(--text-muted); text-align: center; }
+
+/* ---------------------------------------------------------------- bell -- */
+
+.qt-bell { position: relative; }
+.qt-bell .icon-toggle { position: relative; }
+.qt-bell-n {
+  position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 750; color: #fff; background: var(--brand-red);
+}
+.qt-bell-scrim { position: fixed; inset: 0; z-index: 1000; }
+.qt-bell-list {
+  position: absolute; top: 60px; right: 12px; width: min(380px, calc(100vw - 24px)); max-height: 70vh; overflow-y: auto;
+  padding: 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+}
+.qt-bell-list h3 { margin: 0 0 8px; font-size: 15px; }
+.qt-bell-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.qt-bell-list button { width: 100%; display: grid; gap: 2px; padding: 9px 10px; border: 0; border-radius: 10px; background: none; text-align: left; font: inherit; cursor: pointer; color: var(--text-secondary); }
+.qt-bell-list button:hover { background: var(--hover-wash); }
+.qt-bell-list strong { color: var(--text-primary); font-size: 14px; }
+.qt-bell-list span { font-size: 13px; }
+.qt-bell-list time { font-size: 12px; color: var(--text-muted); }
+
+/* No up/down arrows on number boxes: − and + do that (the user, 11 Nov). */
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number']::-webkit-inner-spin-button,
+:is(.qt-raise, .qt-action, .qt-modal-body, .qt-settings) input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Select: the tick boxes come only after pressing it (the user, 11 Nov: "is it image?"). */
+.qt-select {
+  margin-left: auto; padding: 6px 14px; border-radius: var(--radius-pill); cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 650; color: var(--text-primary);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+}
+
+/* Green buttons: white text in light mode, black in dark (the user, 11 Nov); red ones stay white. */
+.qt-app .mt-go:not(.qt-btn-bad) { color: #fff; }
+:root[data-theme='dark'] .qt-app .mt-go:not(.qt-btn-bad) { color: #0b0d10; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-app .mt-go:not(.qt-btn-bad) { color: #0b0d10; } }
+
+/* Each role its own colour (the user, 11 Nov): Engineer orange, Team Lead yellow, Coordinator purple,
+   Purchase teal, PV pink. A step's box, its chosen option and its main button take the colour of whoever works it.
+   Dark mode uses the lighter shade with black text, as the green did. */
+[data-role] { --role-ink: #fff; }
+[data-role='engineer']    { --role: #ea580c; }
+[data-role='team_lead']   { --role: #eab308; --role-ink: #0b0d10; --role-text: #a16207; }
+[data-role='coordinator'] { --role: #9333ea; }
+[data-role='purchase']    { --role: #0d9488; }
+[data-role='pv']          { --role: #db2777; }
+:root[data-theme='dark'] [data-role] { --role-ink: #0b0d10; }
+:root[data-theme='dark'] [data-role='engineer']    { --role: #fb923c; }
+:root[data-theme='dark'] [data-role='team_lead']   { --role: #facc15; --role-text: #facc15; }
+:root[data-theme='dark'] [data-role='coordinator'] { --role: #c084fc; }
+:root[data-theme='dark'] [data-role='purchase']    { --role: #2dd4bf; }
+:root[data-theme='dark'] [data-role='pv']          { --role: #f472b6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) [data-role] { --role-ink: #0b0d10; }
+  :root:not([data-theme='light']) [data-role='engineer']    { --role: #fb923c; }
+  :root:not([data-theme='light']) [data-role='team_lead']   { --role: #facc15; --role-text: #facc15; }
+  :root:not([data-theme='light']) [data-role='coordinator'] { --role: #c084fc; }
+  :root:not([data-theme='light']) [data-role='purchase']    { --role: #2dd4bf; }
+  :root:not([data-theme='light']) [data-role='pv']          { --role: #f472b6; }
+}
+.qt-app [data-role] .mt-go:not(.qt-btn-bad) {
+  background: var(--role); color: var(--role-ink); box-shadow: 0 10px 24px -12px var(--role);
+}
+.qt-app [data-role] .pm-choice:not([data-tone='bad'])[aria-pressed='true'] {
+  background: var(--role); border-color: var(--role); color: var(--role-ink);
+}
+.qt-app [data-role] .pm-choice:not([data-tone='bad']):not([aria-pressed='true']):hover { border-color: var(--role); color: var(--role-text, var(--role)); }
+.qt-action[data-role] {
+  background: color-mix(in srgb, var(--role) 6%, var(--surface));
+  border-color: color-mix(in srgb, var(--role) 40%, var(--border));
+}
+.qt-action[data-role] .qt-action-title { color: var(--role-text, var(--role)); }
+[data-tone='orange'] { --tone: #ea580c; }
+[data-tone='pink']   { --tone: #db2777; }
+
+/* A button takes the colour of the role it sends the request to (the user, 11 Nov):
+   "Clarify with Team Lead" blue, "Ask Purchase for rates" teal, "Send to PV" pink. */
+.qt-app .mt-go[data-role]:not(.qt-btn-bad) { background: var(--role); color: var(--role-ink); box-shadow: 0 10px 24px -12px var(--role); }
+.qt-app .pm-choice[data-role]:not([aria-pressed='true']):hover { border-color: var(--role); color: var(--role-text, var(--role)); }
+.qt-app .mt-btn[data-role]:not(.qt-btn-line-bad) { color: var(--role-text, var(--role)); border-color: color-mix(in srgb, var(--role) 55%, var(--border)); }
+.qt-app .mt-btn[data-role]:not(.qt-btn-line-bad):not(:disabled):hover { background: color-mix(in srgb, var(--role) 10%, transparent); border-color: var(--role); color: var(--role-text, var(--role)); }
+
+[data-tone='yellow'] { --tone: #ca8a04; }
+:root[data-theme='dark'] [data-tone='yellow'] { --tone: #facc15; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) [data-tone='yellow'] { --tone: #facc15; } }
+
+/* Badges and card edges in the colour of whoever works the step; finished ones keep green/red/grey. */
+.qt-badge[data-role] { color: var(--role-text, var(--role)); background: color-mix(in srgb, var(--role) 15%, transparent); }
+.qt-card[data-role] { border-left-color: var(--role); }
+.qt-stage[data-role] { border-top-color: var(--role); }
+
+/* How long from each step to the next, on the thread between them, as Revive Lab (the user, 11 Nov). A day or more in amber. */
+.qt-timeline li[data-next='true'] { padding-bottom: 40px; }
+.qt-tl-gap {
+  position: absolute; left: 9px; top: calc(50% + 10px); transform: translate(-50%, -50%); z-index: 1;
+  padding: 1px 8px; border-radius: var(--radius-pill); white-space: nowrap;
+  font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+  color: var(--text-muted); background: var(--surface); box-shadow: 0 0 0 1px var(--border);
+}
+.qt-tl-gap[data-long='true'] { color: var(--status-warning); box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-warning) 55%, var(--border)); }
+.qt-timeline li { grid-template-columns: 18px minmax(0, 1fr); column-gap: 22px; }
+
+/* The request on a desktop: wide, the step's form on the left, everything about the request beside it (the user, 11 Nov). */
+.qt-sheet-cols, .qt-sheet-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.qt-sheet-col > * { flex: none; }
+.qt-sheet-col:empty { display: none; }
+@media (min-width: 900px) {
+  .mt-sheet.qt-sheet { width: min(1180px, 100%); max-height: min(92vh, 1000px); }
+  .qt-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+  .qt-sheet-cols:not([data-acting]) { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+  .qt-sheet .mt-sheet-body { padding: 18px 20px; }
+  .qt-sheet .qt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 900px) {
+  /* One line for the header on a desktop (the user, 11 Nov: "dont need this much height"). */
+  .qt-sheet .mt-sheet-head { padding: 12px 16px 12px 20px; align-items: center; }
+  .qt-sheet .mt-sheet-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+  .qt-sheet .mt-sheet-title h2 { font-size: 20px; order: -1; }
+  .qt-sheet .mt-sheet-title p { font-size: 14px; }
+  .qt-sheet .mt-sheet-x { width: 36px; height: 36px; }
+}
+
+/* Step chips with counts above To do (the user, 11 Nov): one press shows only that step. */
+.qt-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 2px; }
+.qt-chips::-webkit-scrollbar { display: none; }
+.qt-step-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-pill);
+  font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.qt-step-chip b { font-weight: 750; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.qt-step-chip:hover { border-color: var(--role, var(--text-muted)); color: var(--role-text, var(--text-primary)); }
+.qt-step-chip[aria-selected='true'] { background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); color: var(--role-ink, var(--page)); }
+.qt-step-chip[aria-selected='true'] b { color: inherit; }
+
+.qt-card-step { display: none; }
+
+/* Wider screens (the user, 11 Nov): every card in a row is as tall as the tallest, its button on the bottom edge
+   so the buttons line up; the badge always sits on its own line under the number; rows breathe apart. */
+@media (min-width: 701px) {
+  .qt-cards { column-gap: 14px; row-gap: 18px; align-items: stretch; }
+  .qt-card-body { flex: 1 1 auto; align-content: start; }
+  .qt-card > .mt-go, .qt-card > .mt-btn, .qt-card > .qt-card-acts { margin-top: auto; }
+  .qt-card-top { row-gap: 6px; }
+  .qt-card-top .qt-badge { order: 3; }
+  .qt-card-top .qt-clock { order: 5; }
+  .qt-card-top::before, .qt-card-top::after { content: ''; flex-basis: 100%; height: 0; }
+  .qt-card-top::before { order: 2; } .qt-card-top::after { order: 4; }
+  .qt-card { box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 4px 10px -2px rgba(0, 0, 0, 0.10), 0 14px 28px -14px rgba(0, 0, 0, 0.28); }
+  .qt-card > .mt-go, .qt-card > .mt-btn, .qt-card > .qt-card-acts { margin-bottom: 16px; }
+  :root[data-theme='dark'] .qt-card { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 26px -12px rgba(0, 0, 0, 0.8); }
+}
+@media (min-width: 701px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .qt-card { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 26px -12px rgba(0, 0, 0, 0.8); }
+}
+
+/* Phone: compact cards, about twice as many on a screen (the user, 11 Nov). The tick box sits on the left,
+   one action is a short button on the right; the Team Lead's three stay in a low row underneath. */
+@media (max-width: 700px) {
+  .qt-cards { gap: 8px; }
+  .qt-card { flex-direction: row; flex-wrap: wrap; align-items: center; border-radius: 14px; }
+  .qt-card-body { flex: 1 1 0; padding: 10px 10px 10px 12px; gap: 2px; grid-template-columns: minmax(0, 1fr) auto; }
+  .qt-card-top { padding-right: 0; gap: 6px; }
+  .qt-no { font-size: 13px; }
+  .qt-badge { padding: 2px 7px; font-size: 11px; }
+  .qt-clock { font-size: 11.5px; }
+  .qt-card-spare { font-size: 15px; }
+  .qt-card-line { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qt-card-foot { display: none; }
+  /* The top row (number, badge, clock) runs the full width; the photo sits beside the lines under it (the user, 14 Nov: "my time behind img?"). */
+  .qt-card-body > .qt-card-top { grid-column: 1 / -1; }
+  .qt-card-photo { grid-row: 2 / span 2; align-self: center; width: 46px; height: 46px; border-radius: 10px; margin-left: 4px; }
+  .qt-pick { position: static; order: -1; flex: none; margin-left: 12px; }
+  .qt-card-acts { flex: none; padding: 0 12px 0 2px; }
+  .qt-card-acts > * { min-height: 38px; padding: 8px 14px; font-size: 14px; border-radius: 12px; box-shadow: none; }
+  .qt-card-acts:has(> :nth-child(2)) { flex-basis: 100%; padding: 0 12px 10px; }
+  .qt-card-acts:has(> :nth-child(2)) > * { flex: 1 1 0; }
+  .qt-card > .mt-go, .qt-card > .mt-btn { flex: none; width: auto; margin: 0 12px 0 2px; min-height: 38px; padding: 8px 14px; font-size: 14px; }
+}
+@media (max-width: 700px) {
+  .qt-card .qt-card-top { flex-wrap: nowrap; min-width: 0; }
+  .qt-card .qt-card-top .qt-badge { display: none; }
+  .qt-card .qt-card-step { display: inline; font-weight: 650; color: var(--role-text, var(--role, var(--text-secondary))); }
+  .qt-card .qt-card-top .qt-no, .qt-card .qt-card-top .qt-clock { flex: none; }
+  .qt-card .qt-clock-word { display: none; }
+  .qt-card-photo { width: 42px; height: 42px; }
+  .qt-card-acts > * { padding: 8px 12px; }
+}
+
+/* To do's sub-tabs, full width on a phone (the user, 11 Nov). */
+.qt-sub { align-self: start; }
+@media (max-width: 700px) { .qt-sub { display: flex; width: 100%; } .qt-sub button { flex: 1 1 0; } }
+.qt-todo { gap: 12px; }
+
+@media (min-width: 900px) {
+  /* Each column scrolls on its own, so the form's buttons are reached without scrolling the details (the user, 11 Nov). */
+  .qt-sheet .mt-sheet-body { overflow: hidden; padding: 0; }
+  .qt-sheet .qt-sheet-cols { flex: 1 1 auto; min-height: 0; align-items: stretch; gap: 0; }
+  .qt-sheet .qt-sheet-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px 24px; }
+  .qt-sheet .qt-sheet-col + .qt-sheet-col { border-left: 1px solid var(--border); }
+}
+/* An odd last fact takes the whole row, not half a row and a grey gap. */
+.qt-facts .mt-fact:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  /* The form gets the wider side when it is yours to fill (the user, 11 Nov). */
+  .qt-sheet .qt-sheet-cols[data-acting] { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+}
+
+/* Details: compact, two to a row everywhere (the user, 11 Nov: "why this much height?"). */
+.mt-facts.qt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: 14px; }
+.qt-facts .mt-fact { padding: 8px 12px; }
+.qt-facts .mt-fact-text { gap: 0; }
+.qt-facts .mt-fact-label { font-size: 11px; }
+.qt-facts .mt-fact-value { font-size: 13.5px; line-height: 1.3; }
+.qt-facts .mt-fact-sub { font-size: 12px; line-height: 1.3; }
+
+/* ------------------------------------------------- easier forms (11 Nov) -- */
+/* Tax %, Sent by and dates: one row of presses, never wrapping */
+.qt-tax, .qt-send-chips, .qt-date-chips { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; width: 100%; align-self: stretch; }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button {
+  min-height: 44px; padding: 0 4px; border-radius: 12px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 650; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; border: 1.5px solid var(--control-border); background: var(--control-bg); color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button:hover { border-color: var(--text-muted); color: var(--text-primary); }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button:active { transform: scale(0.96); }
+:is(.qt-tax, .qt-send-chips, .qt-date-chips) button[aria-checked='true'] { border-color: var(--ink); background: var(--ink); color: var(--page); }
+.qt-date-chips + input { margin-top: 6px; }
+@media (max-width: 380px) { .qt-send-chips button { font-size: 12.5px; } }
+
+.qt-vendor-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qt-vendor-chips .qt-chip { padding: 5px 11px; font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.qt-total { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--track-bg); }
+.qt-total span { font-size: 13px; font-weight: 650; color: var(--text-muted); }
+.qt-total strong { font-size: 24px; font-weight: 780; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.qt-total[data-empty='true'] strong { color: var(--text-muted); }
+.qt-grid > .qt-total { grid-column: 1 / -1; }
+
+/* PV: what the cheaper one saves; lead time and warranty as chips */
+.qt-save {
+  justify-self: start; margin-top: 4px; padding: 4px 10px; border-radius: var(--radius-pill); font-size: 12.5px; font-weight: 750;
+  background: color-mix(in srgb, var(--status-good) 14%, var(--surface)); color: var(--status-good); font-variant-numeric: tabular-nums;
+}
+.qt-quote-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.qt-info-chip { padding: 5px 11px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 650; background: var(--track-bg); color: var(--text-secondary); }
+
+/* Receipt in one press */
+.qt-action .qt-all-in { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; font-weight: 700; border-color: var(--role); color: var(--role-text, var(--text-primary)); }
+
+/* the main button stays in reach while the form scrolls */
+.qt-action > :is(.mt-go, .qt-two, .qt-three) { position: sticky; bottom: 0; z-index: 2; }
+.qt-action > :is(.qt-two, .qt-three) { background: inherit; margin: -4px -14px 0; padding: 8px 14px; }
+
+/* the field a refusal names */
+.pm-in.is-bad > span { color: var(--status-critical); }
+.pm-in.is-bad :is(input, textarea, .qt-hosp-picked) { border-color: var(--status-critical) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-critical) 18%, transparent); }
+.pm-in.is-bad :is(.qt-tax, .qt-send-chips, .qt-date-chips) button { border-color: var(--status-critical); }
+
+.qt-hosp-head { padding: 8px 10px 4px; font-size: 11.5px; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.qt-steps { align-items: center; }
+.qt-steps .qt-start-again { flex: none; }
+@media (max-width: 700px) { .qt-tax .qt-pct { display: none; } }
+@media (max-width: 700px) {
+  .qt-tax button { min-height: 34px; border-radius: 10px; font-size: 13px; }
+  .qt-tax { gap: 5px; }
+}
+@media (max-width: 480px) {
+  .qt-action > .qt-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qt-action > .qt-two > * { min-height: 46px; padding-inline: 8px; font-size: 14.5px; }
+}
+/* two quote boxes side by side only when each has room; nothing inside spills over */
+.qt-quotes:has(.qt-quote-in) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); }
+.qt-quote-in > * { min-width: 0; }
+.qt-total { flex-wrap: wrap; row-gap: 2px; }
+.qt-total strong { font-size: clamp(19px, 2.2vw + 10px, 24px); overflow-wrap: anywhere; min-width: 0; }
+.qt-total { align-items: center; }
+.qt-total-label { display: grid; gap: 2px; }
+.qt-total-label small { font-size: 12px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.qt-tl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.qt-tl-total { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--track-bg); color: var(--text-primary); font-size: 12px; font-weight: 750; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.qt-date-pair { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.qt-date-pair input { min-width: 0; }
+/* Close: Contract, PR no and PR date on one row (the user, 14 Nov). */
+.qt-date-pair.qt-close-row { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr); }
+.qt-date-pair select { min-width: 0; width: 100%; }
+/* a result, OK only */
+.qt-notice { max-width: 360px; text-align: center; }
+.qt-notice .modal-body { display: grid; justify-items: center; gap: 10px; padding-top: 22px; }
+.qt-notice .modal-body p { margin: 0; font-size: 16px; font-weight: 650; color: var(--text-primary); overflow-wrap: anywhere; }
+.qt-notice-tick { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--status-good) 15%, var(--surface)); color: var(--status-good); }
+.qt-notice .modal-foot { justify-content: stretch; }
+.qt-notice .modal-foot .mt-btn { flex: 1; min-height: 46px; }
+.modal-scrim:has(.qt-notice) { display: grid; place-items: center; padding: 16px; }
+.qt-notice { width: min(360px, 100%); margin: 0; border-radius: 20px; }
+.qt-card-with { display: block; font-size: 13px; font-weight: 650; color: var(--role-text, var(--text-secondary)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-action > .qt-tl-acts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.qt-action > .qt-tl-acts > * { min-height: 46px; padding-inline: 6px; }
+/* SAP rate: item code + vendor, then rate + tax, two to a row on desktop (the user, 11 Nov) */
+.qt-grid.qt-sap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 600px) { .qt-grid.qt-sap { grid-template-columns: 1fr; } }
+
+/* One Requests tab, five views (the user, 11 Nov); scrolls sideways on a phone rather than squeezing */
+.qt-work { display: flex; flex-direction: column; gap: 14px; }
+/* The Requests tabs and the period on one row, the period at the end; the period goes under them when there is no room (the user, 20 Nov). */
+.qt-views-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.qt-views-row > .mt-period { margin: 0; }
+.qt-views { align-self: start; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.qt-views::-webkit-scrollbar { display: none; }
+.qt-views button { flex: 0 0 auto; white-space: nowrap; }
+.qt-views button b { font-weight: 700; }
+.qt-views button[data-hot] b { color: var(--accent, #e11d48); }
+
+/* Quotation, its date and remarks on one row (the user, 11 Nov); remarks drop below on a phone */
+.qt-quote-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+.qt-quote-row textarea { min-height: 64px; }
+/* Remarks: one line beside the date, as tall as it (the user, 16 Nov: "remark stretch the box, and make same height as date field"). */
+
+/* Tracking no and the slip on one row; By hand finds the person (the user, 11 Nov) */
+.qt-track-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.qt-hand { position: relative; }
+.qt-hand-list { position: absolute; z-index: 30; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none;
+  background: var(--panel, var(--surface, #1c1c1f)); border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); max-height: 260px; overflow: auto; }
+.qt-hand-list button { width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.qt-hand-list button:hover { background: rgba(127,127,127,.12); }
+.qt-hand-list span { opacity: .6; margin-left: 6px; }
+/* The slip as tall as the tracking box beside it (the user, 11 Nov) */
+.qt-track-row .qt-thumb, .qt-track-row .qt-camera { height: 48px; width: 84px; grid-auto-flow: column; gap: 6px; }
+
+/* Each view its colour (the user, 11 Nov): amber to accept, blue with you, violet with others, green closed, grey all */
+.qt-views button[data-view="accept"] { --v: #f59e0b; }
+.qt-views button[data-view="mine"] { --v: #3b82f6; }
+.qt-views button[data-view="open"] { --v: #3b82f6; }
+.qt-views button[data-view="others"] { --v: #8b5cf6; }
+.qt-views button[data-view="done"] { --v: #22c55e; }
+.qt-views button[data-view="all"] { --v: #94a3b8; }
+.qt-views button { display: inline-flex; align-items: center; gap: 6px; }
+.qt-views button i { width: 8px; height: 8px; border-radius: 50%; background: var(--v); flex: none; }
+.qt-views button b, .qt-views button[data-hot] b { color: inherit; opacity: .55; }
+.qt-views button[data-hot] b { color: var(--v); opacity: 1; }
+.qt-views button[aria-selected="true"] { background: color-mix(in srgb, var(--v) 18%, transparent); color: var(--text-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v) 45%, transparent); }
+
+/* Time by role above the timeline (the user, 11 Nov): each role's colour, its time and share */
+.qt-roletime { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.qt-roletime li { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+.qt-rt-name { font-weight: 650; color: var(--role-text, var(--role)); }
+.qt-rt-bar { height: 8px; border-radius: 99px; background: var(--track-bg); overflow: hidden; }
+.qt-rt-bar i { display: block; height: 100%; border-radius: 99px; background: var(--role); }
+.qt-rt-val { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.qt-rt-val b { color: var(--text-primary); }
+
+/* The request's flow (the user, 18 Nov): done, now, ahead */
+.qt-flow { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr)); gap: 4px; }
+.qt-flow li { position: relative; display: grid; justify-items: center; align-content: start; gap: 4px; text-align: center; font-size: 11.5px; line-height: 1.2; color: var(--text-secondary); min-width: 0; }
+.qt-flow li::before { content: ''; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--track-bg); z-index: 0; }
+.qt-flow li:first-child::before { display: none; }
+.qt-flow i { position: relative; z-index: 1; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 99px; font-style: normal; font-size: 11px; font-weight: 800;
+  background: var(--surface); border: 2px solid var(--border); color: #fff; }
+.qt-flow span { overflow-wrap: anywhere; }
+.qt-flow [data-state="done"] i { background: #16a34a; border-color: #16a34a; }
+.qt-flow [data-state="done"]::before, .qt-flow [data-state="now"]::before { background: #16a34a; }
+.qt-flow [data-state="now"] i { background: #ea580c; border-color: #ea580c; box-shadow: 0 0 0 4px rgba(234, 88, 12, .18); }
+.qt-flow [data-state="now"] span { color: var(--text-primary); font-weight: 700; }
+@media (max-width: 560px) {
+  .qt-flow { grid-template-columns: 1fr; gap: 0; }
+  .qt-flow li { grid-template-columns: 20px minmax(0, 1fr) auto; justify-items: start; align-items: center; gap: 10px; text-align: left; padding: 5px 0; font-size: 13px; }
+  .qt-flow li::before { top: auto; bottom: 50%; right: auto; left: 9px; width: 2px; height: 100%; }
+}
+
+/* The old software's number, small under ours (the user, 11 Nov) */
+.qt-no, .qt-sheet h2 { display: inline-flex; flex-direction: column; line-height: 1.1; }
+.qt-ref { display: block; font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--text-secondary); margin-top: 1px; }
+
+/* Dashboard (the user, 11 Nov): one look at how a person performs */
+.qt-dash { display: flex; flex-direction: column; gap: 14px; }
+.qt-dash-who { font-weight: 700; color: var(--role-text, var(--role)); margin: 0; }
+.qt-dash-tiles { display: grid; gap: 10px; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .qt-dash-tiles { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } .qt-dash-tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; } }
+.qt-tile { display: grid; gap: 2px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); border-top: 3px solid var(--k, var(--border)); }
+.qt-tile[data-k="handled"] { --k: #3b82f6; } .qt-tile[data-k="done"] { --k: #8b5cf6; } .qt-tile[data-k="pending"] { --k: #f59e0b; }
+.qt-tile[data-k="pct"], .qt-tile[data-k="ontime"] { --k: #94a3b8; }
+.qt-tile span { font-size: 12.5px; color: var(--text-secondary); font-weight: 600; }
+.qt-tile b .qt-count { font: inherit; color: inherit; }
+.qt-tile b { font-size: 28px; line-height: 1.1; font-weight: 750; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-tile small { font-size: 12px; color: var(--text-secondary); }
+[data-tone="good"] { --ok: #16a34a; } [data-tone="warn"] { --ok: #d97706; } [data-tone="bad"] { --ok: #dc2626; }
+.qt-tile[data-tone] { --k: var(--ok); } .qt-tile[data-tone] b { color: var(--ok); }
+.qt-dash-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.qt-dash-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 99px; font-size: 13px; font-weight: 600;
+  background: color-mix(in srgb, var(--tone, #94a3b8) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone, #94a3b8) 40%, transparent); }
+.qt-dash-chip b { font-weight: 750; }
+.qt-dash-stages { display: grid; gap: 10px; margin-top: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.qt-dash-stage { display: grid; gap: 6px; padding: 12px; border-radius: 14px; border: 1px solid var(--border); border-top: 3px solid var(--tone); background: var(--surface); }
+.qt-dash-stage-name { font-weight: 700; }
+.qt-dash-stage-done { font-size: 12.5px; color: var(--text-secondary); }
+.qt-dash-kv { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.qt-dash-kv span { color: var(--text-secondary); min-width: 58px; } .qt-dash-kv small { margin-left: auto; color: var(--text-secondary); }
+.qt-dash-ontime { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ok, var(--text-secondary)); }
+.qt-dash-ontime .qt-rt-bar i { background: var(--ok, #94a3b8); }
+.qt-dash-team { display: grid; margin-top: 8px; overflow-x: auto; }
+.qt-dash-team-row { display: grid; grid-template-columns: minmax(150px, 2fr) repeat(4, minmax(64px, 1fr)); gap: 8px; align-items: center; padding: 10px 8px;
+  border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; font-variant-numeric: tabular-nums; }
+.qt-dash-team-row.is-head { cursor: default; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); }
+.qt-dash-team-row[aria-pressed="true"] { background: color-mix(in srgb, var(--role, #94a3b8) 10%, transparent); }
+.qt-dash-team-name { display: grid; font-weight: 650; } .qt-dash-team-name small { font-weight: 500; color: var(--role-text, var(--role)); }
+.qt-dash-team-row [data-tone] { color: var(--ok); font-weight: 700; }
+
+/* TAT graph: accept and process against the target line */
+.qt-graph { display: grid; gap: 14px; margin: 10px 0 16px; }
+.qt-graph-row { display: grid; gap: 6px; padding-left: 10px; border-left: 3px solid var(--tone); }
+.qt-graph-name { font-weight: 700; display: grid; } .qt-graph-name small { font-weight: 500; font-size: 12px; color: var(--text-secondary); }
+.qt-graph-bar { display: grid; grid-template-columns: 62px minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-size: 12.5px; --bar: #16a34a; }
+.qt-graph-bar[data-late] { --bar: #dc2626; }
+.qt-graph-k { color: var(--text-secondary); }
+.qt-graph-track { position: relative; height: 12px; border-radius: 99px; background: var(--track-bg); }
+.qt-graph-track i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--bar); }
+.qt-graph-track em { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text-primary); opacity: .7; border-radius: 2px; }
+.qt-graph-v { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--bar); }
+.qt-graph-key { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; margin: 0; font-size: 12px; color: var(--text-secondary); }
+.qt-graph-key i { display: inline-block; width: 18px; height: 8px; border-radius: 99px; background: #16a34a; margin-right: -6px; }
+.qt-graph-key i[data-late] { background: #dc2626; }
+.qt-graph-key em { display: inline-block; width: 2px; height: 12px; background: var(--text-primary); opacity: .7; margin-right: -6px; }
+.qt-panel-sub { font-weight: 600; color: var(--text-secondary); }
+.qt-panel-sub[data-tone="good"] { color: #22c55e; } .qt-panel-sub[data-tone="warn"] { color: #f59e0b; } .qt-panel-sub[data-tone="bad"] { color: #ef4444; }
+/* Same lift as Your work now (the user, 12 Nov). */
+button.qt-tile { text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform .18s ease, border-color .18s, box-shadow .18s; }
+button.qt-tile:hover { transform: translateY(-2px); border-color: var(--k); box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+button.qt-tile:active { transform: scale(.98); }
+@media (prefers-reduced-motion: reduce) { button.qt-tile { transition: none; } }
+.qt-photo-groups { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
+.qt-photo-groups > div { display: grid; gap: 8px; min-width: 0; }
+.qt-photo-groups > div + div { padding-left: 28px; border-left: 1px solid var(--border); margin-left: -1px; }
+/* Card buttons are a soft tint of the role colour, solid only on hover, so a screen of cards stays calm
+   (the user, 11 Nov: the solid purple was too strong); inside a request the action stays solid. */
+:root .qt-app .qt-card > .mt-go:not(.qt-btn-bad), :root .qt-app .qt-card-acts > .mt-go:not(.qt-btn-bad) {
+  background: color-mix(in srgb, var(--role, var(--ink)) 13%, var(--surface));
+  color: var(--role-text, var(--role, var(--text-primary))) !important;
+  border: 1px solid color-mix(in srgb, var(--role, var(--ink)) 30%, transparent);
+  box-shadow: none;
+}
+:root .qt-app .qt-card > .mt-go:not(.qt-btn-bad):not(:disabled):hover, :root .qt-app .qt-card-acts > .mt-go:not(.qt-btn-bad):not(:disabled):hover {
+  background: var(--role, var(--ink)); color: var(--role-ink, #fff) !important; filter: none;
+}
+
+/* Phone: the bell and the module pill share the row under the header; the pill takes what the bell leaves,
+   not the whole width, or the page pans sideways on iPhone (the user, 12 Nov). */
+.project-row .qt-head-right { width: 100%; min-width: 0; }
+.project-row .qt-head-right .project-switch { flex: 1 1 auto; width: auto; min-width: 0; }
+
+/* Requests views: a dropdown on a phone instead of the sideways-scrolling row (the user, 12 Nov: option C). */
+.qt-views-pick { display: none; }
+.qt-view-sort { display: none; }
+@media (max-width: 700px) {
+  .qt-views-row > .segmented.qt-views { display: none; }
+  .qt-views-pick { display: block; }
+  .qt-views-pick .mt-picker, .qt-view-sort .mt-picker { width: 100%; }
+  .qt-view-sort { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+  .qt-filters .qt-sort-wide { display: none; }
+}
+.qt-view-opt { display: inline-flex; align-items: center; gap: 8px; }
+.qt-view-opt i { width: 8px; height: 8px; border-radius: 50%; background: var(--v); flex: none; }
+.qt-view-opt b { font-weight: 700; opacity: .55; }
+.qt-view-opt[data-view="accept"] { --v: #f59e0b; }
+.qt-view-opt[data-view="mine"], .qt-view-opt[data-view="open"] { --v: #3b82f6; }
+.qt-view-opt[data-view="others"] { --v: #8b5cf6; }
+.qt-view-opt[data-view="done"] { --v: #22c55e; }
+.qt-view-opt[data-view="all"] { --v: #94a3b8; }
+
+/* Accept pending (the user, 12 Nov): amber chip until someone accepts the step; the card says who can. */
+.qt-pending-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: color-mix(in srgb, #f59e0b 16%, transparent); color: #92400e; }
+:root[data-theme='dark'] .qt-pending-chip { color: #fcd34d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-pending-chip { color: #fcd34d; } }
+.qt-card-with b { font-weight: 600; color: var(--text-primary); }
+
+/* Your work now, first on the Dashboard (the user, 12 Nov): to accept in amber, with you beside it. */
+.qt-work-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.qt-work-tile { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 12px; align-items: center;
+  padding: 12px 14px; border-radius: 14px; background: var(--track-bg, rgba(127,127,127,.08)); border: 1px solid var(--track-border, rgba(127,127,127,.18)); }
+.qt-work-tile .qt-work-l { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); grid-column: 1; }
+.qt-work-tile b { font-size: 28px; line-height: 1.1; font-weight: 700; grid-column: 1; }
+.qt-work-tile small { font-size: 12px; color: var(--text-muted); grid-column: 1; }
+.qt-work-tile[data-k="accept"][data-on] { background: color-mix(in srgb, #f59e0b 14%, transparent); border-color: color-mix(in srgb, #f59e0b 45%, transparent); }
+.qt-work-tile[data-k="accept"][data-on] b, .qt-work-tile[data-k="accept"][data-on] .qt-work-l { color: #92400e; }
+:root[data-theme='dark'] .qt-work-tile[data-k="accept"][data-on] b, :root[data-theme='dark'] .qt-work-tile[data-k="accept"][data-on] .qt-work-l { color: #fcd34d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-work-tile[data-k="accept"][data-on] b, :root:not([data-theme='light']) .qt-work-tile[data-k="accept"][data-on] .qt-work-l { color: #fcd34d; } }
+/* Your work now: the whole tile is one press, answers the pointer, and lights up when work waits (the user, 12 Nov). */
+.qt-work-tile { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%;
+  transition: transform .18s ease, border-color .18s, background .18s, box-shadow .18s; }
+/* The panel holding the tiles stays still; only the tile moves (the user, 12 Nov). */
+.panel.qt-work-now:hover { transform: none; box-shadow: var(--shadow-sm); }
+.qt-work-tile:hover { transform: translateY(-2px); border-color: var(--text-muted); box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.qt-work-tile:active { transform: scale(.98); }
+.qt-work-tile:focus-visible { outline: 2px solid var(--status-info); outline-offset: 2px; }
+.qt-work-tile[data-k="mine"][data-on] { background: color-mix(in srgb, var(--status-info) 12%, transparent); border-color: color-mix(in srgb, var(--status-info) 45%, transparent); }
+.qt-work-tile[data-k="mine"][data-on] b, .qt-work-tile[data-k="mine"][data-on] .qt-work-l { color: var(--status-info); }
+.qt-work-tile[data-k="accept"][data-on] { animation: qt-work-glow 2.4s ease-in-out infinite; }
+@keyframes qt-work-glow { 0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } 50% { box-shadow: 0 0 0 4px rgba(245,158,11,.22); } }
+.qt-count { display: inline-block; animation: qt-count-in .35s ease-out; }
+@keyframes qt-count-in { from { transform: translateY(4px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .qt-work-tile, .qt-count, .qt-work-tile[data-k="accept"][data-on] { animation: none; transition: none; } }
+.qt-dash-accept { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; padding: 6px 12px; }
+
+/* Transfer (BEMMP 0050; the user, 12 Nov). */
+.qt-transfer-btn { flex: none; min-height: 30px; padding: 4px 12px; font-size: 12.5px; gap: 5px; transition: background .15s, border-color .15s; }
+.qt-transfer-btn:hover { background: color-mix(in srgb, #8b5cf6 14%, transparent); border-color: #8b5cf6; color: #6d28d9; }
+:root[data-theme='dark'] .qt-transfer-btn:hover { color: #c4b5fd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-transfer-btn:hover { color: #c4b5fd; } }
+.qt-transfer-btn:active { transform: scale(.96); }
+.qt-transfer-body { display: grid; gap: 12px; }
+.qt-transfer-field { display: grid; gap: 6px; }
+.qt-transfer-field > span { font-size: 13px; color: var(--text-secondary); }
+.qt-transfer-field input { width: 100%; min-height: 42px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); font: inherit; font-size: 16px; }
+.qt-card-moved { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; width: fit-content; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  color: #5b21b6; background: color-mix(in srgb, #8b5cf6 14%, transparent); }
+:root[data-theme='dark'] .qt-card-moved { color: #c4b5fd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .qt-card-moved { color: #c4b5fd; } }
+.qt-views button[data-view="team"] { --v: #14b8a6; }
+.qt-view-opt[data-view="team"] { --v: #14b8a6; }
+/* Wide header: number, step, clock and spare on one line from the left (the user, 12 Nov: why the spare in the middle). */
+@media (min-width: 900px) {
+  .qt-sheet .mt-sheet-title .qt-card-top { padding-right: 0; flex-wrap: nowrap; }
+  .qt-sheet .mt-sheet-title .qt-card-top::before, .qt-sheet .mt-sheet-title .qt-card-top::after { display: none; }
+}
+.qt-sheet-acts { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+@media (min-width: 900px) { .qt-sheet-acts { flex-direction: row-reverse; align-items: center; } }
+/* A dropdown opened inside a popup shows above it (the user, 12 Nov: the Transfer list was hidden). */
+.mt-pick-pop, .mt-pick-scrim { z-index: 1200; }
+
+/* ------------------------------------------- quotations, many (0055, 14 Nov) -- */
+/* Side by side, one row, See more for the rest; the QTN number on one line inside the card. */
+.qt-qhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.qt-qhead-m { font-size: 13px; font-weight: 700; color: var(--status-good); font-variant-numeric: tabular-nums; }
+.qt-qhead-m[data-down] { color: var(--status-critical); }
+.qt-qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 10px; }
+.qt-qcard {
+  position: relative; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); transition: border-color 0.15s;
+}
+.qt-qcard:hover { border-color: var(--text-muted); }
+.qt-qcard-open { position: absolute; inset: 0; border: 0; background: none; border-radius: inherit; cursor: pointer; padding: 0; }
+.qt-qcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
+.qt-qcard-top button { pointer-events: auto; position: relative; }
+.qt-qfile-ico {
+  flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--status-critical); font: inherit; font-size: 10px; font-weight: 750;
+}
+.qt-qstate {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: var(--radius-pill); border: 0;
+  font: inherit; font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+.qt-qstate[data-tone='ok'] { background: color-mix(in srgb, var(--status-good) 16%, var(--surface)); color: var(--status-good); }
+.qt-qstate[data-tone='bad'] { background: color-mix(in srgb, var(--status-critical) 14%, var(--surface)); color: var(--status-critical); }
+.qt-qstate[data-tone='warn'] { background: color-mix(in srgb, var(--status-warning) 18%, var(--surface)); color: var(--status-warning); }
+.qt-qstate[data-tone='wait'] { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+button.qt-qstate { cursor: pointer; }
+.qt-qno { margin: 2px 0 0; font-size: 13px; font-weight: 750; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.qt-qto { margin: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qfoot { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.qt-qfoot b { font-size: 15px; font-weight: 780; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-qfoot span { font-size: 11.5px; color: var(--text-muted); }
+.qt-qnote { margin: 0; font-size: 12px; font-weight: 650; color: var(--status-critical); }
+.qt-qmargin {
+  display: flex; justify-content: space-between; gap: 6px; margin-top: 2px; padding: 4px 8px; border-radius: 8px; font-size: 12px;
+  background: color-mix(in srgb, var(--status-good) 14%, var(--surface)); color: var(--status-good); font-variant-numeric: tabular-nums;
+}
+.qt-qmargin b { font-weight: 750; }
+.qt-qmargin[data-down] { background: color-mix(in srgb, var(--status-critical) 12%, var(--surface)); color: var(--status-critical); }
+.qt-qmore { width: 100%; margin-top: 10px; }
+
+/* Attaching: one row a file with what was read, Add more under them. */
+.qt-qadd { display: grid; gap: 6px; }
+.qt-qadd-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); min-width: 0; }
+.qt-qadd-text { flex: 1 1 auto; min-width: 0; display: grid; text-align: left; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.qt-qadd-text b { font-size: 13px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qadd-text span { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-qadd-text span:empty { display: none; }
+.qt-qadd-x { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; border: 0; padding: 0; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.qt-qadd-x:hover { background: var(--status-critical); color: #fff; }
+.qt-qadd-btn { width: 100%; height: 46px; flex-direction: row; display: inline-flex; justify-content: center; gap: 6px; border-radius: 12px; font-size: 13.5px; }
+
+/* The PDF pop-up: pages down the middle on the dark cover, the same buttons as the photo viewer. */
+.qt-pdfbox { touch-action: pan-x pan-y; user-select: text; }
+.qt-pdf-pages { position: absolute; inset: 0; overflow: auto; padding: 68px 12px 24px; display: flex; flex-direction: column; align-items: safe center; gap: 12px; overscroll-behavior: contain; }
+.qt-pdf-page { flex: none; background: #fff; border-radius: 4px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); max-width: none; }
+.qt-pdf-pages .qt-thumb-wait { margin-top: 30vh; }
+.qt-pdf-msg { margin-top: 30vh; color: #fff; font-size: 15px; }
+
+/* Create or Attach the quotation (the user, 16 Nov), and the quotation maker. */
+.qt-qadd-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.qt-qadd-one { display: grid; }
+.qt-qadd-make { border-style: solid; color: var(--text-primary); }
+/* Both icons green (the user, 16 Nov: "need icon color green and attach + also"). */
+.qt-qadd-two svg { color: var(--status-good); }
+.qt-qadd-draft { border-style: dashed; }
+.qt-qadd-draft .qt-qadd-text b { color: var(--status-warning, #b45309); }
+
+.qt-maker-scrim { z-index: 1100; }
+.qt-maker.mt-sheet { width: min(760px, 100%); max-height: min(94vh, 1000px); }
+/* Its own body: the request sheet's desktop body has no padding and does not scroll (its columns do). */
+.qt-maker .qt-maker-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 14px; padding: 16px;
+}
+.qt-maker .qt-maker-body > * { flex: none; }
+.qt-maker-main, .qt-maker-side { display: grid; gap: 14px; min-width: 0; align-content: start; }
+.qt-maker-to { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.qt-maker-to > :first-child, .qt-maker-to > :last-child { grid-column: 1 / -1; }
+
+.qt-maker-items { display: grid; gap: 10px; }
+.qt-maker-head { display: none; }
+.qt-maker-item {
+  display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: 'n x' 'desc desc' 'cost margin' 'whole whole' 'price qty' 'tax tax' 'tot tot';
+  padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface);
+}
+.qt-mi-n { grid-area: n; align-self: center; font-size: 13px; font-weight: 750; }
+.qt-mi-word { display: none; }
+.qt-mi-n::before { content: 'Item '; }
+.qt-mi-x { grid-area: x; justify-self: end; }
+.qt-mi-desc { grid-area: desc; }
+.qt-mi-desc textarea { min-height: 64px; }
+.qt-mi-price { grid-area: price; }
+.qt-mi-qty { grid-area: qty; }
+.qt-mi-tax { grid-area: tax; min-width: 0; }
+.qt-mi-tot { grid-area: tot; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; font-size: 13px; color: var(--text-secondary); }
+.qt-mi-tot b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.qt-maker-sum { display: grid; gap: 6px; padding: 14px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.qt-maker-sum p { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; font-size: 13px; color: var(--text-secondary); }
+.qt-maker-sum b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qt-maker-grand { padding-top: 6px; border-top: 1px solid var(--border); font-size: 15px !important; }
+.qt-maker-grand b { font-size: 18px; font-weight: 800; }
+.qt-maker-sum small { font-size: 12px; color: var(--text-secondary); }
+.qt-maker-go { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: stretch; }
+
+@media (max-width: 640px) {
+  .qt-maker-scrim { padding: 0; align-items: stretch; }
+  .qt-maker.mt-sheet { max-height: none; height: 100%; border-radius: 0; }
+}
+
+/* A computer: the items are rows of a table, the totals and the buttons stay beside them (the user, 16 Nov:
+   "in desktop we can use space to make it easier for user"). */
+@media (min-width: 900px) {
+  .qt-maker.mt-sheet { width: min(1240px, 100%); max-height: min(94vh, 1100px); }
+  .qt-maker .qt-maker-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; padding: 20px 22px; }
+  .qt-maker-side { position: sticky; top: 0; }
+  .qt-maker-to { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-maker-to > :first-child { grid-column: auto; }
+  .qt-maker-items { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+  .qt-maker-head, .qt-maker-item {
+    display: grid; gap: 10px; align-items: center;
+    grid-template-columns: 36px minmax(160px, 1fr) 84px 64px 96px 48px 132px 92px 28px; column-gap: 8px;
+    grid-template-areas: 'n desc cost margin price qty tax tot x';
+  }
+  .qt-maker-item { grid-template-areas: 'n desc cost margin price qty tax tot x' '. whole whole whole whole whole whole whole .'; }
+  .qt-mi-whole .qt-choice, .qt-mi-whole > * { max-width: 320px; }
+  .qt-maker-head { padding: 10px 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .qt-maker-head > :nth-child(6) { text-align: right; }
+  .qt-maker-item { padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .qt-mi-n::before { content: none; }
+  .qt-mi-n { color: var(--text-secondary); }
+  .qt-maker-item .pm-in > span { display: none; }
+  .qt-mi-desc textarea { min-height: 44px; max-height: 180px; resize: none; overflow-y: auto; }
+  .qt-maker-item { align-items: start; }
+  .qt-mi-n, .qt-mi-x, .qt-mi-tot { margin-top: 12px; }
+  .qt-mi-tax .qt-tax button { padding-left: 0; padding-right: 0; }
+  .qt-mi-tot span { display: none; }
+  .qt-mi-tot { justify-content: flex-end; font-size: 14px; }
+  .qt-maker-add { border: 0; border-radius: 0; height: 44px; justify-content: flex-start; padding-left: 12px; }
+}
+
+.qt-maker-terms {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 14px; text-align: left;
+}
+.qt-maker-terms span { flex: 1; font-weight: 650; }
+.qt-maker-terms b { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.qt-maker-terms:hover { border-color: var(--status-good); }
+.qt-maker-terms svg { color: var(--status-good); }
+.qt-terms-scrim { z-index: 1150; }
+.qt-terms-pop { width: min(560px, 100%); display: grid; gap: 12px; padding: 16px; border-radius: 20px; background: var(--page); border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
+.qt-terms-head { display: flex; align-items: center; justify-content: space-between; }
+.qt-terms-head b { font-size: 16px; font-weight: 750; }
+.qt-terms-pop textarea, .qt-yl-terms textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; line-height: 1.45; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--control-border); background: var(--control-bg); color: var(--text-primary); }
+.qt-terms-go { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 640px) { .qt-terms-scrim { align-items: flex-end; } .qt-terms-pop { border-radius: 20px 20px 0 0; } }
+
+/* Hover in the quotation maker, as on the request cards (the user, 16 Nov: "need basic hover"). */
+.qt-maker-go .mt-btn, .qt-maker-go .mt-go, .qt-qadd-row, .qt-qadd-btn, .qt-maker-terms, .qt-maker-item .qt-qadd-x {
+  transition: background 0.15s, border-color 0.15s, color 0.15s, filter 0.15s, transform 0.12s;
+}
+.qt-maker-go .mt-btn:not(:disabled):hover { background: var(--hover-wash); border-color: var(--text-muted); color: var(--text-primary); }
+.qt-maker-go .mt-go:not(:disabled):hover { filter: brightness(1.08); }
+.qt-maker-go :is(.mt-btn, .mt-go):not(:disabled):active { transform: scale(0.97); }
+.qt-qadd-btn:not(:disabled):hover, .qt-maker-terms:not(:disabled):hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-qadd-row:hover { border-color: var(--text-muted); }
+.qt-qadd-row .qt-qadd-text:hover b { text-decoration: underline; text-underline-offset: 2px; }
+@media (min-width: 900px) { .qt-maker-item:hover { background: var(--hover-wash); } }
+
+/* Cost (the approved price) and Margin % before the unit price (the user, 16 Nov). */
+.qt-mi-cost { grid-area: cost; display: grid; gap: 6px; margin: 0; align-content: start; }
+.qt-mi-margin { grid-area: margin; }
+.qt-mi-cost span, .qt-mi-none span { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+.qt-mi-cost b, .qt-mi-none b { font-size: 14px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 22px; display: flex; align-items: center; }
+.qt-mi-none { display: grid; gap: 6px; margin: 0; align-content: start; }
+.qt-maker-all { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+@media (min-width: 900px) {
+  .qt-maker.mt-sheet { width: min(1440px, 100%); }
+  .qt-maker-item .qt-mi-cost span, .qt-maker-item .qt-mi-none span { display: none; }
+  .qt-mi-cost b, .qt-mi-none b { min-height: 0; }
+  /* Cost, Sl No and the total sit on the line of the boxes (48px), at the top of a row a long description makes tall. */
+  .qt-maker-item .qt-mi-cost, .qt-maker-item .qt-mi-none, .qt-maker-item .qt-mi-n, .qt-maker-item .qt-mi-tot, .qt-maker-item .qt-mi-x { align-self: start; height: 48px; display: flex; align-items: center; }
+  .qt-maker-item .qt-mi-tot { justify-content: flex-end; }
+}
+
+@media (min-width: 900px) {
+  .qt-maker .qt-maker-body { grid-template-columns: minmax(0, 1fr) 260px; }
+  .qt-maker-item .qt-tax { gap: 4px; }
+}
+
+/* An item on a computer: the description across the row, its figures on the line under it (the user, 16 Nov:
+   "make description in single row, under that all values"). */
+@media (min-width: 900px) {
+  .qt-maker-head, .qt-maker-item {
+    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) 72px 150px minmax(0, 1fr) 28px;
+    column-gap: 10px;
+  }
+  .qt-maker-item { grid-template-areas: 'n desc desc desc desc desc desc x' '. cost margin price qty tax tot .'; row-gap: 8px; }
+  .qt-maker-head { grid-template-areas: 'n cost margin price qty tax tot .'; }
+  .qt-maker-head > :nth-child(1) { grid-area: n; }
+  .qt-maker-head > :nth-child(2) { display: none; }
+  .qt-maker-head > :nth-child(3) { grid-area: cost; }
+  .qt-maker-head > :nth-child(4) { grid-area: margin; }
+  .qt-maker-head > :nth-child(5) { grid-area: price; }
+  .qt-maker-head > :nth-child(6) { grid-area: qty; text-align: left; }
+  .qt-maker-head > :nth-child(7) { grid-area: tax; }
+  .qt-maker-head > :nth-child(8) { grid-area: tot; text-align: right; }
+  .qt-maker-head > :nth-child(9) { display: none; }
+  .qt-mi-desc textarea { min-height: 44px; }
+}
+@media (min-width: 900px) {
+  .qt-maker-head, .qt-maker-item { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) 72px 150px minmax(0, 1fr) 28px; }
+  .qt-maker-head > :nth-child(1) { white-space: nowrap; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot, .qt-mi-n, .qt-mi-x) { height: auto; align-self: center; }
+  .qt-mi-desc textarea { field-sizing: content; height: auto !important; min-height: 44px; }
+}
+/* Each field named above its box on a computer too (the user, 16 Nov: "show field headers, coordinator wont understand"). */
+@media (min-width: 900px) {
+  .qt-maker-head { display: none; }
+  .qt-maker-items { padding-top: 4px; }
+  .qt-maker-item { padding-top: 14px; padding-bottom: 14px; }
+  .qt-maker-item .pm-in > span, .qt-maker-item .qt-mi-cost span, .qt-maker-item .qt-mi-none span, .qt-maker-item .qt-mi-tot span { display: block; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot) { display: grid; gap: 6px; align-self: end; align-content: end; height: auto; }
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot) b { min-height: 48px; display: flex; align-items: center; }
+  .qt-maker-item .qt-mi-tot { justify-items: end; text-align: right; }
+  .qt-maker-item .qt-mi-tot b { justify-content: flex-end; }
+  .qt-maker-item .qt-mi-tot span { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+  .qt-maker-item .qt-mi-tax { align-self: end; }
+  .qt-maker-item .qt-mi-n { align-self: start; padding-top: 30px; }
+  .qt-maker-item .qt-mi-x { align-self: start; margin-top: 30px; }
+}
+@media (min-width: 900px) {
+  .qt-maker-item :is(.qt-mi-cost, .qt-mi-none, .qt-mi-tot, .qt-mi-tax, .qt-mi-margin, .qt-mi-price, .qt-mi-qty) { align-self: start; align-content: start; }
+}
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot { margin: 0; } }
+/* The item's total stands out: a shaded box as tall as the fields, the figure larger (the user, 16 Nov: "may be emphasised"). */
+.qt-maker-item .qt-mi-tot b { font-size: 16px; font-weight: 800; color: var(--text-primary); }
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot { justify-items: stretch; }
+  .qt-maker-item .qt-mi-tot b {
+    min-height: 48px; padding: 0 14px; border-radius: 12px; justify-content: flex-end;
+    background: var(--hover-wash); border: 1px solid var(--border); font-size: 17px; letter-spacing: -0.01em;
+  }
+}
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot b { width: 100%; box-sizing: border-box; } }
+@media (min-width: 900px) { .qt-maker-item .qt-mi-tot { justify-content: stretch; } }
+/* Light green (the user, 16 Nov). */
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot b {
+    background: color-mix(in srgb, var(--status-good) 12%, transparent);
+    border-color: color-mix(in srgb, var(--status-good) 35%, transparent);
+    color: color-mix(in srgb, var(--status-good) 70%, var(--text-primary));
+  }
+}
+/* The green box only as wide as the figure, on the right (the user, 16 Nov: "dont extend"). */
+@media (min-width: 900px) {
+  .qt-maker-item .qt-mi-tot { justify-content: end; justify-items: end; }
+  .qt-maker-item .qt-mi-tot b { width: auto; }
+}
+/* Add item answers the pointer (the user, 16 Nov). */
+.qt-maker-add { transition: background 0.15s, color 0.15s; }
+.qt-maker-add:hover { background: var(--hover-wash) !important; color: var(--status-good); }
+.qt-maker-add:hover svg { color: var(--status-good); }
+/* Preview and Save the same shape and height, each on one line (the user, 16 Nov: "preview button not standard"). */
+.qt-maker-go { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); }
+.qt-maker-go .mt-btn, .qt-maker-go .mt-go {
+  height: 52px; min-height: 52px; padding: 0 12px; border-radius: 16px; white-space: nowrap;
+  font-size: 15px; display: inline-flex; align-items: center; justify-content: center;
+}
+.qt-maker-go .mt-btn { font-weight: 700; border: 1px solid var(--border); }
+.qt-maker-go .mt-go { font-weight: 750; }
+/* Terms numbered, one box each (the user, 16 Nov). */
+.qt-terms-pop { width: min(680px, 100%); max-height: min(86vh, 760px); overflow-y: auto; }
+.qt-terms-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.qt-terms-list li { display: grid; grid-template-columns: 26px minmax(0, 1fr) 30px; gap: 8px; align-items: start; }
+.qt-terms-no { padding-top: 11px; font-size: 14px; font-weight: 700; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.qt-terms-list textarea { resize: none; overflow: hidden; min-height: 42px; }
+.qt-terms-list .qt-qadd-x { margin-top: 7px; }
+.qt-terms-add { min-height: 42px; border-radius: 12px; justify-content: flex-start; padding: 0 14px; gap: 8px; }
+.qt-terms-add:hover { background: var(--hover-wash); color: var(--status-good); }
+/* The item's remove button stays round, as everywhere else. */
+.qt-maker-item .qt-mi-x { width: 30px; height: 30px; min-width: 30px; padding: 0; display: grid; place-items: center; border-radius: 50%; justify-self: end; }
+
+/* Quotations made without a request (0060). */
+.qt-qbook { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.qt-qbook-bar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.qt-qbook-new { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; border-radius: 14px; }
+.qt-qbook-new svg { color: currentColor; }
+.qt-qbook-table { display: grid; gap: 10px; }
+.qt-qbook-head { display: none; }
+.qt-qbook-row {
+  display: grid; gap: 6px 10px; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  grid-template-areas: 'no total' 'to to' 'date by' 'acts acts';
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+}
+.qt-qbook-row [data-col='qtn_no'] { grid-area: no; }
+.qt-qbook-row [data-col='total'] { grid-area: total; font-variant-numeric: tabular-nums; justify-self: end; text-align: right; font-size: 16px; }
+.qt-qbook-row [data-col='to'] { grid-area: to; font-size: 14px; }
+.qt-qbook-row [data-col='date'] { grid-area: date; font-size: 12.5px; color: var(--text-secondary); }
+.qt-qbook-row [data-col='by_name'] { grid-area: by; font-size: 12.5px; color: var(--text-secondary); text-align: right; }
+.qt-qbook-acts { grid-area: acts; display: flex; gap: 8px; align-items: center; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.qt-qbook-acts .mt-btn { flex: 1 1 0; }
+.qt-qbook-acts .mt-btn { min-height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13.5px; }
+.qt-qbook-acts .mt-btn:hover { background: var(--hover-wash); border-color: var(--text-muted); }
+.qt-qbook-no { all: unset; cursor: pointer; text-align: left; min-width: 0; overflow-wrap: anywhere; }
+.qt-qbook-no:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  .qt-qbook-bar { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+  .qt-maker-free .qt-maker-to { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-maker-free .qt-maker-to > :nth-child(2) { grid-column: auto; }
+}
+/*
+  The list follows its own width, not the screen's (a template's Ref is long: QTN1022/PBEMP-AMC/UP/26-27): wide, a table;
+  middling, two lines a quotation with the buttons on the right; narrow (phones), the card above.
+*/
+.qt-qbook { container-type: inline-size; }
+/* View, Edit, Revise: an icon with its word on a phone card, the icon alone where the row is short of room. */
+.qt-act { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-act svg { flex: none; }
+@container (min-width: 560px) {
+  .qt-qbook-acts .qt-act, .qt-tpl-row .qt-quotes-acts .qt-act { width: 38px; min-width: 38px; padding: 0; }
+  .qt-act > span { display: none; }
+}
+@container (min-width: 560px) and (max-width: 919.98px) {
+  .qt-qbook-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'no total' 'to by' 'date acts'; gap: 4px 16px; }
+  .qt-qbook-row [data-col='by_name'] { align-self: center; }
+  .qt-qbook-acts { margin-top: 0; padding-top: 0; border-top: 0; justify-content: flex-end; }
+  .qt-qbook-acts .mt-btn { flex: 0 0 auto; }
+}
+@container (min-width: 920px) {
+  .qt-qbook-table { gap: 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+  .qt-qbook-head, .qt-qbook-row {
+    display: grid; grid-template-areas: none; align-items: center; gap: 10px;
+    grid-template-columns: minmax(232px, 1.3fr) 92px minmax(0, 2fr) 112px 164px;
+  }
+  .qt-qbook-table[data-everyone] :is(.qt-qbook-head, .qt-qbook-row) { grid-template-columns: minmax(232px, 1.3fr) 92px minmax(0, 2.2fr) 112px minmax(0, 1fr) 164px; }
+  /* Every cell in its own column: the buttons too, never left on a line of their own. */
+  .qt-qbook-row [data-col], .qt-qbook-row .qt-qbook-acts { grid-area: auto; }
+  .qt-qbook-acts { margin-top: 0; padding-top: 0; border-top: 0; justify-content: flex-end; }
+  .qt-qbook-acts .mt-btn { flex: 0 0 auto; }
+  .qt-qbook-row [data-col='total'] { justify-self: stretch; font-size: inherit; }
+  .qt-qbook-head { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .qt-qbook-th { all: unset; cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+  .qt-qbook-th:hover, .qt-qbook-th[aria-sort] { color: var(--text-primary); }
+  .qt-qbook-th[data-col='total'] { text-align: right; }
+  .qt-qbook-row { padding: 10px 16px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .qt-qbook-row:last-child { border-bottom: 0; }
+  .qt-qbook-row:hover { background: var(--hover-wash); }
+  .qt-qbook-row [data-col='total'] { text-align: right; }
+  .qt-qbook-row [data-col='date'], .qt-qbook-row [data-col='by_name'] { font-size: 13.5px; text-align: left; }
+}
+/* Without a request the cost is typed: a box like the others (the user, 16 Nov). */
+@media (min-width: 900px) { .qt-maker-item .qt-mi-cost-in > span { display: block; } .qt-maker-item .qt-mi-cost-in { display: grid; gap: 6px; } }
+/* A Team Lead's reportees in Settings (0061). */
+.qt-team-rows { display: grid; gap: 8px; }
+.qt-team-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.qt-team-row > span:first-child { display: grid; gap: 2px; min-width: 0; }
+.qt-team-row > span:first-child > span { font-size: 12.5px; color: var(--text-secondary); }
+.qt-team-row .mt-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
+.qt-qfiles { position: relative; display: flex; gap: 6px; margin-top: 4px; }
+.qt-qfiles button { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 4px 6px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.qt-qfiles button[data-role] { border-color: color-mix(in srgb, var(--role) 45%, var(--border)); background: color-mix(in srgb, var(--role) 12%, var(--surface)); color: var(--role-text, var(--role)); }
+.qt-qfiles button:hover { border-color: var(--role, var(--text-muted)); }
+
+/* Quotation templates (0063) */
+.qt-tpl-top { justify-content: flex-end; }
+.qt-tpl-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.qt-tpl-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--track-bg); text-align: left; font: inherit; color: inherit; }
+.qt-tpl-choice { cursor: pointer; }
+.qt-tpl-choice:hover { border-color: var(--text-muted); }
+.qt-tpl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.qt-tpl-text b { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.qt-tpl-text span { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-tpl-word { color: #2b579a; }
+.qt-tpl-sheet { width: min(980px, 100%); max-height: 92vh; display: flex; flex-direction: column; }
+.qt-tpl-pick { width: min(520px, 100%); }
+.qt-tpl-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.qt-tpl-bar .pm-in { flex: 1 1 220px; }
+.qt-tpl-view { flex: 1; min-height: 240px; overflow: auto; margin-top: 12px; border-radius: 10px; background: #e5e7eb; }
+.qt-tpl-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+/* View · Edit · delete on one line, centred on the row (the user, 18 Nov: "not aligned"). */
+.qt-tpl-row .qt-quotes-acts { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; flex: none; }
+.qt-tpl-row .qt-quotes-acts .mt-btn { padding-inline: 14px; }
+.qt-tpl-kind { margin-bottom: 12px; }
+.qt-tpl-form { display: grid; gap: 12px; }
+.qt-tpl-form textarea { min-height: 180px; }
+button.qt-qfile-ico { cursor: pointer; }
+.qt-tpl-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 140px; border-radius: 14px; border: 1.5px dashed var(--border); background: var(--track-bg); color: var(--text-primary); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.qt-tpl-drop:hover { border-color: var(--text-muted); }
+/* A Word template open: the whole screen, to read and edit it (the user, 18 Nov). */
+.mt-scrim.qt-tpl-fullwrap { padding: 0; }
+.mt-sheet.qt-tpl-full { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0; }
+.qt-tpl-full .mt-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.qt-tpl-full .qt-tpl-view { flex: 1 1 auto; min-height: 0; }
+
+/* Word templates as the app's own quotation (0065; the user, 18 Nov). */
+.qt-lm-form { display: grid; gap: 14px; max-width: 980px; width: 100%; margin: 0 auto; }
+.qt-tpl-full .qt-tpl-foot { max-width: 980px; width: 100%; margin: 12px auto 0; }
+.qt-lm-label { display: block; font-size: 13px; font-weight: 650; color: var(--text-secondary); margin-bottom: 6px; }
+.qt-lm-colsbox { display: grid; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); }
+.qt-lm-colsbox .qt-lm-label { margin: 0; }
+.qt-lm-cols { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.qt-lm-col { position: relative; display: block; }
+.qt-lm-col input { width: 100%; padding-right: 38px; }
+.qt-lm-col .qt-qadd-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; }
+.qt-lm-coladd { justify-content: center; }
+.qt-lm-pair { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+.qt-lm-gst { min-width: 0; }
+.qt-lm-go { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.qt-app .qt-maker-to.qt-lm-to { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.qt-app .qt-maker-to.qt-lm-to > * { grid-column: auto; }
+.qt-app .qt-maker-to.qt-lm-to > .qt-wide { grid-column: 1 / -1; }
+.qt-lm-item { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); }
+.qt-lm-item-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.qt-lm-item-head b::before { content: 'Row '; }
+/* A price row: its boxes share the row's width, the description twice as wide, the amount on the same line (the user,
+   19 Nov: "this much area" empty beside them). */
+.qt-lm-cells { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: end; }
+.qt-lm-cells > .qt-lm-desc { grid-column: span 2; }
+.qt-lm-cells .qt-mi-tot { grid-area: auto; flex-direction: column; align-items: flex-end; gap: 4px; padding-bottom: 12px; }
+.qt-blk-pop { width: min(860px, 100%); }
+.qt-blk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 64vh; overflow: auto; }
+.qt-blk-list li { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 8px; align-items: start; }
+.qt-blk-list textarea { resize: none; overflow: hidden; min-height: 40px; font-size: 14px; }
+.qt-blk-list .qt-qadd-x { margin-top: 6px; }
+.qt-blk-bold { font-weight: 700; }
+.qt-blk-br { border-top: 2px dashed var(--border); padding-top: 8px; }
+.qt-blk-fixed { grid-template-columns: auto minmax(0, 1fr) 30px !important; align-items: center !important; padding: 8px 10px; border-radius: 10px; background: var(--track-bg); font-size: 13px; }
+.qt-blk-fixed:has(> b:only-child) { grid-template-columns: 1fr !important; }
+.qt-blk-img { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 6px; }
+.qt-blk-grid > div { display: grid; gap: 4px; padding: 6px; border-radius: 10px; background: var(--track-bg); }
+.qt-blk-row { display: flex; gap: 4px; }
+.qt-blk-row textarea { min-width: 0; min-height: 36px; font-size: 13px; padding: 6px 8px; }
+@media (max-width: 640px) {
+  .qt-lm-cells { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .qt-lm-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+.qt-blk-list li.qt-blk-num { grid-template-columns: 26px minmax(0, 1fr) 30px; }
+.qt-blk-num .qt-terms-no { padding-top: 10px; }
+
+/* Ticket ID with its Fill button, one row (BEMMP 0068). */
+.qt-ticket-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.qt-ticket-go {
+  padding: 0 18px; border-radius: 12px; border: 0; cursor: pointer; font: inherit; font-weight: 700;
+  background: var(--status-good); color: #fff;
+}
+.qt-ticket-go:disabled { opacity: 0.55; cursor: default; }
+.qt-ticket-bad { margin: 6px 0 0; font-size: 13px; color: var(--status-bad, #dc2626); }
+.qt-ticket-ok { margin: 6px 0 0; font-size: 13px; color: var(--status-good); }
+
+/* Both contracts: the actions wait for AMC or CAMC (0073) */
+.qt-faded { opacity: .45; }
+
+/* Spares received before for the same barcode (BEMMP 0071) */
+.qt-repeat { background: #fff3d6; color: #8a5a00; border: 1px solid #f0c66b; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.qt-history { margin: 8px 0; padding: 10px 12px; border: 1px solid #f0c66b; background: #fffaf0; border-radius: 12px; }
+.qt-history-head { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #8a5a00; }
+.qt-history-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.qt-history-chips span { background: #fff; border: 1px solid #f0c66b; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+.qt-history-find { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+.qt-history-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.qt-history-list button { width: 100%; display: grid; grid-template-columns: auto 1fr auto auto; grid-template-areas: "no spare amt go" "no when amt go"; align-items: center; column-gap: 8px; text-align: left; background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
+.qt-history-list b { grid-area: no; font-size: 12px; }
+.qt-history-list span { grid-area: spare; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.qt-history-list small { grid-area: when; font-size: 11px; color: #777; }
+.qt-history-list em { grid-area: amt; font-style: normal; font-weight: 700; font-size: 13px; }
+.qt-history-list svg { grid-area: go; color: #999; }
+.qt-history-more { margin-top: 8px; width: 100%; padding: 8px; border: 1px dashed #f0c66b; background: transparent; border-radius: 8px; color: #8a5a00; font-weight: 700; cursor: pointer; }
+
+/* Quotation: Excel rows and the look before saving (the user, 19 Nov) */
+.qt-lm-excel { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.qt-lm-excel .mt-btn { flex: 1 1 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-maker-items > .qt-lm-excel { padding: 0 0 4px; }
+.qt-pdf-acts { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; justify-content: center; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.75); }
+.qt-pdf-acts .mt-btn, .qt-pdf-acts .mt-go { min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.qt-pdfbox:has(.qt-pdf-acts) .qt-pdf-pages { padding-bottom: 90px; }
+
+.qt-mi-whole { grid-area: whole; min-width: 0; }
+.qt-tpl-none { margin: 4px 0 12px; font-size: 14px; color: var(--text-secondary); }
+.qt-docx-pages { overflow: auto; } .qt-docx-doc { display: grid; justify-items: center; } .qt-docx-doc .docx-wrapper { background: transparent !important; padding: 12px 0 !important; } .qt-docx-doc .docx-wrapper > section.docx { box-shadow: 0 2px 12px rgba(0,0,0,.35); margin-bottom: 16px !important; } .qt-docxbox:has(.qt-pdf-acts) .qt-docx-pages { padding-bottom: 90px; }
+.qt-lm-cells textarea { resize: vertical; min-height: 44px; }
+
+/* Yellow-blank templates: the lines to keep (ticks) and the Annexure list (19 Nov). */
+.qt-bl-ticks { display: grid; gap: 6px; margin: 12px 0; }
+.qt-bl-tick { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line, #2a2a2a); border-radius: 10px; font-size: 14px; line-height: 1.35; cursor: pointer; }
+.qt-bl-tick input { width: 18px; height: 18px; margin-top: 1px; flex: none; accent-color: #dc2626; }
+.qt-bl-list { margin-top: 14px; }
+.qt-bl-h { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+
+/* What a yellow template asks (yellowDoc): its boxes, the price table, the Annexure, one boxed line each. */
+.qt-yc { display: grid; gap: 16px; }
+.qt-yc-sec h3 { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+.qt-yc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.qt-yc-list li { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-size: 13px; }
+.qt-yc-list b { flex: none; max-width: 48%; overflow-wrap: anywhere; }
+.qt-yc-list span { flex: 1 1 auto; min-width: 0; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-yc-list em { flex: none; font-style: normal; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.qt-yc-sec > .pm-in { margin-top: 10px; }
+@media (max-width: 600px) { .qt-yc-list { grid-template-columns: minmax(0, 1fr); } }
+
+/* While the PDF is made: a page writes itself (PageWriting; the user, 19 Nov). */
+.qt-write { position: fixed; inset: 0; z-index: 1180; display: grid; place-content: center; justify-items: center; gap: 16px; background: rgba(0, 0, 0, 0.55); }
+.qt-write p { margin: 0; color: #fff; font-size: 15px; font-weight: 650; }
+.qt-write-sheet { width: 132px; height: 186px; box-sizing: border-box; padding: 14px 12px; border-radius: 6px; background: #fff; display: flex; flex-direction: column; gap: 7px; position: relative; }
+.qt-write-sheet i { display: block; }
+.qt-write-logo { width: 46px; height: 10px; border-radius: 3px; background: #c8102e; margin-bottom: 4px; opacity: 0; animation: qt-write-in 3.6s infinite; }
+.qt-write-ln { height: 5px; border-radius: 3px; background: #c9c7bf; transform-origin: left; transform: scaleX(0); animation: qt-write-line 3.6s infinite; }
+.qt-write-gap { height: 4px; }
+.qt-write-row { display: flex; gap: 4px; }
+.qt-write-row i { flex: 1; height: 9px; border-radius: 2px; background: #dcdad2; transform-origin: left; transform: scaleX(0); animation: qt-write-line 3.6s infinite; }
+.qt-write-tot { position: absolute; right: 12px; bottom: 14px; width: 40px; height: 9px; border-radius: 2px; background: #333; opacity: 0; animation: qt-write-in 3.6s infinite; animation-delay: 2.3s; }
+@keyframes qt-write-line { 0% { transform: scaleX(0); opacity: 1; } 12%, 85% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+@keyframes qt-write-in { 0% { opacity: 0; } 10%, 85% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .qt-write-sheet i, .qt-write-row i { animation: none; transform: none; opacity: 1; }
+}
+
+/* The yellow form's rows are cards of their own: no second frame round them (the user, 19 Nov: double borders). */
+.qt-maker-items:has(> .qt-lm-item) { border: 0; border-radius: 0; background: none; overflow: visible; gap: 10px; padding-top: 0; }
+
+/* Yellow-template terms, folded until needed (24 Nov). */
+.qt-yl-terms-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-align: left; }
+.qt-yl-terms-head small { padding: 1px 8px; border-radius: 999px; background: var(--hover-wash); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.qt-yl-terms-head svg { margin-left: auto; color: var(--text-secondary); transition: transform .2s ease; }
+.qt-yl-terms.is-open .qt-yl-terms-head svg { transform: rotate(90deg); }
+.qt-yl-terms.is-open .qt-yl-terms-head { margin-bottom: 6px; }
+
+/* For a ticket | For my stock (0085, 24 Nov). */
+.qt-for { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; margin-bottom: 12px; border-radius: 14px; background: var(--track-bg); }
+.qt-for button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.qt-for button[data-on='true'] { background: var(--ink); color: var(--page); }
+
+/* Note: whom to notify, each chip in its role's colour (0086, 25 Nov). */
+.qt-notify { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 8px; }
+.qt-notify-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-right: 2px; }
+.qt-notify button { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--role-text, var(--role)); border: 1px solid color-mix(in srgb, var(--role) 55%, var(--border)); }
+.qt-notify button[aria-pressed='true'] { background: var(--role); border-color: var(--role); color: var(--role-ink, #fff); }
+.qt-note-box { margin-top: 14px; padding: 12px; border-radius: 16px; background: color-mix(in srgb, var(--role, var(--ink)) 6%, transparent); border: 1px solid color-mix(in srgb, var(--role, var(--ink)) 30%, var(--border)); }
+.qt-note-box textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; min-height: 72px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--page); color: inherit; font: inherit; font-size: 15px; }
+.qt-note-box textarea:focus { outline: none; border-color: var(--role, var(--ink)); }
+.qt-note-send { display: block; width: 100%; min-height: 46px; border: 0; border-radius: 12px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; background: var(--role, var(--ink)); color: var(--role-ink, var(--page)); }
+.qt-note-send:disabled { opacity: .6; }
+.qt-notify { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.qt-notify-label { grid-column: 1 / -1; grid-row: 1; margin: 0 0 -2px; }
+.qt-notify button { grid-row: 2; justify-content: center; min-width: 0; padding: 0 6px; font-size: 12.5px; white-space: nowrap; }
+.qt-notify button:not([data-role='team_lead']) { --role-text: var(--role); }
+.qt-tl-note-bell { display: flex; align-items: flex-start; gap: 8px; }
+.qt-tl-note-bell > span { flex: 1; min-width: 0; }
+button.qt-bell { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin: -4px -6px -4px 0; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+button.qt-bell:hover, button.qt-bell[data-on='true'] { color: var(--ink); border-color: var(--ink); }
+.qt-ping { margin-top: 8px; }
+.qt-ping .qt-notify { margin-top: 0; }
+.qt-changes { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, #9333ea 10%, transparent); border: 1px solid color-mix(in srgb, #9333ea 35%, var(--border)); }
+.qt-changes b { font-size: 12px; color: var(--text-muted); }
+button.qt-bell { color: var(--role-text, var(--role, var(--ink))); border-color: color-mix(in srgb, var(--role, var(--ink)) 55%, var(--border)); background: color-mix(in srgb, var(--role, var(--ink)) 12%, transparent); }
+button.qt-bell:hover, button.qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }
+.qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
+.qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }
+.qt-yc-calc { color: #b45309 !important; }
+.qt-yc-auto { margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #fef9c3; color: #854d0e; font-style: normal; font-size: 12px; font-weight: 700; vertical-align: 1px; }
+.qt-yc-list li.qt-yc-t-in b { color: #16a34a; }
+.qt-yc-list li.qt-yc-t-count b { color: #ca8a04; }
+.qt-yc-list li.qt-yc-t-calc b { color: #2563eb; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-in b { color: #4ade80; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-count b { color: #facc15; }
+:root[data-theme='dark'] .qt-yc-list li.qt-yc-t-calc b { color: #60a5fa; }
+
+/* Quotations → Tracker (the user, 26 Nov): their quotation tracker Excel, our QR number before the QTN number. */
+.qt-qsubs { justify-self: start; }
+.qt-trk { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.qt-trk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.qt-trk-bar > .mt-period { margin: 0; flex: 0 1 auto; }
+.qt-trk-bar > .qt-search { flex: 1 1 220px; min-width: 0; margin: 0; }
+.qt-trk-excel { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 0; background: #107c41; color: #fff; font-weight: 650; }
+.qt-trk-excel:hover:not(:disabled) { background: #0b6a37; }
+.qt-trk-excel:disabled { opacity: 0.5; }
+.qt-trk-count { font-size: 12.5px; color: var(--text-secondary); }
+.qt-trk-cards { display: grid; gap: 10px; }
+.qt-trk-card { all: unset; box-sizing: border-box; display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); cursor: pointer; min-width: 0; }
+.qt-trk-card:hover { border-color: var(--text-muted); }
+.qt-trk-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.qt-trk-top b { overflow-wrap: anywhere; font-size: 14px; }
+.qt-trk-top em { font-style: normal; font-size: 12px; font-weight: 650; padding: 2px 8px; border-radius: 999px; background: var(--hover-wash); white-space: nowrap; }
+.qt-trk-cust { font-size: 14px; }
+.qt-trk-eq { font-size: 13px; color: var(--text-secondary); }
+.qt-trk-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.qt-trk-foot b { color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.qt-trk-foot small { font-weight: 500; color: var(--text-secondary); font-size: 11.5px; }
+.qt-trk-status { font-size: 12px; color: var(--text-muted); }
+.qt-trk-wrap { display: none; }
+@container (min-width: 760px) {
+  .qt-trk-cards { display: none; }
+  .qt-trk-wrap { display: block; overflow: auto; max-height: calc(100vh - 260px); border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+  .qt-trk-table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 12.5px; }
+  .qt-trk-table th { position: sticky; top: 0; z-index: 1; background: #3a3a3a; color: #fff; font-weight: 650; text-align: left; padding: 9px 10px; border-bottom: 2px solid #da251d; white-space: nowrap; }
+  .qt-trk-table th button { all: unset; cursor: pointer; }
+  .qt-trk-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; white-space: nowrap; }
+  .qt-trk-table tbody tr { cursor: pointer; }
+  .qt-trk-table tbody tr:hover td { background: var(--hover-wash); }
+  .qt-trk-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .qt-trk-table .qt-trk-wide { white-space: normal; min-width: 200px; max-width: 300px; }
+  .qt-trk-table .qt-trk-qr { font-weight: 650; }
+}
+
+.qt-qbook-bar.qt-qbook-bar-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.qt-qbook-bar-tabs > .qt-search { flex: 1 1 220px; min-width: 0; margin: 0; }
+.qt-qbook-bar-tabs > .qt-qbook-new { flex: 0 0 auto; padding: 0 18px; }
+.qt-qbook-bar-tabs > .qt-search, .qt-trk-bar > .qt-search { width: auto; max-width: none; flex: 1 1 220px; }
+.qt-qbook-bar-tabs > .qt-qbook-new, .qt-trk-bar > .qt-trk-excel { width: auto; flex: 0 0 auto; white-space: nowrap; }

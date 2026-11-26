@@ -15,13 +15,9 @@ import { ROLE_LABEL } from '../data/users.js';
  * exactly the tiles somebody opened the nav to navigate away from, and a number
  * half-hidden behind chrome is worse than a number off the edge of the screen.
  *
- * It closes itself the moment the work is touched — a press anywhere outside it,
- * or Escape — so the names are something you reach for rather than a column that
- * has to be put away by hand. Picking a section is not that signal: it is
- * somebody using the nav, and closing on it made moving between two sections
- * mean reopening the thing every time. Nothing is remembered between visits, for
- * the related reason that a nav which shuts itself has no resting open state
- * worth restoring.
+ * Since 14 Nov it is a switch (the user): only the arrow at its foot opens or
+ * closes it — no hover, no press on the rail, no closing when the page is
+ * pressed. A press on its empty space works the same switch. It starts expanded at every sign-in; the arrow's choice holds for that visit.
  *
  * The width lives on the root as `--nav-w` because the shell's grid is sized
  * from it, and the attribute set here is what the stylesheet transitions.
@@ -41,11 +37,24 @@ const ICONS = {
   repeats: <><path d="M4 10a6 6 0 0 1 6-6h7" /><path d="M14 1.5 17.5 4 14 6.5" /><path d="M20 14a6 6 0 0 1-6 6H7" /><path d="M10 17.5 6.5 20 10 22.5" /></>,
   performance: <><path d="M3 17l5-6 4 4 5-8 4 5" /></>,
   money: <><path d="M7 5h10M7 9h10M8 5c4 0 6 1.6 6 4s-2 4-6 4h-1l7 6" /></>,
+  // A sheet with a table on it: the Care 360 Report (26 Nov).
+  report: <><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 12h7M9 15.5h7M9 19h4" /></>,
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
+  checklist: <><rect x="5" y="4" width="14" height="17" rx="2.5" /><path d="M9 4.5V3h6v1.5" /><path d="M8.5 12.5l2.3 2.3 4.7-4.8" /></>,
+  /* Quotation tracker (Quotation.jsx). */
+  todo: <><circle cx="12" cy="12" r="8.5" /><path d="M8 12.5l2.7 2.7L16 9.8" /></>,
+  requests: <><path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" /><path d="M14 3.5V8h4" /><path d="M9 12.5h6M9 16h4" /></>,
+  new: <><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></>,
+  stock: <><path d="M3.5 8 12 4l8.5 4v8.5L12 20.5 3.5 16.5z" /><path d="M3.5 8 12 12l8.5-4M12 12v8.5" /></>,
+  tat: <><circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2M9.5 3h5" /></>,
+  quotations: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6M9 16h4" /></>,
+  templates: <><rect x="3.5" y="3.5" width="17" height="17" rx="2" /><path d="M3.5 9h17M9 9v11.5" /></>,
+  hospitals: <><rect x="4" y="5" width="16" height="15.5" rx="1.5" /><path d="M12 9v6M9 12h6" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
 };
 
 export default function SideNav({
-  tabs, active, onSelect, onUpload, onSignOut, signedIn, profile,
+  tabs, active, onSelect, onUpload, onSignOut, signedIn, profile, roleLabel,
   /**
    * False on a phone, where the rail is a strip along the bottom and the
    * account controls live in the header instead — the same place Spare
@@ -56,7 +65,17 @@ export default function SideNav({
    */
   showAccountControls = true,
 }) {
-  const [open, setOpen] = useState(false);
+  /*
+   * A switch (the user, 14 Nov: "on click the collapse arrow only it should go, like a switch"): only the arrow
+   * opens or closes it, nothing else, and the choice is kept for the next visit.
+   */
+  // Expanded at every sign-in and fresh visit (the user, 14 Nov); the arrow's choice holds for the rest of the visit.
+  const [open, setOpenRaw] = useState(() => { try { return sessionStorage.getItem('bemmp_nav_open') !== '0'; } catch { return true; } });
+  const setOpen = (v) => setOpenRaw((o) => {
+    const n = typeof v === 'function' ? v(o) : v;
+    try { sessionStorage.setItem('bemmp_nav_open', n ? '1' : '0'); } catch { /* memory only */ }
+    return n;
+  });
   const navRef = useRef(null);
 
   /*
@@ -112,6 +131,30 @@ export default function SideNav({
   }, [open]);
 
   /*
+   * Open, it is only as wide as this page's longest section name needs (the user, 14 Nov: "does this much width
+   * needed?"): the Quotation tracker's "Stock register" wants about 165px, BEMMP's "FTFR and Closure TAT" the old 208.
+   * The labels are always laid out (only faded), so they can be measured shut or open.
+   */
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return undefined;
+    const fit = () => {
+      const items = el.querySelectorAll('.sidenav-list .sidenav-item');
+      let need = 0;
+      for (const it of items) {
+        const label = [...it.querySelectorAll('.sidenav-label')].find((x) => getComputedStyle(x).display !== 'none');
+        if (!label) continue;
+        const pad = parseFloat(getComputedStyle(it).paddingRight) || 0;
+        need = Math.max(need, label.getBoundingClientRect().right - it.getBoundingClientRect().left + pad + 1);
+      }
+      if (need) document.documentElement.style.setProperty('--nav-full', `${Math.ceil(Math.min(240, Math.max(150, need + 4)))}px`);
+    };
+    fit();
+    document.fonts?.ready?.then(fit);
+    return () => document.documentElement.style.removeProperty('--nav-full');
+  }, [tabs]);
+
+  /*
    * Working in the page closes the panel.
    *
    * `pointerdown` rather than `click`, so it is already on its way out as the
@@ -123,22 +166,6 @@ export default function SideNav({
    * open would otherwise keep a listener that had already decided it did not
    * apply.
    */
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const onDown = (e) => {
-      if (!window.matchMedia(HAS_RAIL).matches) return;
-      if (!e.target.closest('.sidenav')) setOpen(false);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
 
   /*
    * Picking a section deliberately does *not* close it.
@@ -148,8 +175,7 @@ export default function SideNav({
    * it shut — so comparing two sections meant reopening it every single time.
    * A press on a nav item is somebody *using* the nav, not finishing with it.
    *
-   * Working in the page is the signal that it is finished with, and that is
-   * handled above.
+   * Only the arrow closes it (14 Nov).
    */
   const select = (id) => onSelect(id);
 
@@ -158,27 +184,11 @@ export default function SideNav({
       ref={navRef}
       className={`sidenav${open ? ' is-open' : ''}`}
       aria-label="Sections"
-      /*
-        The rail opens on a press anywhere in it.
-        A 60px column is mostly empty space and that space is by far the
-        easiest thing to hit — asking for a 28px arrow at the foot of it
-        is asking for the hardest target in the column to be the only way
-        in. Spare has worked this way all along.
-
-        Anything that is already a control is left alone: those mean
-        something, and expanding after somebody has just chosen a section
-        is the opposite of what they asked for.
-
-        One way round only. A press inside the open panel must not shut
-        it, or picking a section would close the thing being used to pick
-        the next one — which is the mistake the comment above `select`
-        exists to record.
-      */
+      // The empty space works the switch too, like the arrow (the user, 14 Nov); controls keep their own job.
       onClick={(e) => {
-        if (open) return
         if (!window.matchMedia(HAS_RAIL).matches) return
-        if (e.target.closest('a, button')) return
-        setOpen(true)
+        if (e.target.closest('a, button, input, select, label, [role="button"]')) return
+        setOpen((v) => !v)
       }}
     >
       <ul className="sidenav-list">
@@ -187,6 +197,7 @@ export default function SideNav({
             <button
               type="button"
               className="sidenav-item"
+              style={{ '--ic': `var(--nav-${t.id}, var(--text-secondary))` }}
               aria-current={active === t.id ? 'page' : undefined}
               // The label is clipped away in the rail but must still reach a
               // screen reader and a hover.
@@ -311,7 +322,7 @@ export default function SideNav({
             <span className="sidenav-label sidenav-me-text">
               <span className="sidenav-me-name">{profile.full_name}</span>
               <span className="sidenav-me-role">
-                {ROLE_LABEL[profile.role] ?? profile.role}
+                {roleLabel ?? ROLE_LABEL[profile.role] ?? profile.role}
               </span>
             </span>
           </div>
