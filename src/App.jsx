@@ -41,6 +41,8 @@ import BarList from './components/BarList.jsx';
 import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
+import CareReport from './components/CareReport.jsx';
+import { allDates, averageTat, endedIn, isCare } from './data/careReport.js';
 
 /*
  * The width where the rail becomes a strip along the bottom. The same
@@ -212,6 +214,8 @@ const TABS = [
   // they are sub-tabs of one section rather than two sections asking the same
   // question.
   { id: 'money', label: 'Penalty', short: 'Penalty' },
+  // Care 360 only, in place of Penalty (the user, 26 Nov).
+  { id: 'report', label: 'Report', short: 'Report' },
 ];
 
 const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -473,6 +477,8 @@ export default function App() {
    * another's.
    */
   const trackerOnly = ds?.meta.id === 'up';
+  // Care 360 and Private BEMMP: one open calls list, no penalty, a Report tab (the user, 26 Nov).
+  const care = isCare(ds);
 
   /*
    * Cyra, for the people it has been turned on for in SW Admin — nobody until
@@ -891,6 +897,11 @@ export default function App() {
     [ds, idx, referenceDay, ftfrThrough],
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
+  // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
+  const careTat = useMemo(
+    () => (idx && care ? averageTat(ds, idx, endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo)) : null),
+    [ds, idx, care, filters],
+  );
 
   // Until the user picks one, granularity follows the width of the selected range.
   const autoGranularity = filters
@@ -919,8 +930,10 @@ export default function App() {
   }, [series, metric, ds, referenceDay]);
 
   const bucketRows = useMemo(
-    () => (idx && callView !== TRACKER ? rowsInBucket(ds, idx, callView) : []),
-    [ds, idx, callView],
+    () => (idx && callView !== TRACKER
+      ? (care ? [...rowsInBucket(ds, idx, BUCKET.OPEN), ...rowsInBucket(ds, idx, BUCKET.PARKED)] : rowsInBucket(ds, idx, callView))
+      : []),
+    [ds, idx, callView, care],
   );
   const penalties = useMemo(
     () => (idx ? penaltyRows(ds, idx, referenceDay) : []),
@@ -1060,18 +1073,19 @@ export default function App() {
       ? [showMeeting
         ? { id: 'calls', label: 'Ticket tracker', short: 'Tracker' }
         : TABS.find((t) => t.id === 'calls')]
-      : TABS;
+      : TABS.filter((t) => (care ? t.id !== 'money' : t.id !== 'report'));
     return isAdmin(profile)
       ? [...base, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
       : base;
-  }, [profile, trackerOnly, showMeeting]);
+  }, [profile, trackerOnly, showMeeting, care]);
 
   /*
    * The section on screen: the one chosen, unless this contract does not have
    * it. Derived rather than written back, like `callView` above, so going from
    * Uttar Pradesh back to Kerala returns to wherever Kerala was.
    */
-  const activeTab = trackerOnly && tab !== 'accounts' ? 'calls' : tab;
+  const activeTab = trackerOnly && tab !== 'accounts' ? 'calls'
+    : (care && tab === 'money') || (!care && tab === 'report') ? 'dashboard' : tab;
 
   /*
    * Remember the view.
@@ -1419,6 +1433,7 @@ export default function App() {
               repeats={repeats}
               penaltyDays={meta.penaltyDays}
               money={moneySummary}
+              careTat={careTat}
               onOpenBucket={openBucket}
               onOpenPenalty={() => { setMoneyId('calls'); setTab('money'); }}
               onOpenRepeats={() => setTab('repeats')}
@@ -1541,10 +1556,10 @@ export default function App() {
         {activeTab === 'calls' && (
           <>
             {/* Uttar Pradesh has one view of its calls, so nothing to switch. */}
-            {!trackerOnly && (
+            {!trackerOnly && !(care && !showMeeting) && (
             <div className="segmented-row">
               <div className="segmented" role="tablist" aria-label="Backlog view">
-                {[BUCKET.OPEN, BUCKET.PARKED].map((b) => (
+                {(care ? [BUCKET.OPEN] : [BUCKET.OPEN, BUCKET.PARKED]).map((b) => (
                   <button
                     key={b} type="button" role="tab"
                     aria-selected={callView === b}
@@ -1611,8 +1626,8 @@ export default function App() {
                 showAgeing
                 // Only the parked bucket has remarks to explain; on the open
                 // bucket the panel would be empty by definition.
-                showParkedReasons={callView === BUCKET.PARKED}
-                intro={(n) => (callView === BUCKET.OPEN
+                showParkedReasons={!care && callView === BUCKET.PARKED}
+                intro={(n) => (care ? `${n.toLocaleString()} open calls.` : callView === BUCKET.OPEN
                   ? `${n.toLocaleString()} open calls — Resolved Date blank and no Ticket Remark. This is the live, actionable backlog.`
                   : `${n.toLocaleString()} unresolved calls — no Resolved Date, but out of service scope, with the reason held in Ticket Remark.`)}
               />
@@ -1658,6 +1673,12 @@ export default function App() {
               )}
             />
           </>
+        )}
+
+        {activeTab === 'report' && care && (
+          <Boundary name="The report" resetKey={stateId}>
+            <CareReport key={stateId} ds={ds} filters={filters} />
+          </Boundary>
         )}
 
         {activeTab === 'money' && (

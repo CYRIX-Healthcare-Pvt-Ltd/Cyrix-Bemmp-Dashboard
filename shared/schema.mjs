@@ -58,6 +58,8 @@ export class HeadingReader {
       if (name && value !== '' && value != null) { field[name] = value; any = true; }
     }
     if (!any) return;
+    // A job type the dashboard does not count is left out of the upload, not refused (Care 360, the user, 26 Nov).
+    if (this.state.keepRow && !this.state.keepRow(field)) return;
     const wrong = this.state.rowCheck?.(field);
     if (wrong) { this.bad.push([number, wrong]); return; }
     this.builder.addRow(field);
@@ -185,6 +187,9 @@ function deriveUp(field) {
  * "24-01-2026 10:12:58"; a call is resolved once Completed or Closed, on its end (else closed) date; Critical /
  * Non-Critical is the penalty type.
  */
+/** Care 360 and Private BEMMP keep Breakdown Support and PMS jobs only; Mapping Requests are left out (26 Nov). */
+const breakdownOrPms = (field) => /breakdown|pms/i.test(String(field.lifecycle ?? ''));
+
 function deriveFieldPro(field) {
   field.ticket = String(field.ticket ?? '').trim().replace('_', '');
   field.loggedDay = excelDayOfText(field.receivedAt);
@@ -327,6 +332,7 @@ export const STATES = [
     categorical: {},
     numeric: {},
     derive: deriveFieldPro,
+    keepRow: breakdownOrPms,
     byHeading: {
       'PMPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
       'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
@@ -360,6 +366,7 @@ export const STATES = [
     categorical: {},
     numeric: {},
     derive: deriveFieldPro,
+    keepRow: breakdownOrPms,
     byHeading: {
       'MPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
       'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
