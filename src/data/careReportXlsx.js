@@ -135,7 +135,7 @@ function ftfrSheet(ftfr) {
   const merges = ['A1:A2'];
   ftfr.types.forEach((t, g) => {
     const at = 1 + g * 3;
-    r1.push(c(`${colName(at)}1`, t, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
+    r1.push(c(`${colName(at)}1`, t === 'Total' ? 'Total · AMC + CAMC' : t, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
     merges.push(`${colName(at)}1:${colName(at + 2)}1`);
     r2.push(c(`${colName(at)}2`, 'Total calls received', S.sub), c(`${colName(at + 1)}2`, 'Completed in 24 hrs', S.sub), c(`${colName(at + 2)}2`, 'FTFR %', S.sub));
   });

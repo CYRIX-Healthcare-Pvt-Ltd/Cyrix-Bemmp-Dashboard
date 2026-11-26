@@ -278,11 +278,15 @@ export function ftfrByContract(ds, filters, assets, months, types = ['AMC', 'CAM
     }
     return { label: m.label, ...Object.fromEntries(types.map((t) => [t, ftfrOf(ds, by[t])])) };
   });
+  // AMC and CAMC together as a Total group (the user, 26 Nov: "add total ftfr also").
+  const TOTAL = 'Total';
+  const sum = (parts) => {
+    const calls = parts.reduce((x, p) => x + p.calls, 0);
+    const fixed = parts.reduce((x, p) => x + p.fixed, 0);
+    return { calls, fixed, pct: calls ? (100 * fixed) / calls : null };
+  };
+  for (const l of lines) l[TOTAL] = sum(types.map((t) => l[t]));
   const total = { label: 'Grand Total' };
-  for (const t of types) {
-    const calls = lines.reduce((s, l) => s + l[t].calls, 0);
-    const fixed = lines.reduce((s, l) => s + l[t].fixed, 0);
-    total[t] = { calls, fixed, pct: calls ? (100 * fixed) / calls : null };
-  }
-  return { types, lines, total };
+  for (const t of [...types, TOTAL]) total[t] = sum(lines.map((l) => l[t]));
+  return { types: [...types, TOTAL], lines, total };
 }

@@ -4154,3 +4154,16 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
   .bar-stats-slot.is-tall .drill-stat em { font-size: 12px; }
 }
 .nowrap { white-space: nowrap; }
+
+/* Report → FTFR · Contract wise. */
+.care-ftfr { width: 100%; min-width: 820px; table-layout: fixed; }
+.care-ftfr .ftfr-month { width: 120px; }
+.care-ftfr th, .care-ftfr td { text-align: center !important; white-space: normal !important; }
+.care-ftfr th:first-child, .care-ftfr td:first-child { text-align: left !important; }
+.care-ftfr .ftfr-band { font-size: 12px !important; letter-spacing: .08em; padding-top: 10px; padding-bottom: 8px; }
+.care-ftfr .ftfr-band.is-total { color: var(--status-good); }
+.care-ftfr .is-total { background: color-mix(in srgb, var(--status-good) 7%, transparent); }
+.care-ftfr td { padding-top: 12px; padding-bottom: 12px; font-variant-numeric: tabular-nums; }
+.care-ftfr .ftfr-pct b { display: block; font-weight: 700; font-size: 14px; }
+.care-ftfr .ftfr-grand td { font-weight: 700; border-top: 2px solid var(--control-border); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
+.care-ftfr .ftfr-grand td.is-total { background: color-mix(in srgb, var(--status-good) 14%, transparent); }

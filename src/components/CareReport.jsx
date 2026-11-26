@@ -212,42 +212,50 @@ export default function CareReport({ ds, filters, assets }) {
       {contractWise && ftfr && (
         <>
           <div className="summary-scroll">
+            {/* A band per contract type, Total last and tinted; no bars under FTFR % (the user, 26 Nov). */}
             <table className="summary-grid care-grid care-ftfr">
+              <colgroup>
+                <col className="ftfr-month" />
+                {ftfr.types.map((t) => [<col key={`${t}c`} />, <col key={`${t}f`} />, <col key={`${t}p`} className="ftfr-pct-col" />])}
+              </colgroup>
               <thead>
                 <tr>
-                  <th rowSpan={2}>Month</th>
-                  {ftfr.types.map((t) => <th key={t} colSpan={3} className="summary-type">{t}</th>)}
+                  <th rowSpan={2} className="ftfr-month-head">Month</th>
+                  {ftfr.types.map((t) => (
+                    <th key={t} colSpan={3} className={`summary-type ftfr-band${t === 'Total' ? ' is-total' : ''}`}>
+                      {t === 'Total' ? 'Total · AMC + CAMC' : t}
+                    </th>
+                  ))}
                 </tr>
                 <tr>
                   {ftfr.types.map((t) => [
-                    <th key={`${t}c`} className="num summary-sub group-start">Total calls received</th>,
-                    <th key={`${t}f`} className="num summary-sub">Completed in 24 hrs</th>,
-                    <th key={`${t}p`} className="num summary-sub">FTFR %</th>,
+                    <th key={`${t}c`} className={`summary-sub group-start${t === 'Total' ? ' is-total' : ''}`}>Calls received</th>,
+                    <th key={`${t}f`} className={`summary-sub${t === 'Total' ? ' is-total' : ''}`}>Completed in 24 hrs</th>,
+                    <th key={`${t}p`} className={`summary-sub${t === 'Total' ? ' is-total' : ''}`}>FTFR %</th>,
                   ])}
                 </tr>
               </thead>
               <tbody>
-                {ftfr.lines.map((l) => (
-                  <tr key={l.label}>
-                    <td><strong>{l.label}</strong></td>
-                    {ftfr.types.map((t) => [
-                      <td key={`${t}c`} className="num group-start">{l[t].calls.toLocaleString()}</td>,
-                      <td key={`${t}f`} className="num">{l[t].fixed.toLocaleString()}</td>,
-                      <td key={`${t}p`} className="num">{p1(l[t].pct)}</td>,
-                    ])}
-                  </tr>
-                ))}
+                {[...ftfr.lines, ftfr.total].map((l, k) => {
+                  const grand = k === ftfr.lines.length;
+                  return (
+                    <tr key={l.label} className={grand ? 'ftfr-grand' : ''}>
+                      <td><strong>{l.label}</strong></td>
+                      {ftfr.types.map((t) => {
+                        const v = l[t];
+                        const tot = t === 'Total' ? ' is-total' : '';
+                        return [
+                          <td key={`${t}c`} className={`ftfr-n group-start${tot}`}>{v.calls.toLocaleString()}</td>,
+                          <td key={`${t}f`} className={`ftfr-n${tot}`}>{v.fixed.toLocaleString()}</td>,
+                          <td key={`${t}p`} className={`ftfr-pct${tot}`}>
+                            <b>{p1(v.pct)}</b>
+                          </td>,
+                        ];
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
-              <tfoot>
-                <tr>
-                  <td><strong>Grand Total</strong></td>
-                  {ftfr.types.map((t) => [
-                    <td key={`${t}c`} className="num strong group-start">{ftfr.total[t].calls.toLocaleString()}</td>,
-                    <td key={`${t}f`} className="num strong">{ftfr.total[t].fixed.toLocaleString()}</td>,
-                    <td key={`${t}p`} className="num strong">{p1(ftfr.total[t].pct)}</td>,
-                  ])}
-                </tr>
-              </tfoot>
             </table>
           </div>
         </>
