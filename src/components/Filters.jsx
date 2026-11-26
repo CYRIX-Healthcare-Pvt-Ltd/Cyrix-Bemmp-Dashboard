@@ -142,7 +142,7 @@ function Search({ label, dict, value, onChange, allLabel, allow }) {
   );
 }
 
-export default function Filters({ ds, filters, setFilters }) {
+export default function Filters({ ds, filters, setFilters, contractTypes }) {
   const { dict } = ds;
   const dateRange = ds.meta.dateRange;
   const stateId = ds.meta.id;
@@ -407,6 +407,20 @@ export default function Filters({ ds, filters, setFilters }) {
             {BUCKET_LABEL.map((l, i) => <option key={l} value={i}>{l}</option>)}
           </select>
         </div>
+
+        {contractTypes?.length > 0 && (
+          <div className="field">
+            <label htmlFor="f-contract">Contract type</label>
+            <select
+              id="f-contract"
+              value={filters.contract ?? ''}
+              onChange={(e) => set({ contract: e.target.value || null })}
+            >
+              <option value="">All contract types</option>
+              {contractTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
 
         {/*
           * At the bottom, where a selection is finished, rather than in the

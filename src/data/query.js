@@ -391,7 +391,7 @@ export function facetOptions(ds, filters, { dateField = 'loggedDay' } = {}) {
 
 export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
   const { cols, rows } = ds;
-  const { dayFrom, dayTo, bucket } = filters;
+  const { dayFrom, dayTo, bucket, keepMask } = filters;
   // dateField null means "every date" — used by the accrual view, where a ticket
   // logged long before the period is still running up penalty inside it.
   const dateCol = dateField ? cols[dateField] : null;
@@ -430,6 +430,7 @@ export function filterRows(ds, filters, { dateField = 'loggedDay' } = {}) {
     }
     if (!keep) continue;
     if (bucket.size && !bucket.has(cols.bucket[i])) continue;
+    if (keepMask && !keepMask[i]) continue;
     out[n++] = i;
   }
   return out.subarray(0, n);

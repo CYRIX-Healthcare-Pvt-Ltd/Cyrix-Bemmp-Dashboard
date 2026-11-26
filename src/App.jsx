@@ -434,7 +434,7 @@ export default function App() {
   const [ds, setDs] = useState(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState(null);
+  const [chosenFilters, setFilters] = useState(null);
   /*
    * The tab from last time, if it is still a tab.
    *
@@ -910,6 +910,34 @@ export default function App() {
     return limit;
   }, [ds, profile]);
 
+  const assetRow = care ? assetRows[ds?.meta.id] : null;
+  const [assets, setAssets] = useState(null);
+  useEffect(() => {
+    let live = true;
+    setAssets(null);
+    if (assetRow) fetchAssets(assetRow.state, assetRow.version).then((m) => { if (live) setAssets(m); }).catch(() => {});
+    return () => { live = false; };
+  }, [assetRow?.state, assetRow?.version]);
+  // Care 360's AMC / CAMC filter (the user, 26 Nov): the contract type comes from the asset master by barcode, so it
+  // rides into every filterRows as a row mask rather than a column.
+  const contractMask = useMemo(() => {
+    const want = chosenFilters?.contract;
+    if (!care || !assets || !want || !ds) return null;
+    const m = new Uint8Array(ds.rows);
+    for (let i = 0; i < ds.rows; i++) if (contractOf(ds, assets, i) === want) m[i] = 1;
+    return m;
+  }, [care, assets, ds, chosenFilters?.contract]);
+  const filters = useMemo(
+    () => (chosenFilters && contractMask ? { ...chosenFilters, keepMask: contractMask } : chosenFilters),
+    [chosenFilters, contractMask],
+  );
+  const contractTypes = useMemo(
+    () => (care && assets && assetRow
+      ? Object.entries(assetRow.categories ?? {}).sort((a, b) => b[1] - a[1]).map(([k]) => k)
+      : null),
+    [care, assets, assetRow],
+  );
+
   const idx = useMemo(
     () => (ds && filters ? filterRows(ds, filters) : null),
     [ds, filters, area],
@@ -930,14 +958,6 @@ export default function App() {
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
   // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
-  const assetRow = care ? assetRows[ds?.meta.id] : null;
-  const [assets, setAssets] = useState(null);
-  useEffect(() => {
-    let live = true;
-    setAssets(null);
-    if (assetRow) fetchAssets(assetRow.state, assetRow.version).then((m) => { if (live) setAssets(m); }).catch(() => {});
-    return () => { live = false; };
-  }, [assetRow?.state, assetRow?.version]);
   // Closed in range, whenever raised: what Resolution TAT is measured over.
   const careEnded = useMemo(
     () => (idx && care ? endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo) : []),
@@ -986,8 +1006,19 @@ export default function App() {
     if (!care || !idx) return null;
     const parts = byJob(ds, idx);
     const by = (rows) => new Map(buildSeries(ds, rows, activeGranularity, referenceDay).map((p) => [p.key, p]));
+    // FTFR: Breakdown calls as one line per contract type, AMC and CAMC (the user, 26 Nov); Breakdown alone until
+    // the asset master is in.
+    if (metric.percent) {
+      const lines = assets
+        ? [['AMC', 'var(--series-1)'], ['CAMC', 'var(--series-2)']].map(([t, color]) => ({
+          key: t, label: t, color, map: by(Array.from(parts.breakdown).filter((i) => contractOf(ds, assets, i) === t)),
+        }))
+        : [{ key: 'bd', label: 'Breakdown', color: SPLIT_COLORS.breakdown, map: by(parts.breakdown) }];
+      // A contract type with no calls here (the AMC / CAMC filter) leaves the chart and its legend.
+      return { lines: lines.filter((l) => [...l.map.values()].some((p) => p.volume)) };
+    }
     return { bd: by(parts.breakdown), pm: by(parts.pms) };
-  }, [care, ds, idx, activeGranularity, referenceDay]);
+  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, assets]);
 
   /**
    * Two of the four metrics cannot be judged right up to the reference date, and
@@ -1513,8 +1544,9 @@ export default function App() {
         {!trackerOnly && (
           <Filters
             ds={ds}
-            filters={filters}
+            filters={chosenFilters}
             setFilters={setFilters}
+            contractTypes={contractTypes}
           />
         )}
 
@@ -1581,8 +1613,14 @@ export default function App() {
               </p>
               {splitSeries && (
                 <div className="split-legend">
-                  <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
-                  {!metric.percent && <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>}
+                  {splitSeries.lines
+                    ? splitSeries.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)
+                    : (
+                      <>
+                        <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
+                        <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>
+                      </>
+                    )}
                 </div>
               )}
               <MetricChart series={plotted} metric={metric} split={splitSeries} />

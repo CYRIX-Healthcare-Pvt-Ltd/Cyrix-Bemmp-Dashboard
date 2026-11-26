@@ -4099,3 +4099,10 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 .upload-actions { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
 .care-ftfr-title { margin: 22px 0 10px; }
 .asset-error { margin-top: 4px; font-size: 12px; color: var(--critical, #c62828); }
+
+/* Care 360 Report, one month: headings wrap over compact centred columns. */
+.care-single { width: 100%; min-width: 760px; table-layout: fixed; }
+.care-single th { white-space: normal !important; vertical-align: bottom; line-height: 1.3; }
+.care-single th.num, .care-single td.num { text-align: center; }
+.care-single th:first-child { width: 20%; min-width: 160px; }
+.care-single td:first-child { white-space: normal; }

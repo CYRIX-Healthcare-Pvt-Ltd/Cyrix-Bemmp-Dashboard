@@ -27,6 +27,7 @@ const LABEL_GAP = 7;
  * legend is needed; every point carries its value.
  */
 export default function MetricChart(props) {
+  if (props.split?.lines) return <LinesChart {...props} />;
   return props.split ? <SplitChart {...props} /> : <SingleChart {...props} />;
 }
 
@@ -437,6 +438,178 @@ function SplitChart({ series, metric, split, height = 300 }) {
           <div className="t-row"><span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span><span>{fmt(geom.bd[h])}</span></div>
           {!percent && <div className="t-row"><span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span><span>{fmt(geom.pm[h])}</span></div>}
           {!percent && <div className="t-row t-primary"><span>Total</span><span>{fmt(geom.totals[h])}</span></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/*
+ * Care 360 FTFR as one line per contract type, AMC and CAMC (the user, 26 Nov: "ftfr need amc and camc line only
+ * need beautiful graphs"). Smooth lines over a soft fill, a dot per period, each line's latest value at its end, and
+ * the scale starting near the lowest value so a few points of change can be seen.
+ */
+function smooth(pts, minY = -Infinity, maxY = Infinity) {
+  const cl = (v) => Math.min(maxY, Math.max(minY, v));
+  // Monotone-ish cubic through the points (Catmull-Rom, tension 0.5), never overshooting a 0–100 scale badly.
+  if (pts.length < 2) return pts.length ? `M${pts[0][0]},${pts[0][1]}` : '';
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = cl(p1[1] + (p2[1] - p0[1]) / 6);
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = cl(p2[1] - (p3[1] - p1[1]) / 6);
+    d += `C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+function LinesChart({ series, metric, split, height = 300 }) {
+  const wrapRef = useRef(null);
+  const [hover, setHover] = useState(null);
+  const [W, setW] = useState(900);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.max(280, Math.round(entry.contentRect.width));
+      setW((w) => (w === next ? w : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const H = height;
+  const fmt = (v) => (v == null ? '–' : `${v.toFixed(1)}%`);
+
+  const geom = useMemo(() => {
+    if (!series.length) return null;
+    const plotW = W - PAD.left - PAD.right - 44;
+    const plotH = H - PAD.top - PAD.bottom;
+    const n = series.length;
+    const lines = split.lines.map((l) => ({
+      ...l,
+      vals: series.map((d) => { const p = l.map.get(d.key); return p?.volume ? metric.value(p) : null; }),
+      calls: series.map((d) => l.map.get(d.key)?.volume ?? 0),
+    })).filter((l) => l.vals.some((v) => v != null));
+    const all = lines.flatMap((l) => l.vals.filter((v) => v != null));
+    if (!all.length) return null;
+    const lo = Math.max(0, Math.min(80, Math.floor((Math.min(...all) - 5) / 10) * 10));
+    const top = 100;
+    const step = n > 1 ? plotW / (n - 1) : 0;
+    const x = (i) => PAD.left + (n > 1 ? step * i : plotW / 2);
+    const y = (v) => PAD.top + plotH - ((v - lo) / (top - lo)) * plotH;
+    const base = PAD.top + plotH;
+    for (const l of lines) {
+      // A month with no calls is skipped and the line carries on, so the fill stays one shape.
+      const r = [];
+      l.vals.forEach((v, i) => { if (v != null) r.push([x(i), y(v)]); });
+      const line = smooth(r, y(top), base);
+      l.path = line;
+      l.area = r.length > 1 ? `${line}L${r[r.length - 1][0].toFixed(1)},${base}L${r[0][0].toFixed(1)},${base}Z` : '';
+      for (let i = n - 1; i >= 0; i--) {
+        if (l.vals[i] != null) { l.end = { i, v: l.vals[i], ty: y(l.vals[i]) + 4 }; break; }
+      }
+    }
+    // Keep the end labels apart.
+    const ends = lines.map((l) => l.end).filter(Boolean).sort((a, b) => a.ty - b.ty);
+    for (let k = 1; k < ends.length; k++) if (ends[k].ty - ends[k - 1].ty < 15) ends[k].ty = ends[k - 1].ty + 15;
+    // Round steps: every 10 points, or 20 when the scale runs from low down.
+    const gap = top - lo > 50 ? 20 : 10;
+    const ticks = [];
+    for (let v = lo; v <= top; v += gap) ticks.push({ v, y: y(v) });
+    const every = Math.max(1, Math.ceil(n / Math.max(1, plotW / 62)));
+    // The last label always shows; one that would sit on it is dropped.
+    const xLabels = series.map((d, i) => ({ i, label: d.label }))
+      .filter(({ i }) => i === n - 1 || (i % every === 0 && n - 1 - i >= every));
+    return { x, y, base, lines, ticks, xLabels, dots: n <= 40 };
+  }, [series, split, W, H, metric]);
+
+  const onMove = (e) => {
+    if (!geom) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < series.length; i++) {
+      const d = Math.abs(geom.x(i) - svgX);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    setHover({ i: best, leftPct: (geom.x(best) / W) * 100 });
+  };
+
+  if (!geom) {
+    return <div className="chart-wrap" ref={wrapRef}><p className="empty">No tickets in the selected range</p></div>;
+  }
+  const h = hover?.i;
+
+  return (
+    <div className="chart-wrap" ref={wrapRef}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img"
+        aria-label={`${metric.label}, ${geom.lines.map((l) => l.label).join(' and ')}`}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onMove}
+      >
+        <defs>
+          {geom.lines.map((l) => (
+            <linearGradient key={l.key} id={`fill-${l.key}`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={l.color} stopOpacity="0.13" />
+              <stop offset="100%" stopColor={l.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+        </defs>
+        {geom.ticks.map((t) => (
+          <g key={t.v}>
+            <line className="gridline" x1={PAD.left} x2={W - PAD.right} y1={t.y} y2={t.y} />
+            <text className="tick" x={PAD.left - 10} y={t.y + 4} textAnchor="end">{`${Math.round(t.v)}%`}</text>
+          </g>
+        ))}
+        {geom.lines.map((l) => <path key={`a${l.key}`} d={l.area} fill={`url(#fill-${l.key})`} stroke="none" />)}
+        {geom.lines.map((l) => (
+          <path key={`l${l.key}`} className="trend-line draw" d={l.path} pathLength="1000" stroke={l.color} style={{ strokeWidth: 2.5 }} />
+        ))}
+        {geom.dots && geom.lines.map((l) => l.vals.map((v, i) => (v == null ? null : (
+          <circle key={`${l.key}${i}`} cx={geom.x(i)} cy={geom.y(v)} r="3" fill="var(--surface, #fff)" stroke={l.color} strokeWidth="2" />
+        ))))}
+        {geom.lines.map((l) => l.end && (
+          <text
+            key={`e${l.key}`} className="point-label" x={geom.x(l.end.i) + 8} y={l.end.ty} textAnchor="start"
+            style={{ fill: l.color, fontWeight: 650 }}
+          >
+            {fmt(l.end.v)}
+          </text>
+        ))}
+
+        <line className="axis" x1={PAD.left} x2={W - PAD.right} y1={geom.base} y2={geom.base} />
+        {geom.xLabels.map(({ i, label }) => (
+          <text key={label + i} className="tick" x={geom.x(i)} y={H - 10} textAnchor="middle">{label}</text>
+        ))}
+
+        {hover && (
+          <>
+            <line className="crosshair" x1={geom.x(h)} x2={geom.x(h)} y1={PAD.top} y2={geom.base} />
+            {geom.lines.map((l) => l.vals[h] != null && (
+              <circle key={`h${l.key}`} className="trend-marker" cx={geom.x(h)} cy={geom.y(l.vals[h])} r="5.5" fill={l.color} />
+            ))}
+          </>
+        )}
+      </svg>
+
+      {hover && (
+        <div
+          className="tooltip"
+          style={{ left: `${hover.leftPct}%`, top: 4, transform: hover.leftPct > 68 ? 'translateX(-104%)' : 'translateX(12px)' }}
+        >
+          <div className="t-title">{series[h].label}</div>
+          {geom.lines.map((l) => (
+            <div key={l.key} className="t-row">
+              <span><i className="split-key" style={{ background: l.color }} />{l.label}</span>
+              <span>{fmt(l.vals[h])}{l.calls[h] ? ` · ${l.calls[h].toLocaleString()} calls` : ''}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

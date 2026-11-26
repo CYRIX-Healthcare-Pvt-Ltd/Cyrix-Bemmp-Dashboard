@@ -42,7 +42,9 @@ function c(ref, value, style) {
 /**
  * `report` from careReport(); A is the To month's label, B the From month's; `by` is 'state' or 'facility'.
  */
-export async function careReportXlsx({ report, A, B, by, sheetName, ftfr }) {
+export async function careReportXlsx({ report, A, B, by, sheetName, ftfr, cmp = true }) {
+  // FTFR contract wise on its own (its Report sub-tab).
+  if (!report) return writeStyledBook([{ name: 'FTFR Contract Wise', xml: ftfrSheet(ftfr) }], STYLES);
   const facility = by === 'facility';
   const lead = facility ? [['Facility', 'name', 'text'], ['State', 'state', 'text']] : [['State', 'name', 'text']];
   const counts = [[`Total Calls
@@ -61,8 +63,9 @@ ${A}`, 'pending']];
   ];
   const first = cols.length;
   for (const [, key, kind] of groups) {
-    cols.push({ key: `${key}B`, kind, sub: B }, { key: `${key}A`, kind, sub: A }, { key: `${key}Change`, kind: 'pct', sub: `${A} vs
+    if (cmp) cols.push({ key: `${key}B`, kind, sub: B }, { key: `${key}A`, kind, sub: A }, { key: `${key}Change`, kind: 'pct', sub: `${A} vs
 ${B}` });
+    else cols.push({ key: `${key}A`, kind, sub: A });
   }
 
   // Row 1: single headings span both rows; each group spans its three columns. Row 2: the months.
@@ -72,11 +75,13 @@ ${B}` });
     r1.push(c(`${colName(i)}1`, col.h, S.head)); r2.push(c(`${colName(i)}2`, '', S.head));
     merges.push(`${colName(i)}1:${colName(i)}2`);
   });
+  const w = cmp ? 3 : 1;
   groups.forEach(([title], g) => {
-    const at = first + g * 3;
-    r1.push(c(`${colName(at)}1`, title, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
-    merges.push(`${colName(at)}1:${colName(at + 2)}1`);
-    for (let k = 0; k < 3; k++) r2.push(c(`${colName(at + k)}2`, cols[at + k].sub, S.sub));
+    const at = first + g * w;
+    r1.push(c(`${colName(at)}1`, title, S.head));
+    for (let k = 1; k < w; k++) r1.push(c(`${colName(at + k)}1`, '', S.head));
+    if (w > 1) merges.push(`${colName(at)}1:${colName(at + w - 1)}1`);
+    for (let k = 0; k < w; k++) r2.push(c(`${colName(at + k)}2`, cols[at + k].sub, S.sub));
   });
 
   const value = (line, col) => {
@@ -98,7 +103,7 @@ ${B}` });
   const last = lines.length + 2;
 
   // Red / green circles: TATs reversed (a fall is green), FTFR as it is (a rise is green). Zero is amber.
-  const cf = groups.map(([, , , lowerIsBetter], g) => {
+  const cf = !cmp ? '' : groups.map(([, , , lowerIsBetter], g) => {
     const col = colName(first + g * 3 + 2);
     return `<conditionalFormatting sqref="${col}3:${col}${last}"><cfRule type="iconSet" priority="${g + 1}"><iconSet iconSet="3TrafficLights1"${lowerIsBetter ? ' reverse="1"' : ''}><cfvo type="percent" val="0"/><cfvo type="num" val="0"/><cfvo type="num" val="0" gte="0"/></iconSet></cfRule></conditionalFormatting>`;
   }).join('');
