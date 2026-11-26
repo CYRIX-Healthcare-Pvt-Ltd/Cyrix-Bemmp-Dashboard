@@ -19,6 +19,13 @@ Kerala, Andhra and Uttar Pradesh trackers), account administration, and
 **Cyra**, a plain-language assistant that answers questions about the figures
 without the model ever seeing ticket data.
 
+Since late October it also carries working tools beyond the analytics, each
+behind its own scope: the **quotation tracker** (requests, Team Lead and
+Purchase steps, Word templates read with AI help, mails and phone
+notifications), the **Medtronic** call tracker, the **PM checklist**, and
+**Care 360 / Private BEMMP** figures read from FieldPro ticket exports, with an
+AMC/CAMC asset master.
+
 > Part of **Cyrix One**, the platform at [app.cyrix.in](https://app.cyrix.in).
 > System-wide picture: [Cyrix One Platform — System Architecture](https://claude.ai/artifact/HNYWoBqCJ6Xh3XcREuKpTu)
 > (ask Adrian for access). Every repository: [REPOSITORIES.md](https://github.com/CYRIX-Healthcare-Pvt-Ltd/cyrix-platform/blob/main/docs/REPOSITORIES.md).
@@ -73,6 +80,7 @@ the hosted build. See `.env.example` and `.env.local.example`.
 | `SUPABASE_PROJECT_REF`, `SUPABASE_DB_HOST`, `SUPABASE_DB_PASSWORD` | `.env.local` only | **yes** (password) | `scripts/db.mjs`, which runs a `.sql` file against the database |
 | `OPENAI_API_KEY` | `.env` / `.env.local` (self-hosted); `app_secret` table (Vercel) | **yes** | Cyra and voice. On Vercel it is read from `app_secret`, set with `scripts/set-secret.mjs` |
 | `OPENAI_MODEL`, `OPENAI_TTS_MODEL` | same | no | Optional model overrides |
+| `GITHUB_MODELS_TOKEN`, `GEMINI_API_KEY` | Vercel | **yes** | `api/quote-boxes.js`: reading a quotation Word template (GPT-4.1 through GitHub Models first, then Gemini, then rules alone) |
 | `BEMMP_PASSWORD`, `BEMMP_USER` | `.env` (self-hosted) | **yes** (password) | Optional shared-password gate over the whole server, including `/api/*` |
 
 ## Database
@@ -86,8 +94,20 @@ and shared through Supabase Storage.
   now retired, and replayed onto the shared project by
   [Cyrix-KPI 0060–0062](https://github.com/CYRIX-Healthcare-Pvt-Ltd/Cyrix-KPI/tree/main/supabase/migrations)
   (`is_admin` renamed `bemmp_is_admin` there).
-- `0010` (Uttar Pradesh tracker) and `0011` (Cyra per person) came after the
-  move and are applied to the shared project from here, by hand:
+- `0010` onward came after the move and are applied to the shared project
+  from here, by hand (`0092` as of 26 Nov 2026):
+
+  | Migrations | What they cover |
+  |---|---|
+  | 0010–0011 | Uttar Pradesh tracker, Cyra per person |
+  | 0012–0013, 0051, 0072, 0077–0079, 0081–0082, 0084 | The Medtronic call tracker |
+  | 0014 | PM checklist |
+  | 0015–0071, 0073–0076, 0083, 0085–0089, 0092 | The quotation tracker: steps, roles, photos, mails, templates, transfers, stock requests |
+  | 0080 | Tracker history skips sync |
+  | 0090–0091 | Care 360 sharing and the AMC/CAMC asset master |
+
+  Quotation mail goes through KPI's `qt-mail` edge function. Run a migration
+  with
   `node scripts/db.mjs supabase/migrations/<file>.sql`. Check which project
   `.env.local` points at before you run one.
 
