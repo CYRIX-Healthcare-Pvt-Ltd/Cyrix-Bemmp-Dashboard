@@ -9,7 +9,7 @@ import {
   raise, raiseStock, accept, tlApprove, tlDecline, editOwn, reopen, addNote, pingNote, transfer, consume, resume, act,
   saveFacility, savePerson, removePerson, saveTargets, uploadPhoto, photoUrl, exportAll, tatOf, statusOf, findPerson, workOf,
   STEPS, stepOf, isCamc, roleOfStep, ACTIONS, TAT_STEPS, NO_ACCEPT, clockOf, spanText, dayText, whenText, todayIst,
-  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
+  periodRange, money, withTax, person, nextQtn, releaseQtn, loadQuotes, loadTlApproved, saveQuote, deleteQuote, loadMyReportees, loadTemplates, deleteTemplate, templateBlob, saveTemplate, templateName, templateArt,
   loadBarcodeCounts, loadBarcodeHistory,
 } from '../data/quotation.js';
 import { nameBoxes } from '../data/quoteAi.js';
@@ -1305,7 +1305,7 @@ const equipmentOf = (r) => {
 };
 
 /** One row per quotation sent: the latest revision of each, from requests, then those made without one. */
-function trackerRows(reqs, free) {
+function trackerRows(reqs, free, tlAt = {}) {
   const out = [];
   for (const r of reqs ?? []) {
     if (r.kind !== 'request') continue;
@@ -1313,7 +1313,7 @@ function trackerRows(reqs, free) {
     for (const c of latestOnly(cards)) {
       const q = c.q; const doc = q.doc ?? null;
       const qdate = (doc?.date && /^\d{4}-\d{2}-\d{2}/.test(doc.date) ? doc.date.slice(0, 10) : '') || istDay(q.at);
-      const req = istDay(r.created_at);
+      const req = istDay(tlAt[r.id] ?? r.created_at); // Team Lead's approval: when it reached the Coordinator (the user, 26 Nov)
       out.push({
         key: q.path ?? `${r.id}-${q.qtn_no}`, reqId: r.id, path: q.path, doc, own: r.coord_id,
         qr: r.no, qtn: q.qtn_no ?? '', month: monthName(qdate), by: r.coord_name ?? '', req, qdate,
@@ -1347,6 +1347,7 @@ function QuoteTracker({ me, onToast, tabs }) {
   const { openReq } = useContext(QtCtx);
   const [reqs, setReqs] = useState(null);
   const [free, setFree] = useState([]);
+  const [tlAt, setTlAt] = useState({});
   const [failed, setFailed] = useState(false);
   const [period, setPeriod] = useState({ id: 'all', from: '', to: '' });
   const [q, setQ] = useState('');
@@ -1358,9 +1359,10 @@ function QuoteTracker({ me, onToast, tabs }) {
   useEffect(() => {
     loadList(null, null).then((l) => setReqs(l ?? [])).catch(() => { setFailed(true); setReqs([]); });
     loadQuotes().then((l) => setFree(l ?? [])).catch(() => {});
+    loadTlApproved().then((m) => setTlAt(m ?? {})).catch(() => {});
   }, []);
   // Only one's own quotations (the user, 26 Nov: "amal should only see his"); SW Admin sees everybody's.
-  const all = useMemo(() => (reqs ? trackerRows(reqs, free).filter((x) => me.admin || x.own === me.id) : null), [reqs, free, me.admin, me.id]);
+  const all = useMemo(() => (reqs ? trackerRows(reqs, free, tlAt).filter((x) => me.admin || x.own === me.id) : null), [reqs, free, tlAt, me.admin, me.id]);
   const statuses = useMemo(() => {
     const m = new Map(); for (const x of all ?? []) m.set(x.status, (m.get(x.status) ?? 0) + 1);
     return [{ value: '', label: 'All statuses' }, ...[...m.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => ({ value: v, label: `${v} · ${n}` }))];

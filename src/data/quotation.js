@@ -353,6 +353,8 @@ export async function releaseQtn(qtn) {
 
 /** Quotations made without a request (0060): the maker's own, or everybody's for a lead. */
 export const loadQuotes = () => rpc('qt_quotes_list');
+/** When the Team Lead approved each request (0092): the tracker's requested date. */
+export const loadTlApproved = () => rpc('qt_tl_approved_at');
 export const saveQuote = (p) => rpc('qt_quote_save', { p });
 export const deleteQuote = (id) => rpc('qt_quote_delete', { p_id: id });
 
