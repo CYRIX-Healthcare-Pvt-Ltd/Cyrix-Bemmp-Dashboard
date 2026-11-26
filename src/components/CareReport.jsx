@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import { careReport, jobTypesOf, monthsOf } from '../data/careReport.js';
-import { saveBlob, writeBook } from '../data/xlsx.js';
+import { saveBlob } from '../data/xlsx.js';
+import { careReportXlsx } from '../data/careReportXlsx.js';
 
 const d2 = (n) => (n == null ? '–' : n.toFixed(2));
 const pctText = (n) => (n == null ? '–' : `${n > 0 ? '+' : ''}${Math.round(n * 100)}%`);
 
-/** Faster than the other month is green, slower red. */
-function Change({ value }) {
+const p1 = (n) => (n == null ? '–' : `${n.toFixed(1)}%`);
+
+/** Faster than the other month is green, slower red; for FTFR (`up`) growth is green (the user, 26 Nov: growth %). */
+function Change({ value, up }) {
   if (value == null) return <td className="num">–</td>;
+  const good = up ? value >= 0 : value <= 0;
   return (
     <td className="num">
-      <span className={`care-dot ${value > 0 ? 'worse' : 'better'}`} aria-hidden="true" />
+      <span className={`care-dot ${good ? 'better' : 'worse'}`} aria-hidden="true" />
       {pctText(value)}
     </td>
   );
@@ -20,7 +24,7 @@ function Change({ value }) {
 export default function CareReport({ ds, filters }) {
   const months = useMemo(() => monthsOf(ds), [ds]);
   const jobTypes = useMemo(() => jobTypesOf(ds), [ds]);
-  // Their workbook: last month against the month before it, Breakdown Support calls.
+  // From the earlier month To the later one (the user, 26 Nov): last month against the month before, Breakdown calls.
   const [monthKey, setMonthKey] = useState(() => (months[1] ?? months[0])?.key);
   const [againstKey, setAgainstKey] = useState(() => (months[2] ?? months[1])?.key);
   const [jobType, setJobType] = useState(() => jobTypes.find((j) => /breakdown/i.test(j.name))?.id ?? null);
@@ -37,39 +41,12 @@ export default function CareReport({ ds, filters }) {
   const A = month.label; const B = against?.label ?? '–';
   const first = by === 'facility' ? 'Facility' : 'State';
 
+  // Laid out like their own workbook: two heading rows, colours, icons (the user, 26 Nov).
   const download = async () => {
-    const columns = [
-      { header: first, key: 'name' },
-      ...(by === 'facility' ? [{ header: 'State', key: 'state' }] : []),
-      { header: 'Total Calls', key: 'calls', numeric: true },
-      { header: 'Completed', key: 'completed', numeric: true },
-      { header: 'Pending', key: 'pending', numeric: true },
-      { header: `Response TAT ${A}`, key: 'responseA', numeric: true },
-      { header: `Response TAT ${B}`, key: 'responseB', numeric: true },
-      { header: `Response ${A} vs ${B}`, key: 'responseChange' },
-      { header: `Resolution TAT ${A}`, key: 'resolutionA', numeric: true },
-      { header: `Resolution TAT ${B}`, key: 'resolutionB', numeric: true },
-      { header: `Resolution ${A} vs ${B}`, key: 'resolutionChange' },
-      { header: `Logged & closed same month ${A}`, key: 'sameA', numeric: true },
-      { header: `Logged & closed same month ${B}`, key: 'sameB', numeric: true },
-      { header: `Logged & closed ${A} vs ${B}`, key: 'sameChange' },
-    ];
-    const out = (l) => ({
-      ...l,
-      responseA: l.responseA == null ? '' : +l.responseA.toFixed(2),
-      responseB: l.responseB == null ? '' : +l.responseB.toFixed(2),
-      resolutionA: l.resolutionA == null ? '' : +l.resolutionA.toFixed(2),
-      resolutionB: l.resolutionB == null ? '' : +l.resolutionB.toFixed(2),
-      responseChange: l.responseChange == null ? '' : pctText(l.responseChange),
-      resolutionChange: l.resolutionChange == null ? '' : pctText(l.resolutionChange),
-      sameA: l.sameA == null ? '' : +l.sameA.toFixed(2),
-      sameB: l.sameB == null ? '' : +l.sameB.toFixed(2),
-      sameChange: l.sameChange == null ? '' : pctText(l.sameChange),
-    });
     const name = by === 'facility' ? 'Customer Wise Summary' : 'State Wise Summary';
     saveBlob(
-      await writeBook([{ name, columns, rows: [...report.lines, report.total].map(out) }]),
-      `${ds.meta.name} ${name} ${A} vs ${B}.xlsx`,
+      await careReportXlsx({ report, A, B, by, sheetName: name }),
+      `${ds.meta.name} ${name} ${B} to ${A}.xlsx`,
     );
   };
 
@@ -82,14 +59,14 @@ export default function CareReport({ ds, filters }) {
           ))}
         </div>
         <div className="field">
-          <label htmlFor="care-month">From</label>
-          <select id="care-month" value={month.key} onChange={(e) => setMonthKey(e.target.value)}>
+          <label htmlFor="care-against">From</label>
+          <select id="care-against" value={against?.key ?? ''} onChange={(e) => setAgainstKey(e.target.value)}>
             {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
         </div>
         <div className="field">
-          <label htmlFor="care-against">To</label>
-          <select id="care-against" value={against?.key ?? ''} onChange={(e) => setAgainstKey(e.target.value)}>
+          <label htmlFor="care-month">To</label>
+          <select id="care-month" value={month.key} onChange={(e) => setMonthKey(e.target.value)}>
             {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
         </div>
@@ -115,16 +92,20 @@ export default function CareReport({ ds, filters }) {
               <th colSpan={3} className="summary-type">Response TAT</th>
               <th colSpan={3} className="summary-type">Resolution TAT · closed in month</th>
               <th colSpan={3} className="summary-type">Logged &amp; closed same month</th>
+              <th colSpan={3} className="summary-type">FTFR</th>
             </tr>
             <tr>
-              <th className="num summary-sub group-start">{A}</th>
-              <th className="num summary-sub">{B}</th>
+              <th className="num summary-sub group-start">{B}</th>
+              <th className="num summary-sub">{A}</th>
               <th className="num summary-sub">{A} vs {B}</th>
-              <th className="num summary-sub group-start">{A}</th>
-              <th className="num summary-sub">{B}</th>
+              <th className="num summary-sub group-start">{B}</th>
+              <th className="num summary-sub">{A}</th>
               <th className="num summary-sub">{A} vs {B}</th>
-              <th className="num summary-sub group-start">{A}</th>
-              <th className="num summary-sub">{B}</th>
+              <th className="num summary-sub group-start">{B}</th>
+              <th className="num summary-sub">{A}</th>
+              <th className="num summary-sub">{A} vs {B}</th>
+              <th className="num summary-sub group-start">{B}</th>
+              <th className="num summary-sub">{A}</th>
               <th className="num summary-sub">{A} vs {B}</th>
             </tr>
           </thead>
@@ -136,15 +117,18 @@ export default function CareReport({ ds, filters }) {
                 <td className="num">{l.calls.toLocaleString()}</td>
                 <td className="num">{l.completed.toLocaleString()}</td>
                 <td className="num band-end">{l.pending.toLocaleString()}</td>
-                <td className="num group-start">{d2(l.responseA)}</td>
-                <td className="num">{d2(l.responseB)}</td>
+                <td className="num group-start">{d2(l.responseB)}</td>
+                <td className="num">{d2(l.responseA)}</td>
                 <Change value={l.responseChange} />
-                <td className="num group-start">{d2(l.resolutionA)}</td>
-                <td className="num">{d2(l.resolutionB)}</td>
+                <td className="num group-start">{d2(l.resolutionB)}</td>
+                <td className="num">{d2(l.resolutionA)}</td>
                 <Change value={l.resolutionChange} />
-                <td className="num group-start">{d2(l.sameA)}</td>
-                <td className="num">{d2(l.sameB)}</td>
+                <td className="num group-start">{d2(l.sameB)}</td>
+                <td className="num">{d2(l.sameA)}</td>
                 <Change value={l.sameChange} />
+                <td className="num group-start">{p1(l.ftfrB)}</td>
+                <td className="num">{p1(l.ftfrA)}</td>
+                <Change value={l.ftfrChange} up />
               </tr>
             ))}
           </tbody>
@@ -155,15 +139,18 @@ export default function CareReport({ ds, filters }) {
               <td className="num strong">{report.total.calls.toLocaleString()}</td>
               <td className="num strong">{report.total.completed.toLocaleString()}</td>
               <td className="num strong band-end">{report.total.pending.toLocaleString()}</td>
-              <td className="num strong group-start">{d2(report.total.responseA)}</td>
-              <td className="num strong">{d2(report.total.responseB)}</td>
+              <td className="num strong group-start">{d2(report.total.responseB)}</td>
+              <td className="num strong">{d2(report.total.responseA)}</td>
               <Change value={report.total.responseChange} />
-              <td className="num strong group-start">{d2(report.total.resolutionA)}</td>
-              <td className="num strong">{d2(report.total.resolutionB)}</td>
+              <td className="num strong group-start">{d2(report.total.resolutionB)}</td>
+              <td className="num strong">{d2(report.total.resolutionA)}</td>
               <Change value={report.total.resolutionChange} />
-              <td className="num strong group-start">{d2(report.total.sameA)}</td>
-              <td className="num strong">{d2(report.total.sameB)}</td>
+              <td className="num strong group-start">{d2(report.total.sameB)}</td>
+              <td className="num strong">{d2(report.total.sameA)}</td>
               <Change value={report.total.sameChange} />
+              <td className="num strong group-start">{p1(report.total.ftfrB)}</td>
+              <td className="num strong">{p1(report.total.ftfrA)}</td>
+              <Change value={report.total.ftfrChange} up />
             </tr>
           </tfoot>
         </table>

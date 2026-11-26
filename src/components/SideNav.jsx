@@ -37,6 +37,8 @@ const ICONS = {
   repeats: <><path d="M4 10a6 6 0 0 1 6-6h7" /><path d="M14 1.5 17.5 4 14 6.5" /><path d="M20 14a6 6 0 0 1-6 6H7" /><path d="M10 17.5 6.5 20 10 22.5" /></>,
   performance: <><path d="M3 17l5-6 4 4 5-8 4 5" /></>,
   money: <><path d="M7 5h10M7 9h10M8 5c4 0 6 1.6 6 4s-2 4-6 4h-1l7 6" /></>,
+  // A sheet with a table on it: the Care 360 Report (26 Nov).
+  report: <><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 12h7M9 15.5h7M9 19h4" /></>,
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
   checklist: <><rect x="5" y="4" width="14" height="17" rx="2.5" /><path d="M9 4.5V3h6v1.5" /><path d="M8.5 12.5l2.3 2.3 4.7-4.8" /></>,
   /* Quotation tracker (Quotation.jsx). */

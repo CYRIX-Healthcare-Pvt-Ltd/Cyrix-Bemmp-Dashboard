@@ -42,7 +42,7 @@ import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
-import { allDates, averageTat, endedIn, isCare } from './data/careReport.js';
+import { allDates, averageTat, byJob, endedIn, isCare, jobSplit, notStarted } from './data/careReport.js';
 
 /*
  * The width where the rail becomes a strip along the bottom. The same
@@ -899,8 +899,22 @@ export default function App() {
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
   // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
   const careTat = useMemo(
-    () => (idx && care ? averageTat(ds, idx, endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo)) : null),
-    [ds, idx, care, filters],
+    () => {
+      if (!idx || !care) return null;
+      const ended = endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo);
+      // Each measure again on Breakdown and on PMS jobs alone, shown small on the tile (the user, 26 Nov).
+      const raisedBy = byJob(ds, idx); const endedBy = byJob(ds, ended);
+      const part = (key) => {
+        const t = averageTat(ds, raisedBy[key], endedBy[key]);
+        const s = summarize(ds, raisedBy[key], referenceDay, { ftfrThrough });
+        return { repeats: analyzeRepeats(ds, raisedBy[key]).followUps, ftfrPct: s.ftfrPct, ...t };
+      };
+      return {
+        ...averageTat(ds, idx, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
+        breakdown: part('breakdown'), pms: part('pms'),
+      };
+    },
+    [ds, idx, care, filters, referenceDay, ftfrThrough],
   );
 
   // Until the user picks one, granularity follows the width of the selected range.

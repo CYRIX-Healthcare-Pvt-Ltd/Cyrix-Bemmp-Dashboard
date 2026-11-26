@@ -8,6 +8,7 @@
  * Their workbook counts Breakdown Support calls only, so the report opens on that job type.
  */
 import { filterRows } from './query.js';
+import { isFirstTimeFix } from '../../shared/schema.mjs';
 
 export const CARE_IDS = ['c360', 'pvt'];
 export const isCare = (ds) => CARE_IDS.includes(ds?.meta?.id);
@@ -71,6 +72,50 @@ export function averageTat(ds, raised, ended) {
 
 const done = (ds, i) => /^(completed|closed)$/i.test(textOf(ds, 'status', i).trim());
 
+/**
+ * Breakdown and PMS counts behind the first four tiles (the user, 26 Nov): all, resolved, open, not started.
+ */
+export function jobSplit(ds, rows) {
+  const blank = () => ({ breakdown: 0, pms: 0 });
+  const out = { total: blank(), resolved: blank(), open: blank(), notStarted: blank() };
+  const kind = new Map();
+  for (let k = 0; k < rows.length; k++) {
+    const i = rows[k];
+    const id = ds.cols.lifecycle[i];
+    if (!kind.has(id)) {
+      const name = ds.dict.lifecycle?.[id] ?? '';
+      kind.set(id, /breakdown/i.test(name) ? 'breakdown' : /pms/i.test(name) ? 'pms' : null);
+    }
+    const key = kind.get(id);
+    if (!key) continue;
+    out.total[key]++;
+    if (done(ds, i)) out.resolved[key]++;
+    else {
+      out.open[key]++;
+      if (!Number.isFinite(msOf(textOf(ds, 'attendedAt', i)))) out.notStarted[key]++;
+    }
+  }
+  return out;
+}
+
+/** The rows split into Breakdown Support and PMS jobs. */
+export function byJob(ds, rows) {
+  const bd = []; const pms = []; const kind = new Map();
+  for (let k = 0; k < rows.length; k++) {
+    const id = ds.cols.lifecycle[rows[k]];
+    if (!kind.has(id)) { const n = ds.dict.lifecycle?.[id] ?? ''; kind.set(id, /breakdown/i.test(n) ? bd : /pms/i.test(n) ? pms : null); }
+    kind.get(id)?.push(rows[k]);
+  }
+  return { breakdown: Int32Array.from(bd), pms: Int32Array.from(pms) };
+}
+
+/** Open calls with no Job Start Date yet (the dashboard's eighth tile, the user, 26 Nov). */
+export function notStarted(ds, rows) {
+  let n = 0;
+  for (let k = 0; k < rows.length; k++) if (!done(ds, rows[k]) && !Number.isFinite(msOf(textOf(ds, 'attendedAt', rows[k])))) n++;
+  return n;
+}
+
 /** Months that have calls, newest first, as { key: 'YYYY-MM', label: 'Oct 26', from, to } in Excel days. */
 export function monthsOf(ds) {
   const { minDay, maxDay } = ds.meta.dateRange;
@@ -118,6 +163,9 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
   for (const i of eb) at(i).eb.push(i);
   const line = (name, state, g) => {
     const ta = averageTat(ds, g.a, g.ea); const tb = averageTat(ds, g.b, g.eb);
+    // FTFR: of the calls raised in the month, the share fixed the same day or the next, as on the FTFR tile.
+    const ftfr = (rows) => (rows.length ? (100 * rows.filter((i) => isFirstTimeFix(ds.cols.loggedDay[i], ds.cols.resolvedDay[i])).length) / rows.length : null);
+    const fa = ftfr(g.a); const fb = against ? ftfr(g.b) : null;
     // Raised and closed in the same month (the user, 26 Nov).
     const sa = mean(ds, endedIn(ds, g.a, month.from, month.to), 'resolution');
     const sb = against ? mean(ds, endedIn(ds, g.b, against.from, against.to), 'resolution') : null;
@@ -127,6 +175,7 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
       responseA: ta.response, responseB: tb.response, responseChange: change(ta.response, tb.response),
       resolutionA: ta.resolution, resolutionB: tb.resolution, resolutionChange: change(ta.resolution, tb.resolution),
       sameA: sa, sameB: sb, sameChange: change(sa, sb),
+      ftfrA: fa, ftfrB: fb, ftfrChange: change(fa, fb),
     };
   };
   const lines = [...groups.values()].map((g) => line(g.name, g.state, g))

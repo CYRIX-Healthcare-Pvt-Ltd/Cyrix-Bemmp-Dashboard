@@ -975,6 +975,10 @@ select option {
 .kpi:nth-child(8)  { --k-tint: var(--nav-money); }       /* Closure ₹     */
 .kpi:nth-child(9)  { --k-tint: var(--nav-performance); } /* FTFR          */
 .kpi:nth-child(10) { --k-tint: var(--nav-performance); } /* Avg resolution */
+/* Care 360's eight tiles: Total, Resolved, Open, Not started, Repeats, FTFR, Response, Resolution. */
+.kpis-care .kpi:nth-child(4) { --k-tint: var(--nav-calls); }
+.kpis-care .kpi:nth-child(5) { --k-tint: var(--nav-repeats); }
+.kpis-care .kpi:nth-child(n+6) { --k-tint: var(--nav-performance); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .dot.open     { background: var(--status-critical); }
@@ -3017,6 +3021,8 @@ html.no-swipe-back body {
      leaving the company. Both being red is correct — they are the same problem
      counted two ways, and the icon shape is what tells them apart. */
   --nav-money:       var(--status-critical);
+  /* Care 360's Report tab: the dashboard's own hue (26 Nov). */
+  --nav-report:      var(--series-1);
   /* Accounts is the one section that is not a measure, so it takes the one hue
      that encodes no data anywhere else on the page. */
   --nav-accounts:    var(--text-muted);
@@ -4070,3 +4076,6 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
   .care-report-controls .care-job { width: 100%; }
   .care-report-controls .segmented, .care-report-controls .care-download { width: 100%; margin-left: 0; justify-content: center; }
 }
+/* Care 360 tiles: Breakdown and PMS beside the figure, small (the user, 26 Nov). */
+.k-split { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+.k-split b { color: var(--text-primary); font-weight: 650; }
