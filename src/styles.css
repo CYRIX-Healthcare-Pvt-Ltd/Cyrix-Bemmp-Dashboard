@@ -4106,3 +4106,51 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 .care-single th.num, .care-single td.num { text-align: center; }
 .care-single th:first-child { width: 20%; min-width: 160px; }
 .care-single td:first-child { white-space: normal; }
+
+/* Care 360 summary cards: compact, at the right of the sub-tab row (or the top of the page). */
+.drill-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.drill-top { display: flex; justify-content: flex-end; }
+.drill-top .drill-stats { flex: 0 1 520px; }
+.perf-row { justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.perf-stats-slot { flex: 0 1 520px; min-width: 0; margin-left: auto; }
+.drill-stat {
+  display: flex; flex-direction: column; gap: 1px; padding: 7px 12px; border-radius: var(--radius);
+  border: 1px solid var(--control-border); background: var(--control-bg);
+}
+.drill-stat span { font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.drill-stat div { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.drill-stat strong { font-size: 19px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.drill-stat em { font-style: normal; font-size: 11px; color: var(--text-secondary); }
+.drill-stat.is-main { border-color: color-mix(in srgb, var(--c) 45%, transparent); background: color-mix(in srgb, var(--c) 9%, var(--control-bg)); }
+.drill-stat.is-main strong { color: var(--c); }
+@media (max-width: 900px) {
+  .perf-stats-slot, .drill-top .drill-stats { flex-basis: 100%; }
+  .drill-stat { padding: 7px 9px; }
+  .drill-stat strong { font-size: 17px; }
+}
+
+.bar-stats-slot { flex: 0 1 520px; min-width: 0; margin-left: auto; }
+.bar-stats-slot:empty { display: none; }
+@media (max-width: 900px) { .filter-bar:has(.bar-stats-slot:not(:empty)) { flex-wrap: wrap; } .bar-stats-slot { flex-basis: 100%; } }
+
+/* Summary cards are buttons: the picked one carries the colour. */
+button.drill-stat { font: inherit; color: inherit; text-align: left; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
+button.drill-stat:hover:not(:disabled) { border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+button.drill-stat:active:not(:disabled) { transform: scale(.98); }
+button.drill-stat:disabled { cursor: default; opacity: .55; }
+.drill-stat.is-main:not(.is-picked) { border-color: var(--control-border); background: var(--control-bg); }
+.drill-stat.is-main:not(.is-picked) strong { color: inherit; }
+.drill-stat.is-picked { border-color: color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 10%, var(--control-bg)); }
+.drill-stat.is-picked strong { color: var(--c); }
+
+/* Beside a sub-tab row the cards span the Filters row and the sub-tab row together (the user, 26 Nov). */
+.filter-bar { position: relative; }
+@media (min-width: 901px) {
+  .bar-stats-slot.is-tall { position: absolute; top: 0; right: 0; width: min(540px, 46%); height: 95px; z-index: 1; }
+  .bar-stats-slot.is-tall .drill-stats { height: 100%; }
+  .bar-stats-slot.is-tall .drill-stat { justify-content: center; gap: 3px; padding: 8px 16px; }
+  .bar-stats-slot.is-tall .drill-stat div { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .bar-stats-slot.is-tall .drill-stat strong { font-size: 26px; line-height: 1.05; }
+  .bar-stats-slot.is-tall .drill-stat em { font-size: 12px; }
+}
+.nowrap { white-space: nowrap; }

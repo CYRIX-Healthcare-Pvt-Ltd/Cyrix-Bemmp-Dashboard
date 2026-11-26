@@ -931,6 +931,21 @@ export default function App() {
     () => (chosenFilters && contractMask ? { ...chosenFilters, keepMask: contractMask } : chosenFilters),
     [chosenFilters, contractMask],
   );
+  // The drill panels read contract type as one more column (the user, 26 Nov: "contract type also, before zone").
+  const [barSlot, setBarSlot] = useState(null);
+  const drillDs = useMemo(() => {
+    if (!care || !assets || !ds) return ds;
+    const names = [];
+    const ids = new Map();
+    const col = new Int32Array(ds.rows);
+    for (let i = 0; i < ds.rows; i++) {
+      const t = contractOf(ds, assets, i);
+      let id = ids.get(t);
+      if (id === undefined) { id = names.length; names.push(t); ids.set(t, id); }
+      col[i] = id;
+    }
+    return { ...ds, cols: { ...ds.cols, contractType: col }, dict: { ...ds.dict, contractType: names } };
+  }, [care, assets, ds]);
   const contractTypes = useMemo(
     () => (care && assets && assetRow
       ? Object.entries(assetRow.categories ?? {}).sort((a, b) => b[1] - a[1]).map(([k]) => k)
@@ -1547,6 +1562,8 @@ export default function App() {
             filters={chosenFilters}
             setFilters={setFilters}
             contractTypes={contractTypes}
+            slotRef={care ? setBarSlot : null}
+            slotTall={activeTab === 'performance' || (activeTab === 'calls' && callView !== TRACKER)}
           />
         )}
 
@@ -1765,7 +1782,10 @@ export default function App() {
             ) : (
               <DrillExplorer
                 key={`calls-${stateId}-${callView}`}
-                ds={ds}
+                ds={drillDs}
+                showAverages={care}
+                statsLabel="Open calls"
+                statsSlot={care ? barSlot : null}
                 rows={bucketRows}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
@@ -1783,7 +1803,7 @@ export default function App() {
 
         {activeTab === 'performance' && (
           <>
-            <div className="segmented-row">
+            <div className="segmented-row perf-row">
               <div className="segmented" role="tablist" aria-label="Performance measure">
                 {perfList.map((m) => (
                   <button
@@ -1798,7 +1818,9 @@ export default function App() {
             </div>
             <DrillExplorer
               key={`perf-${stateId}-${perfId}`}
-              ds={ds}
+              ds={drillDs}
+              showAverages={care}
+              statsSlot={care ? barSlot : null}
               rows={carePerfRows ? carePerfRows[perfMeasure.id] : (perfId === 'ftfr' ? ftfrRows : resolved)}
               referenceDay={referenceDay}
               onSelectRow={setDrawerRow}
@@ -1845,7 +1867,7 @@ export default function App() {
             {money.money === false ? (
               <DrillExplorer
                 key={`penalty-${stateId}`}
-                ds={ds}
+                ds={drillDs}
                 rows={penalties}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
@@ -1871,7 +1893,7 @@ export default function App() {
             ) : (
               <DrillExplorer
                 key={`money-${stateId}-${moneyId}`}
-                ds={ds}
+                ds={drillDs}
                 rows={moneyRows}
                 referenceDay={referenceDay}
                 onSelectRow={setDrawerRow}
@@ -1895,7 +1917,10 @@ export default function App() {
         {activeTab === 'repeats' && (
           <DrillExplorer
             key={`repeats-${stateId}`}
-            ds={ds}
+            ds={drillDs}
+            showAverages={care}
+            statsLabel="Repeat calls"
+                statsSlot={care ? barSlot : null}
             rows={idx}
             mode="repeats"
             referenceDay={referenceDay}

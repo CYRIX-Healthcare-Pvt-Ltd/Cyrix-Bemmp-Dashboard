@@ -31,6 +31,15 @@ const textOf = (ds, field, i) => {
   return id == null || id < 0 ? '' : ds.dict[field]?.[id] ?? '';
 };
 
+/** Raised, job start and job end as milliseconds (NaN where blank), for the ticket list. */
+export function careTimes(ds, i) {
+  return {
+    raised: msOf(textOf(ds, 'receivedAt', i)),
+    start: msOf(textOf(ds, 'attendedAt', i)),
+    end: msOf(textOf(ds, 'completedAt', i)),
+  };
+}
+
 /** Days from raised to job start and to job end, or NaN where a time is missing. */
 export function tatOf(ds, i) {
   const r = msOf(textOf(ds, 'receivedAt', i));

@@ -142,7 +142,7 @@ function Search({ label, dict, value, onChange, allLabel, allow }) {
   );
 }
 
-export default function Filters({ ds, filters, setFilters, contractTypes }) {
+export default function Filters({ ds, filters, setFilters, contractTypes, slotRef, slotTall = false }) {
   const { dict } = ds;
   const dateRange = ds.meta.dateRange;
   const stateId = ds.meta.id;
@@ -289,6 +289,8 @@ export default function Filters({ ds, filters, setFilters, contractTypes }) {
             {saved ? 'Back to saved view' : 'Reset all filters'}
           </button>
         )}
+        {/* Care 360 summary cards on pages without sub-tabs sit here, opposite Filters (the user, 26 Nov). */}
+        {slotRef && <div className={`bar-stats-slot${slotTall ? ' is-tall' : ''}`} ref={slotRef} />}
       </div>
 
       {/* A drawer rather than a band across the page. Expanded in place it cost a
