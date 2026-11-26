@@ -1398,14 +1398,14 @@ button.qt-qfile-ico { cursor: pointer; }
 .qt-notify button:not([data-role='team_lead']) { --role-text: var(--role); }
 .qt-tl-note-bell { display: flex; align-items: flex-start; gap: 8px; }
 .qt-tl-note-bell > span { flex: 1; min-width: 0; }
-.qt-bell { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin: -4px -6px -4px 0; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
-.qt-bell:hover, .qt-bell[data-on='true'] { color: var(--ink); border-color: var(--ink); }
+button.qt-bell { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin: -4px -6px -4px 0; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+button.qt-bell:hover, button.qt-bell[data-on='true'] { color: var(--ink); border-color: var(--ink); }
 .qt-ping { margin-top: 8px; }
 .qt-ping .qt-notify { margin-top: 0; }
 .qt-changes { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, #9333ea 10%, transparent); border: 1px solid color-mix(in srgb, #9333ea 35%, var(--border)); }
 .qt-changes b { font-size: 12px; color: var(--text-muted); }
-.qt-bell { color: var(--role-text, var(--role, var(--ink))); border-color: color-mix(in srgb, var(--role, var(--ink)) 55%, var(--border)); background: color-mix(in srgb, var(--role, var(--ink)) 12%, transparent); }
-.qt-bell:hover, .qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }
+button.qt-bell { color: var(--role-text, var(--role, var(--ink))); border-color: color-mix(in srgb, var(--role, var(--ink)) 55%, var(--border)); background: color-mix(in srgb, var(--role, var(--ink)) 12%, transparent); }
+button.qt-bell:hover, button.qt-bell[data-on='true'] { color: var(--role-ink, #fff); background: var(--role, var(--ink)); border-color: var(--role, var(--ink)); }
 .qt-yl-secs-title { font-size: 14px; font-weight: 700; padding: 6px 4px 2px; }
 .qt-yl-secs .qt-yl-terms { border-top: 1px solid var(--control-border); }
 .qt-yc-calc { color: #b45309 !important; }
@@ -1416,3 +1416,46 @@ button.qt-qfile-ico { cursor: pointer; }
 :root[data-theme='dark'] .qt-yc-list li.qt-yc-t-in b { color: #4ade80; }
 :root[data-theme='dark'] .qt-yc-list li.qt-yc-t-count b { color: #facc15; }
 :root[data-theme='dark'] .qt-yc-list li.qt-yc-t-calc b { color: #60a5fa; }
+
+/* Quotations → Tracker (the user, 26 Nov): their quotation tracker Excel, our QR number before the QTN number. */
+.qt-qsubs { justify-self: start; }
+.qt-trk { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.qt-trk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.qt-trk-bar > .mt-period { margin: 0; flex: 0 1 auto; }
+.qt-trk-bar > .qt-search { flex: 1 1 220px; min-width: 0; margin: 0; }
+.qt-trk-excel { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 0; background: #107c41; color: #fff; font-weight: 650; }
+.qt-trk-excel:hover:not(:disabled) { background: #0b6a37; }
+.qt-trk-excel:disabled { opacity: 0.5; }
+.qt-trk-count { font-size: 12.5px; color: var(--text-secondary); }
+.qt-trk-cards { display: grid; gap: 10px; }
+.qt-trk-card { all: unset; box-sizing: border-box; display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); cursor: pointer; min-width: 0; }
+.qt-trk-card:hover { border-color: var(--text-muted); }
+.qt-trk-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.qt-trk-top b { overflow-wrap: anywhere; font-size: 14px; }
+.qt-trk-top em { font-style: normal; font-size: 12px; font-weight: 650; padding: 2px 8px; border-radius: 999px; background: var(--hover-wash); white-space: nowrap; }
+.qt-trk-cust { font-size: 14px; }
+.qt-trk-eq { font-size: 13px; color: var(--text-secondary); }
+.qt-trk-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.qt-trk-foot b { color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.qt-trk-foot small { font-weight: 500; color: var(--text-secondary); font-size: 11.5px; }
+.qt-trk-status { font-size: 12px; color: var(--text-muted); }
+.qt-trk-wrap { display: none; }
+@container (min-width: 760px) {
+  .qt-trk-cards { display: none; }
+  .qt-trk-wrap { display: block; overflow: auto; max-height: calc(100vh - 260px); border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+  .qt-trk-table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 12.5px; }
+  .qt-trk-table th { position: sticky; top: 0; z-index: 1; background: #3a3a3a; color: #fff; font-weight: 650; text-align: left; padding: 9px 10px; border-bottom: 2px solid #da251d; white-space: nowrap; }
+  .qt-trk-table th button { all: unset; cursor: pointer; }
+  .qt-trk-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; white-space: nowrap; }
+  .qt-trk-table tbody tr { cursor: pointer; }
+  .qt-trk-table tbody tr:hover td { background: var(--hover-wash); }
+  .qt-trk-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .qt-trk-table .qt-trk-wide { white-space: normal; min-width: 200px; max-width: 300px; }
+  .qt-trk-table .qt-trk-qr { font-weight: 650; }
+}
+
+.qt-qbook-bar.qt-qbook-bar-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.qt-qbook-bar-tabs > .qt-search { flex: 1 1 220px; min-width: 0; margin: 0; }
+.qt-qbook-bar-tabs > .qt-qbook-new { flex: 0 0 auto; padding: 0 18px; }
+.qt-qbook-bar-tabs > .qt-search, .qt-trk-bar > .qt-search { width: auto; max-width: none; flex: 1 1 220px; }
+.qt-qbook-bar-tabs > .qt-qbook-new, .qt-trk-bar > .qt-trk-excel { width: auto; flex: 0 0 auto; white-space: nowrap; }

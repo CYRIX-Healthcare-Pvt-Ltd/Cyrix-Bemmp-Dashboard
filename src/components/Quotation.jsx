@@ -21,6 +21,7 @@ import { readGrid } from '../data/readSheet.js';
 import { fillWord } from '../data/quoteWord.js';
 import { readBlanks, fillBlanks, cleanYellow } from '../data/quoteBlanks.js';
 import { writeBook, saveBlob } from '../data/xlsx.js';
+import { trackerXlsx } from '../data/qtTrackerXlsx.js';
 import '../medtronic.css';
 import '../pm.css';
 import '../quotation.css';
@@ -57,8 +58,8 @@ function tabsFor(me) {
   if (r === 'engineer' || r === 'team_lead') t.push({ id: 'new', label: 'New request', short: 'New' });
   if (r === 'coordinator') t.push({ id: 'new', label: 'Stock request', short: 'Stock req' });
   t.push({ id: 'stock', label: 'Stock register', short: 'Stock' });
-  if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
   if ((r === 'coordinator' || me.lead) && me.make) t.push({ id: 'quotations', label: 'Quotations', short: 'Quotations' }, { id: 'templates', label: 'Quotation templates', short: 'Templates' });
+  if (r === 'coordinator' || me.lead) t.push({ id: 'hospitals', label: 'Hospitals', short: 'Hospitals' });
   // Settings (the targets): SW Admin only (0066; the user, 18 Nov: "not needed for pur, tl, pv, only sw admin").
   if (me.admin) t.push({ id: 'settings', label: 'Settings', short: 'Settings' });
   return t;
@@ -1151,7 +1152,7 @@ const FREE_NEW = 'free-new';
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => ((Math.random() * 16) | 0).toString(16)));
 const QUOTE_COLS = [['qtn_no', 'QTN number'], ['date', 'Date'], ['to', 'To'], ['total', 'Grand total'], ['by_name', 'Made by']];
 
-function Quotations({ me, onToast }) {
+function QuoteBook({ me, onToast, tabs }) {
   const [list, setList] = useState(null);
   const [failed, setFailed] = useState(null);
   const [q, setQ] = useState('');
@@ -1208,7 +1209,8 @@ function Quotations({ me, onToast }) {
   const cols = QUOTE_COLS.filter(([k]) => k !== 'by_name' || everyone);
   return (
     <div className="qt-qbook">
-      <div className="qt-qbook-bar">
+      <div className="qt-qbook-bar qt-qbook-bar-tabs">
+        {tabs}
         <Search value={q} onChange={setQ} placeholder="QTN number, hospital, item" />
         {everyone && people.length > 2 && <Picker value={who} options={people} onChange={setWho} title="Made by" />}
         <button type="button" className="mt-go qt-qbook-new" data-role="engineer" onClick={pickTpl}><Icon d={I.doc} size={18} /><span>Create quotation</span></button>
@@ -1247,6 +1249,214 @@ function Quotations({ me, onToast }) {
       {view && <FileView path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn_no, to: view.to })} onClose={() => setView(null)} />}
       {tplBox}
       {askBox}
+    </div>
+  );
+}
+
+/*
+  Quotations: the tracker of every quotation sent (the user, 26 Nov: their "quotation Tracker.xlsx" with our QR number
+  before the QTN number, and a download) | the quotations made without a request. The sub-tab rides in the address.
+*/
+const QSUBS = [['tracker', 'Tracker'], ['book', 'Created']];
+function Quotations({ me, onToast }) {
+  const [sub, setSubRaw] = useState(() => (new URL(window.location.href).searchParams.get('sub') === 'book' ? 'book' : 'tracker'));
+  const setSub = (v) => {
+    setSubRaw(v);
+    const u = new URL(window.location.href); u.searchParams.set('sub', v);
+    window.history.replaceState(null, '', u);
+  };
+  const tabs = (
+    <div className="segmented qt-qsubs" role="tablist" aria-label="Quotations">
+      {QSUBS.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={sub === id} onClick={() => setSub(id)}>{label}</button>)}
+    </div>
+  );
+  return (
+    <div className="qt-qbook">
+      {sub === 'tracker' ? <QuoteTracker me={me} onToast={onToast} tabs={tabs} /> : <QuoteBook me={me} onToast={onToast} tabs={tabs} />}
+    </div>
+  );
+}
+
+const istDay = (ts) => (ts ? new Date(Date.parse(ts) + 5.5 * 3600000).toISOString().slice(0, 10) : '');
+const monthName = (iso) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleString('en-IN', { month: 'long' }) : '');
+const numOf = (v) => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+/** The quotation's totals: before tax, tax, with tax. */
+function docSums(d) {
+  try {
+    return d?.v === 2 ? totalsOf(d.Y, itemsOf(d.Y, d.items, d.rows), d.gst, d.lump)
+      : d?.layout ? layoutTotals(d.items, d.layout, d.gst, d.lump) : quoteTotals(d?.items ?? []);
+  } catch { return null; }
+}
+/** Excl. tax: the saved grand total less its GST; else the quotation's own lines. Unknown GST → blank, never a guess. */
+function costOf(doc, total) {
+  const g = doc?.gst == null || doc.gst === '' ? NaN : Number(doc.gst);
+  if (total != null && Number.isFinite(g)) return Math.round((Number(total) / (1 + g / 100)) * 100) / 100;
+  const t = doc ? docSums(doc) : null;
+  return t && Number(t.total) > 0 ? Math.round(Number(t.total) * 100) / 100 : null;
+}
+const itemsText = (doc) => (doc?.items ?? []).map((i) => String(i.desc ?? i.c1g0 ?? '').trim()).filter(Boolean).join('; ');
+const qtyOf = (doc) => {
+  const k = doc?.Y?.price?.fields?.find((f) => f.qty)?.key;
+  return k ? (doc.items ?? []).reduce((a, i) => a + numOf(i[k]), 0) || null : null;
+};
+const equipmentOf = (r) => {
+  const machine = [r.make, r.equipment].filter(Boolean).join(' ');
+  return [r.spare, machine && `for ${machine}`, r.model && `(${r.model})`].filter(Boolean).join(' ');
+};
+
+/** One row per quotation sent: the latest revision of each, from requests, then those made without one. */
+function trackerRows(reqs, free) {
+  const out = [];
+  for (const r of reqs ?? []) {
+    if (r.kind !== 'request') continue;
+    const { cards } = matchQuotes(r);
+    for (const c of latestOnly(cards)) {
+      const q = c.q; const doc = q.doc ?? null;
+      const qdate = (doc?.date && /^\d{4}-\d{2}-\d{2}/.test(doc.date) ? doc.date.slice(0, 10) : '') || istDay(q.at);
+      const req = istDay(r.created_at);
+      out.push({
+        key: q.path ?? `${r.id}-${q.qtn_no}`, reqId: r.id, path: q.path, doc, own: r.coord_id,
+        qr: r.no, qtn: q.qtn_no ?? '', month: monthName(qdate), by: r.coord_name ?? '', req, qdate,
+        age: req && qdate ? Math.max(0, Math.round((Date.parse(qdate) - Date.parse(req)) / 86400000)) : null,
+        customer: r.hospital ?? q.qtn_to ?? '', dist: r.district ?? '', loc: r.state ?? '',
+        equipment: equipmentOf(r) || itemsText(doc), qty: r.approved_qty ?? r.qty ?? qtyOf(doc),
+        cost: costOf(doc, q.total), tax: doc?.gst ?? null,
+        status: r.done ? stepOf(r.step).label : statusOf(r),
+        remarks: [c.state ? STATE[c.state][1] : '', r.close_note].filter(Boolean).join(' · '),
+        total: q.total,
+      });
+    }
+  }
+  for (const x of free ?? []) {
+    const qdate = x.date ? String(x.date).slice(0, 10) : istDay(x.created_at);
+    out.push({
+      key: `free-${x.id}`, path: x.path, doc: x.doc, own: x.made_by,
+      qr: '', qtn: x.qtn_no ?? '', month: monthName(qdate), by: x.by_name ?? '', req: '', qdate, age: null,
+      customer: x.to ?? '', dist: '', loc: '', equipment: itemsText(x.doc), qty: qtyOf(x.doc),
+      cost: costOf(x.doc, x.total), tax: x.doc?.gst ?? null, status: 'Created', remarks: '', total: x.total,
+    });
+  }
+  return out.sort((a, b) => (b.qdate || '').localeCompare(a.qdate || '') || String(b.qtn).localeCompare(String(a.qtn)));
+}
+
+const TRK_SORT = { qr: (x) => Number(String(x.qr).replace(/\D/g, '')) || 0, qtn: (x) => String(x.qtn).toLowerCase(), qdate: (x) => x.qdate || '',
+  req: (x) => x.req || '', age: (x) => x.age ?? -1, customer: (x) => String(x.customer).toLowerCase(), cost: (x) => x.cost ?? -1,
+  status: (x) => String(x.status).toLowerCase(), by: (x) => String(x.by).toLowerCase(), dist: (x) => String(x.dist).toLowerCase(), loc: (x) => String(x.loc).toLowerCase() };
+
+function QuoteTracker({ me, onToast, tabs }) {
+  const { openReq } = useContext(QtCtx);
+  const [reqs, setReqs] = useState(null);
+  const [free, setFree] = useState([]);
+  const [failed, setFailed] = useState(false);
+  const [period, setPeriod] = useState({ id: 'all', from: '', to: '' });
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [sort, setSort] = useState({ key: 'qdate', dir: -1 });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [view, setView] = useState(null);
+  useEffect(() => {
+    loadList(null, null).then((l) => setReqs(l ?? [])).catch(() => { setFailed(true); setReqs([]); });
+    loadQuotes().then((l) => setFree(l ?? [])).catch(() => {});
+  }, []);
+  // Only one's own quotations (the user, 26 Nov: "amal should only see his"); SW Admin sees everybody's.
+  const all = useMemo(() => (reqs ? trackerRows(reqs, free).filter((x) => me.admin || x.own === me.id) : null), [reqs, free, me.admin, me.id]);
+  const statuses = useMemo(() => {
+    const m = new Map(); for (const x of all ?? []) m.set(x.status, (m.get(x.status) ?? 0) + 1);
+    return [{ value: '', label: 'All statuses' }, ...[...m.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => ({ value: v, label: `${v} · ${n}` }))];
+  }, [all]);
+  const shown = useMemo(() => {
+    const [from, to] = periodRange(period);
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const out = (all ?? []).filter((x) => (!from || x.qdate >= from) && (!to || x.qdate <= to) && (!status || x.status === status)
+      && words.every((w) => [x.qr, x.qtn, x.customer, x.dist, x.loc, x.equipment, x.by, x.status].join(' ').toLowerCase().includes(w)));
+    const val = TRK_SORT[sort.key] ?? TRK_SORT.qdate;
+    return out.sort((a, b) => { const A = val(a), B = val(b); return (A < B ? -1 : A > B ? 1 : 0) * sort.dir; });
+  }, [all, period, q, status, sort]);
+  const by = (key) => setSort((o) => ({ key, dir: o.key === key ? -o.dir : ['qdate', 'req', 'age', 'cost', 'qr'].includes(key) ? -1 : 1 }));
+  const excel = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const [from, to] = periodRange(period);
+      const label = period.id === 'all' ? 'All time' : period.id === 'month' ? monthName(todayIst()) : [from, to].filter(Boolean).join(' to ');
+      saveBlob(await trackerXlsx(shown), `Quotation tracker ${label}.xlsx`);
+      onToast?.('Excel downloaded.');
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const open = (x) => (x.reqId ? openReq(x.reqId) : setView(x));
+  const th = (k, label, cls = '') => (
+    <th className={cls} aria-sort={sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : undefined}>
+      <button type="button" onClick={() => by(k)}>{label}{sort.key === k && <span aria-hidden="true">{sort.dir > 0 ? ' ↑' : ' ↓'}</span>}</button>
+    </th>
+  );
+  const cost = (n) => (n == null ? '' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  return (
+    <div className="qt-trk">
+      <div className="qt-trk-bar">
+        {tabs}
+        <PeriodBar period={period} setPeriod={setPeriod} />
+        <Search value={q} onChange={setQ} placeholder="QR, QTN, hospital, item, done by" />
+        {statuses.length > 2 && <Picker value={status} options={statuses} onChange={setStatus} title="Status" />}
+        <button type="button" className="mt-btn qt-trk-excel" onClick={excel} disabled={busy || !shown.length}><Icon d={I.down} size={17} /> {busy ? 'Preparing…' : 'Excel'}</button>
+      </div>
+      {err && <p className="mt-err" role="alert">{err}</p>}
+      {failed ? <p className="mt-err" role="alert">The quotations could not be loaded.</p>
+        : all === null ? <div className="loader" aria-hidden="true" />
+        : !shown.length ? <p className="empty-inline pm-empty">{all.length ? 'No quotation matches.' : 'No quotation yet.'}</p> : (
+        <>
+          <div className="qt-trk-count">{shown.length} {shown.length === 1 ? 'quotation' : 'quotations'}</div>
+          <div className="qt-trk-cards">
+            {shown.map((x) => (
+              <button key={x.key} type="button" className="qt-trk-card" onClick={() => open(x)}>
+                <span className="qt-trk-top"><b>{x.qtn || '—'}</b>{x.qr && <em>{x.qr}</em>}</span>
+                <span className="qt-trk-cust">{x.customer}{x.dist ? `, ${x.dist}` : ''}</span>
+                <span className="qt-trk-eq">{x.equipment}{x.qty ? ` × ${x.qty}` : ''}</span>
+                <span className="qt-trk-foot">
+                  <span>{dayText(x.qdate)}{x.age != null ? ` · ${x.age} d` : ''}</span>
+                  <b>{x.cost != null ? `₹${cost(x.cost)}` : ''}{x.tax != null ? <small> + {x.tax}%</small> : null}</b>
+                </span>
+                <span className="qt-trk-status">{x.status}{x.by ? ` · ${x.by}` : ''}</span>
+              </button>
+            ))}
+          </div>
+          <div className="qt-trk-wrap">
+            <table className="qt-trk-table">
+              <thead>
+                <tr>
+                  <th className="num">SL</th>{th('qr', 'QR no')}{th('qtn', 'QTN no')}<th>Month</th>{th('by', 'Done by')}
+                  {th('req', 'Requested')}{th('qdate', 'Quotation date')}{th('age', 'Age', 'num')}{th('customer', 'Customer')}
+                  {th('dist', 'Dist')}{th('loc', 'Loc')}<th>Equipment (model / spare part)</th><th className="num">Qty</th>
+                  {th('cost', 'Cost tax excl', 'num')}<th className="num">Tax %</th>{th('status', 'Status')}<th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((x, i) => (
+                  <tr key={x.key} onClick={() => open(x)}>
+                    <td className="num">{i + 1}</td>
+                    <td className="qt-trk-qr">{x.qr}</td>
+                    <td className="qt-trk-qtn"><b>{x.qtn}</b></td>
+                    <td>{x.month}</td>
+                    <td>{x.by}</td>
+                    <td className="qt-trk-day">{dayText(x.req)}</td>
+                    <td className="qt-trk-day">{dayText(x.qdate)}</td>
+                    <td className="num">{x.age ?? ''}</td>
+                    <td className="qt-trk-wide">{x.customer}</td>
+                    <td>{x.dist}</td>
+                    <td>{x.loc}</td>
+                    <td className="qt-trk-wide">{x.equipment}</td>
+                    <td className="num">{x.qty ?? ''}</td>
+                    <td className="num">{cost(x.cost)}</td>
+                    <td className="num">{x.tax != null ? `${x.tax}%` : ''}</td>
+                    <td>{x.status}</td>
+                    <td>{x.remarks}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {view && <FileView path={view.path} name={quoteFileName(view.doc ?? { qtn_no: view.qtn, to: view.customer })} onClose={() => setView(null)} />}
     </div>
   );
 }
