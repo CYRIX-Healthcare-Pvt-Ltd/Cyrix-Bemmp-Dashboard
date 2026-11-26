@@ -4079,3 +4079,8 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 /* Care 360 tiles: Breakdown and PMS beside the figure, small (the user, 26 Nov). */
 .k-split { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
 .k-split b { color: var(--text-primary); font-weight: 650; }
+
+/* Care 360 chart: Breakdown and PMS (the user, 26 Nov). */
+.split-legend { display: flex; gap: 16px; margin: -4px 0 8px; font-size: 12px; color: var(--text-secondary); }
+.split-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.chart-wrap g.split-dim { opacity: 0.45; }

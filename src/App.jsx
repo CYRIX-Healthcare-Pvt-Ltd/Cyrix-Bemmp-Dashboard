@@ -36,7 +36,7 @@ import { QT_PROJECT, loadQtMe } from './data/quotation.js';
 import RefreshButton from './components/RefreshButton.jsx';
 import Filters from './components/Filters.jsx';
 import KpiTiles from './components/KpiTiles.jsx';
-import MetricChart from './components/MetricChart.jsx';
+import MetricChart, { SPLIT_COLORS } from './components/MetricChart.jsx';
 import BarList from './components/BarList.jsx';
 import DrillExplorer, { TOP_N } from './components/DrillExplorer.jsx';
 import TicketDrawer from './components/TicketDrawer.jsx';
@@ -927,7 +927,16 @@ export default function App() {
     () => (idx ? buildSeries(ds, idx, activeGranularity, referenceDay) : []),
     [ds, idx, activeGranularity, referenceDay],
   );
-  const metric = METRICS.find((m) => m.id === metricId) ?? METRICS[0];
+  // Care 360 has no penalty, so no penalty chart (the user, 26 Nov).
+  const metrics = care ? METRICS.filter((m) => m.id !== 'penalty') : METRICS;
+  const metric = metrics.find((m) => m.id === metricId) ?? metrics[0];
+  // Breakdown and PMS each on their own, for Care 360's split chart.
+  const splitSeries = useMemo(() => {
+    if (!care || !idx) return null;
+    const parts = byJob(ds, idx);
+    const by = (rows) => new Map(buildSeries(ds, rows, activeGranularity, referenceDay).map((p) => [p.key, p]));
+    return { bd: by(parts.breakdown), pm: by(parts.pms) };
+  }, [care, ds, idx, activeGranularity, referenceDay]);
 
   /**
    * Two of the four metrics cannot be judged right up to the reference date, and
@@ -1457,10 +1466,10 @@ export default function App() {
             <div className="panel chart-panel" style={{ '--i': 0 }}>
               <div className="chart-head">
                 <div className="chart-tabs" role="tablist" aria-label="Metric">
-                  {METRICS.map((m) => (
+                  {metrics.map((m) => (
                     <button
                       key={m.id} type="button" role="tab"
-                      aria-selected={m.id === metricId}
+                      aria-selected={m.id === metric.id}
                       className="chart-tab"
                       style={{ '--tab-accent': m.color }}
                       onClick={() => setMetricId(m.id)}
@@ -1491,7 +1500,13 @@ export default function App() {
                 {metric.note && plotted.length < series.length
                   && ` · ${metric.note(ds, referenceDay)}`}
               </p>
-              <MetricChart series={plotted} metric={metric} />
+              {splitSeries && (
+                <div className="split-legend">
+                  <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
+                  <span><i className="split-key" style={{ background: SPLIT_COLORS.pms }} />PMS</span>
+                </div>
+              )}
+              <MetricChart series={plotted} metric={metric} split={splitSeries} />
             </div>
 
             <div className="grid grid-2">
