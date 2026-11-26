@@ -4167,3 +4167,4 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .care-ftfr .ftfr-pct b { display: block; font-weight: 700; font-size: 14px; }
 .care-ftfr .ftfr-grand td { font-weight: 700; border-top: 2px solid var(--control-border); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .care-ftfr .ftfr-grand td.is-total { background: color-mix(in srgb, var(--status-good) 14%, transparent); }
+.line-point-label { font-size: 9.5px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 3px; stroke-linejoin: round; }

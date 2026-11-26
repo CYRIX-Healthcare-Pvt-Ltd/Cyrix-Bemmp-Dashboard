@@ -525,7 +525,24 @@ function LinesChart({ series, metric, split, height = 300 }) {
     // The last label always shows; one that would sit on it is dropped.
     const xLabels = series.map((d, i) => ({ i, label: d.label }))
       .filter(({ i }) => i === n - 1 || (i % every === 0 && n - 1 - i >= every));
-    return { x, y, base, lines, ticks, xLabels, dots: n <= 40 };
+    /*
+     * A small value at every point (the user, 26 Nov: "show labels, may be in small font"): at each period the higher
+     * line's label sits above its dot and the lower one's below, so two lines never share a spot. Thinned when the
+     * periods get too close for the text; the latest point is labelled at the end of its line instead.
+     */
+    const pointLabels = [];
+    const room = n > 1 ? step : plotW;
+    const stride = Math.max(1, Math.ceil(36 / Math.max(1, room)));
+    for (let i = 0; i < n - 1; i++) {
+      if (i % stride) continue;
+      const here = lines.filter((l) => l.vals[i] != null).sort((a, b) => b.vals[i] - a.vals[i]);
+      here.forEach((l, k) => {
+        const below = here.length > 1 && k === here.length - 1;
+        const yy = y(l.vals[i]) + (below ? 14 : -8);
+        pointLabels.push({ key: `${l.key}${i}`, x: x(i), y: Math.min(base - 3, Math.max(PAD.top - 4, yy)), color: l.color, v: l.vals[i] });
+      });
+    }
+    return { x, y, base, lines, ticks, xLabels, dots: n <= 40, pointLabels };
   }, [series, split, W, H, metric]);
 
   const onMove = (e) => {
@@ -574,6 +591,11 @@ function LinesChart({ series, metric, split, height = 300 }) {
         {geom.dots && geom.lines.map((l) => l.vals.map((v, i) => (v == null ? null : (
           <circle key={`${l.key}${i}`} cx={geom.x(i)} cy={geom.y(v)} r="3" fill="var(--surface, #fff)" stroke={l.color} strokeWidth="2" />
         ))))}
+        {geom.pointLabels.map((p) => (
+          <text key={`p${p.key}`} x={p.x} y={p.y} textAnchor="middle" className="line-point-label" style={{ fill: p.color }}>
+            {p.v.toFixed(1)}
+          </text>
+        ))}
         {geom.lines.map((l) => l.end && (
           <text
             key={`e${l.key}`} className="point-label" x={geom.x(l.end.i) + 8} y={l.end.ty} textAnchor="start"

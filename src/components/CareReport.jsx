@@ -28,7 +28,14 @@ export default function CareReport({ ds, filters, assets }) {
   const [monthKey, setMonthKey] = useState(() => (months[1] ?? months[0])?.key);
   const [againstKey, setAgainstKey] = useState(() => (months[2] ?? months[1])?.key);
   const [jobType, setJobType] = useState(() => jobTypes.find((j) => /breakdown/i.test(j.name))?.id ?? null);
-  const [by, setBy] = useState('state');
+  // The Report's sub-tab survives a reload (the user, 26 Nov).
+  const [by, setByState] = useState(() => {
+    try { return localStorage.getItem('bemmp-care-report-by') || 'state'; } catch { return 'state'; }
+  });
+  const setBy = (v) => {
+    setByState(v);
+    try { localStorage.setItem('bemmp-care-report-by', v); } catch { /* site data blocked */ }
+  };
 
   const month = months.find((m) => m.key === monthKey) ?? months[0];
   const against = months.find((m) => m.key === againstKey) ?? null;

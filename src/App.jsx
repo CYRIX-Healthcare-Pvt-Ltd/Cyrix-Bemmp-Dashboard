@@ -463,7 +463,8 @@ export default function App() {
   });
   const [drawerRow, setDrawerRow] = useState(null);
   const [metricId, setMetricId] = useState('volume');
-  const [perfId, setPerfId] = useState('ftfr');
+  // Kept across a reload, like the page and the Open calls view (the user, 26 Nov).
+  const [perfId, setPerfId] = useState(() => savedView().perfId ?? 'ftfr');
   const [moneyId, setMoneyId] = useState('perday');
   const [granularity, setGranularity] = useState(null); // null = follow the range
   // Bumped after a refresh; busts the HTTP cache and re-runs the loader below.
@@ -1234,9 +1235,9 @@ export default function App() {
    */
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView: wantedCallView }));
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ tab, callView: wantedCallView, perfId }));
     } catch { /* site data blocked; the app works, it just forgets */ }
-  }, [tab, wantedCallView]);
+  }, [tab, wantedCallView, perfId]);
 
   // Restoring a stored session takes a tick. Rendering the login form in that
   // tick would flash it at somebody who is already signed in.
