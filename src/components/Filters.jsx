@@ -142,7 +142,7 @@ function Search({ label, dict, value, onChange, allLabel, allow }) {
   );
 }
 
-export default function Filters({ ds, filters, setFilters, contractTypes, slotRef, slotTall = false }) {
+export default function Filters({ ds, filters, setFilters, contractTypes, ticketStatuses, slotRef, slotTall = false }) {
   const { dict } = ds;
   const dateRange = ds.meta.dateRange;
   const stateId = ds.meta.id;
@@ -409,6 +409,21 @@ export default function Filters({ ds, filters, setFilters, contractTypes, slotRe
             {BUCKET_LABEL.map((l, i) => <option key={l} value={i}>{l}</option>)}
           </select>
         </div>
+
+        {/* Care 360's tracker column, beside Status (the user, 27 Nov). */}
+        {ticketStatuses?.length > 0 && (
+          <div className="field">
+            <label htmlFor="f-ticket-status">Ticket status</label>
+            <select
+              id="f-ticket-status"
+              value={filters.ticketStatus ?? ''}
+              onChange={(e) => set({ ticketStatus: e.target.value || null })}
+            >
+              <option value="">All ticket statuses</option>
+              {ticketStatuses.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
 
         {contractTypes?.length > 0 && (
           <div className="field">

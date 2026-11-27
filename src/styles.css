@@ -3973,6 +3973,10 @@ body.is-resizing * { cursor: col-resize !important; }
 .tone-bad  { --tone: var(--status-critical); }
 .tone-warn { --tone: var(--status-warning); }
 .tone-info { --tone: var(--status-info); }
+.tone-good { --tone: var(--status-good); }
+.tone-violet { --tone: var(--series-5); }
+.tone-magenta { --tone: var(--series-4); }
+.tone-muted { --tone: var(--text-muted); }
 
 /* The open editor says the same thing. Options are reset to plain text
    first, because they inherit the select's tint and a red dash would read
@@ -3981,6 +3985,9 @@ select.cell option { color: var(--text-primary); }
 select.cell.tone-bad,  select.cell option.tone-bad  { color: var(--status-critical); }
 select.cell.tone-warn, select.cell option.tone-warn { color: var(--status-warning); }
 select.cell.tone-info, select.cell option.tone-info { color: var(--status-info); }
+select.cell.tone-good, select.cell option.tone-good { color: var(--status-good); }
+select.cell.tone-violet, select.cell option.tone-violet { color: var(--series-5); }
+select.cell.tone-magenta, select.cell option.tone-magenta { color: var(--series-4); }
 
 /*
  * Column rules.
@@ -4168,3 +4175,52 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .care-ftfr .ftfr-grand td { font-weight: 700; border-top: 2px solid var(--control-border); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .care-ftfr .ftfr-grand td.is-total { background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .line-point-label { font-size: 9.5px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 3px; stroke-linejoin: round; }
+
+/* Care 360 ticket tracker (27 Nov): status Excel upload beside the Excel button, and the summary's total row. */
+.care-status-upload { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.care-status-plan { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.care-status-plan button {
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font: inherit; font-weight: 600;
+  background: var(--surface); color: var(--text-primary); cursor: pointer;
+}
+.care-status-plan .care-status-ok { background: var(--status-good); border-color: var(--status-good); color: #fff; }
+.care-status-plan button:disabled { opacity: 0.6; cursor: default; }
+.care-status-msg { font-size: 12px; color: var(--status-good); }
+.care-status-msg.is-bad { color: var(--status-critical); }
+.care-status-summary tr.total td { background: var(--row-foot); font-weight: 680; color: var(--text-primary); }
+.care-status-summary thead th { position: static; }
+
+/*
+ * Tracker head in one band (the user, 27 Nov: "less space usage", every BEMMP tracker): title and count, search, the
+ * buttons and Tickets | Summary share a row that wraps on a phone, instead of three rows.
+ */
+.tracker-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding-top: 12px; padding-bottom: 12px; }
+.tracker-head > .panel-head, .tracker-head > .meeting-tools { display: contents; }
+.tracker-head .panel-head > :first-child { order: 1; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-right: 4px; }
+.tracker-head .panel-head h2 { margin: 0; font-size: 15px; }
+.tracker-head .panel-head .caption { margin: 0; font-size: 12px; }
+.tracker-head .meeting-tools > * { order: 2; }
+.tracker-head .meeting-search { flex: 1 1 200px; min-width: 0; }
+.tracker-head .meeting-search input { padding-top: 7px; padding-bottom: 7px; }
+.tracker-head .meeting-export { margin-left: 0; padding: 6px 12px; }
+.tracker-head .meeting-columns, .tracker-head .meeting-full { padding-top: 6px; padding-bottom: 6px; }
+.tracker-head .meeting-views { order: 3; margin-left: auto; flex: none; }
+.tracker-head .meeting-views .segmented button { padding-top: 5px; padding-bottom: 5px; }
+.tracker-head > .upload-error { order: 4; flex-basis: 100%; margin: 0; }
+@media (max-width: 640px) {
+  .tracker-head .meeting-views { order: 1; margin-left: auto; }
+}
+.care-sum-cards { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 900px) { .care-sum-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.care-sum-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text-primary); font: inherit;
+  text-align: left; transition: transform 0.2s var(--ease), border-color 0.2s;
+}
+.care-sum-card:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--baseline); }
+.care-sum-card:disabled { opacity: 0.55; cursor: default; }
+.care-sum-card { border-top: 3px solid var(--tone, var(--border)); }
+.care-sum-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--tone, var(--text-primary)); }
+.care-dot-tone { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 7px; vertical-align: 1px; }
+.care-sum-name { font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 640px) { .care-sum-cards { grid-template-columns: repeat(2, 1fr); } }

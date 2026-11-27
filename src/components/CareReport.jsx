@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { careReport, ftfrByContract, jobTypesOf, monthsOf } from '../data/careReport.js';
+import { careReport, careTickets, ftfrByContract, jobTypesOf, monthsOf } from '../data/careReport.js';
 import { saveBlob } from '../data/xlsx.js';
 import { careReportXlsx } from '../data/careReportXlsx.js';
+import { NOT_SET, PENDING_ORDER } from '../data/careStatus.js';
 
 const d2 = (n) => (n == null ? '–' : n.toFixed(2));
 const pctText = (n) => (n == null ? '–' : `${n > 0 ? '+' : ''}${Math.round(n * 100)}%`);
@@ -20,8 +21,14 @@ function Change({ value, up }) {
   );
 }
 
+/** Pending's parts: the five always (the user, 27 Nov), Completed and Not set only when some pending call has them. */
+function splitsOf(report) {
+  if (!report?.total.pendingBy || !Object.keys(report.total.pendingBy).length) return [];
+  return [...PENDING_ORDER, ...['Completed', NOT_SET].filter((k) => report.total.pendingBy[k])];
+}
+
 /** Care 360's Report tab: state or facility wise TATs, one month against another, and the Excel of it. */
-export default function CareReport({ ds, filters, assets }) {
+export default function CareReport({ ds, filters, assets, ticketStatus = null }) {
   const months = useMemo(() => monthsOf(ds), [ds]);
   const jobTypes = useMemo(() => jobTypesOf(ds), [ds]);
   // From the earlier month To the later one (the user, 26 Nov): last month against the month before, Breakdown calls.
@@ -41,8 +48,8 @@ export default function CareReport({ ds, filters, assets }) {
   const against = months.find((m) => m.key === againstKey) ?? null;
   const contractWise = by === 'contract';
   const report = useMemo(
-    () => (month && !contractWise ? careReport(ds, filters, { month, against, jobType, by }) : null),
-    [ds, filters, month, against, jobType, by],
+    () => (month && !contractWise ? careReport(ds, filters, { month, against, jobType, by, status: ticketStatus }) : null),
+    [ds, filters, month, against, jobType, by, ticketStatus],
   );
   // FTFR by AMC / CAMC, month by month From → To, like their own FTFR sheet (the user, 26 Nov).
   const span = useMemo(() => {
@@ -60,17 +67,19 @@ export default function CareReport({ ds, filters, assets }) {
   const A = month.label; const B = against?.label ?? '–';
   const cmp = Boolean(against) && against.key !== month.key;
   const first = by === 'facility' ? 'Facility' : 'State';
+  const splits = report ? splitsOf(report) : [];
+  const pend = (l, k) => (l.pendingBy?.[k] ? l.pendingBy[k].toLocaleString() : '');
 
   // Laid out like their own workbook: two heading rows, colours, icons (the user, 26 Nov).
+  // One workbook whichever sub-tab is open: State wise, Customer wise, FTFR contract wise, Ticket wise (the user, 27 Nov).
   const download = async () => {
-    if (contractWise) {
-      saveBlob(await careReportXlsx({ ftfr, A, B }), `${ds.meta.name} FTFR Contract Wise ${B} to ${A}.xlsx`);
-      return;
-    }
-    const name = by === 'facility' ? 'Customer Wise Summary' : 'State Wise Summary';
+    const summaries = ['state', 'facility'].map((k) => ({ by: k, report: careReport(ds, filters, { month, against, jobType, by: k, status: ticketStatus }) }));
+    const lo = Math.min(month.from, against?.from ?? month.from);
+    const hi = Math.max(month.to, against?.to ?? month.to);
+    const tickets = careTickets(ds, filters, { from: lo, to: hi, jobType, assets });
     saveBlob(
-      await careReportXlsx({ report, A, B, by, sheetName: name, cmp }),
-      cmp ? `${ds.meta.name} ${name} ${B} to ${A}.xlsx` : `${ds.meta.name} ${name} ${A}.xlsx`,
+      await careReportXlsx({ summaries, ftfr, tickets, ds, A, B, cmp, splits: splitsOf(summaries[0].report), status: ticketStatus }),
+      cmp ? `${ds.meta.name} Report ${B} to ${A}.xlsx` : `${ds.meta.name} Report ${A}.xlsx`,
     );
   };
 
@@ -112,7 +121,6 @@ export default function CareReport({ ds, filters, assets }) {
         )}
         <button
           type="button" className="meeting-export care-download" onClick={download}
-          disabled={contractWise && !ftfr}
         >
           Download Excel
         </button>
@@ -127,7 +135,7 @@ export default function CareReport({ ds, filters, assets }) {
               <th rowSpan={2}>{first}</th>
               {by === 'facility' && <th rowSpan={2}>State</th>}
               {/* The counts are the To month's, named over them as the TAT groups name theirs (the user, 26 Nov). */}
-              <th colSpan={3} className="summary-type band-end">{A}</th>
+              <th colSpan={3 + splits.length} className="summary-type band-end">{A}</th>
               <th colSpan={cmp ? 3 : 1} className="summary-type">Response TAT</th>
               <th colSpan={cmp ? 3 : 1} className="summary-type">Resolution TAT · closed in month</th>
               <th colSpan={cmp ? 3 : 1} className="summary-type">Logged &amp; closed same month</th>
@@ -136,7 +144,8 @@ export default function CareReport({ ds, filters, assets }) {
             <tr>
               <th className="num summary-sub">Total Calls</th>
               <th className="num summary-sub">Completed</th>
-              <th className="num summary-sub band-end">Pending</th>
+              <th className={`num summary-sub${splits.length ? '' : ' band-end'}`}>Pending</th>
+              {splits.map((k, n) => <th key={k} className={`num summary-sub care-split${n === splits.length - 1 ? ' band-end' : ''}`}>{k}</th>)}
               {cmp && <th className="num summary-sub group-start">{B}</th>}
               <th className={`num summary-sub${cmp ? '' : ' group-start'}`}>{A}</th>
               {cmp && <th className="num summary-sub">{A} vs {B}</th>}
@@ -159,7 +168,8 @@ export default function CareReport({ ds, filters, assets }) {
                 {by === 'facility' && <th>State</th>}
                 <th className="num">Total calls</th>
                 <th className="num">Completed</th>
-                <th className="num band-end">Pending</th>
+                <th className={`num${splits.length ? '' : ' band-end'}`}>Pending</th>
+                {splits.map((k, n) => <th key={k} className={`num care-split${n === splits.length - 1 ? ' band-end' : ''}`}>{k}</th>)}
                 <th className="num group-start">Response TAT</th>
                 <th className="num group-start">Resolution TAT · closed in month</th>
                 <th className="num group-start">Logged &amp; closed same month</th>
@@ -174,7 +184,8 @@ export default function CareReport({ ds, filters, assets }) {
                 {by === 'facility' && <td>{l.state}</td>}
                 <td className="num">{l.calls.toLocaleString()}</td>
                 <td className="num">{l.completed.toLocaleString()}</td>
-                <td className="num band-end">{l.pending.toLocaleString()}</td>
+                <td className={`num${splits.length ? '' : ' band-end'}`}>{l.pending.toLocaleString()}</td>
+                {splits.map((k, n) => <td key={k} className={`num care-split${n === splits.length - 1 ? ' band-end' : ''}`}>{pend(l, k)}</td>)}
                 {cmp && <td className="num group-start">{d2(l.responseB)}</td>}
                 <td className="num">{d2(l.responseA)}</td>
                 {cmp && <Change value={l.responseChange} />}
@@ -196,7 +207,8 @@ export default function CareReport({ ds, filters, assets }) {
               {by === 'facility' && <td />}
               <td className="num strong">{report.total.calls.toLocaleString()}</td>
               <td className="num strong">{report.total.completed.toLocaleString()}</td>
-              <td className="num strong band-end">{report.total.pending.toLocaleString()}</td>
+              <td className={`num strong${splits.length ? '' : ' band-end'}`}>{report.total.pending.toLocaleString()}</td>
+              {splits.map((k, n) => <td key={k} className={`num strong care-split${n === splits.length - 1 ? ' band-end' : ''}`}>{pend(report.total, k)}</td>)}
               {cmp && <td className="num strong group-start">{d2(report.total.responseB)}</td>}
               <td className="num strong">{d2(report.total.responseA)}</td>
               {cmp && <Change value={report.total.responseChange} />}

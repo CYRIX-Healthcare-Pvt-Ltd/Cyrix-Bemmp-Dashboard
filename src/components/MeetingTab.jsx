@@ -8,8 +8,30 @@ import {
   ALL_FIELDS, BLANK, BLANK_LABEL, MEETING_FIELDS, applyFilters, asChoice, holdRows,
   buildChoices, computeField, ensureRows, exportColumns, fieldsFor, filterField, isComputed,
   loadLog, loadNotes, reconcileOpen, saveField, upColumns, whenOf,
+  CARE_DEFAULT_SHOWN, CARE_EXPORT_HEADINGS, CARE_STATUSES, CARE_TONES, careColumns, careStatusAt,
 } from '../data/meeting.js';
+import { readGrid } from '../data/readSheet.js';
+import { careTicketId } from '../data/careReport.js';
+
+const CARE_IDS = ['c360', 'pvt'];
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+/** A FieldPro date cell — an Excel serial or "24-01-2026 10:12:58" — the way whenOf reads a date. */
+function careWhen(v) {
+  const s = String(v ?? '').trim();
+  if (!/^\d+(\.\d+)?$/.test(s)) return whenOf(s);
+  const d = new Date(EXCEL_EPOCH + Math.round(Number(s) * 86400) * 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  return whenOf(`${two(d.getUTCDate())}-${two(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`);
+}
+/** One of the six, whatever its case; '' otherwise. */
+const careStatusOf = (v) => CARE_STATUSES.find((o) => o.toLowerCase() === String(v ?? '').trim().toLowerCase()) ?? '';
+/** "PMPT_013502", "pmpt 13502" or "PMPT13502" → the tracker's own "PMPT13502". */
+function careTicketKey(v) {
+  const m = /^([A-Z]*)0*(\d+)$/.exec(String(v ?? '').toUpperCase().replace(/[_\s-]/g, ''));
+  return m ? `${m[1]}${Number(m[2])}` : '';
+}
 import { upPenalty } from '../../shared/upPenalty.mjs';
+import { STATES } from '../../shared/schema.mjs';
 
 /** Every field that is a date, whichever contract enters it. */
 const DATE_FIELDS = new Set(ALL_FIELDS.filter((f) => f.kind === 'date').map((f) => f.key));
@@ -1017,8 +1039,30 @@ export default function MeetingTab({
 
   // The contract's meeting fields, and its columns: Uttar Pradesh's own, or
   // Kerala's, which Andhra shares.
+  const care = CARE_IDS.includes(state);
+  /*
+   * Care 360's export columns. An upload from before every column was kept (27 Nov) has only the ones the dashboard
+   * reads, so those are shown under the export's names until the next upload brings the rest.
+   */
+  const raw = useMemo(() => {
+    if (!care) return null;
+    if (ds.meta.raw) return ds.meta.raw;
+    // Their Ticket Master's headings, in its order (the user, 27 Nov: "the header from the excel i shared").
+    const byHeading = STATES.find((x) => x.id === state)?.byHeading ?? {};
+    const have = CARE_EXPORT_HEADINGS.map((h) => {
+      const f = byHeading[h];
+      return [h, f && f !== 'ticket' && cols[f] && dict[f] ? f : null];
+    });
+    return {
+      headings: have.map(([h]) => h),
+      rows: Array.from({ length: ds.rows }, (_, i) => have.map(([, f]) => (f ? label(dict[f], cols[f][i], '') : ''))),
+    };
+  }, [care, ds, state, cols, dict]);
   const fields = useMemo(() => fieldsFor(state), [state]);
-  const columns = useMemo(() => (state === 'up' ? upColumns() : exportColumns(hasZone)), [state, hasZone]);
+  const columns = useMemo(
+    () => (care ? careColumns(raw) : state === 'up' ? upColumns() : exportColumns(hasZone)),
+    [care, raw, state, hasZone],
+  );
 
   /*
    * The columns somebody has chosen not to see. Per device and per contract,
@@ -1027,7 +1071,12 @@ export default function MeetingTab({
   const hiddenKey = `bemmp.tracker.hidden.${state}`;
   const [hidden, setHidden] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(hiddenKey) ?? '[]');
+      const stored = localStorage.getItem(hiddenKey);
+      // Care 360's export has 35 columns: a few to start with, the rest under Columns (the user, 27 Nov).
+      if (stored == null && care) {
+        return new Set(columns.filter((c) => c.rawAt != null && !CARE_DEFAULT_SHOWN.includes(c.key)).map((c) => c.key));
+      }
+      const saved = JSON.parse(stored ?? '[]');
       return new Set(Array.isArray(saved) ? saved : []);
     } catch {
       return new Set();
@@ -1195,6 +1244,23 @@ export default function MeetingTab({
   const upSearchText = (row) => ['division', 'serialNo', 'contactNo'].map((f) => upText(f, row))
     .concat(label(dict.department, cols.department[row], '')).join(' ');
 
+  // Care 360: each kept export column by its key, dates as the page writes them, and the export's own Ticket Status.
+  const careOf = (row) => {
+    const vals = raw?.rows?.[row];
+    if (!vals) return { tmStatus: '', careText: '' };
+    const out = {};
+    for (const c of columns) {
+      if (c.rawAt == null) continue;
+      const v = String(vals[c.rawAt] ?? '').trim();
+      if (c.date) {
+        const w = careWhen(v);
+        out[c.key] = w.shown; out[`${c.key}Day`] = w.day; out[`${c.key}At`] = w.at;
+      } else out[c.key] = v;
+    }
+    const at = careStatusAt(raw);
+    return { ...out, tmStatus: at < 0 ? '' : careStatusOf(vals[at]), careText: vals.join(' ') };
+  };
+
   const records = useMemo(() => rows.map((row) => {
     const ticket = ticketLabel(ds, row);
     const zone = hasZone ? label(dict.zone, cols.zone[row]) : '';
@@ -1260,12 +1326,14 @@ export default function MeetingTab({
       assigned,
       remark,
       ...(state === 'up' ? upColumnsOf(row) : {}),
+      ...(care ? careOf(row) : {}),
       // Everything somebody might have in front of them when they come
       // looking: a barcode off the machine, an engineer's name, a model.
       haystack: `${ticket} ${zone} ${district} ${facility} ${equipment} ${barcode} ${manufacturer} ${model} ${status} ${assigned} ${remark}${
         state === 'up' ? ` ${upSearchText(row)}` : ''}`.toLowerCase(),
     };
-  }), [ds, rows, cols, dict, referenceDay, hasZone, state]);
+  }).map((r) => (care ? { ...r, haystack: `${r.haystack} ${r.careText.toLowerCase()}` } : r)),
+  [ds, rows, cols, dict, referenceDay, hasZone, state, care, columns, raw]);
 
   /*
    * Uttar Pradesh's penalty needs each asset's per-day cost and priority —
@@ -1368,6 +1436,13 @@ export default function MeetingTab({
       }
 
       const loaded = await loadNotes(state, ids, phase('entries'));
+      // Care 360: nothing entered yet → the Ticket Status their export carries (the user, 27 Nov).
+      if (care) {
+        for (const r of records) {
+          const n = loaded.get(r.ticket);
+          if (r.tmStatus && n?.ticket_status == null) loaded.set(r.ticket, { ...(n ?? {}), ticket_status: r.tmStatus, fromTm: true });
+        }
+      }
       setProgress({ pct: 100, label: 'Ready' });
       setNotes(loaded);
       if (syncFailed) setError(`Entries are shown, but marking closed calls failed: ${syncFailed.message}. Reload to try again.`);
@@ -1377,13 +1452,71 @@ export default function MeetingTab({
       setNotes(new Map());
       setEpoch((n) => n + 1);
     }
-  }, [state, records, canEdit]);
+  }, [state, records, canEdit, care]);
 
   useEffect(() => { load(); }, [load]);
+
+  /*
+   * Care 360's status Excel (the user, 27 Nov): PMPT ID and Ticket Status, saved against each open call. Read, then
+   * asked about with the counts, then written.
+   */
+  const statusInput = useRef(null);
+  const [statusPlan, setStatusPlan] = useState(null);
+  const [statusMsg, setStatusMsg] = useState(null);
+  const readStatusFile = async (file) => {
+    setStatusMsg(null); setStatusPlan(null);
+    try {
+      const grid = await readGrid(file);
+      const loose = (h) => String(h ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      let head = -1; let idAt = -1; let stAt = -1;
+      for (let r = 0; r < Math.min(10, grid.length) && head < 0; r++) {
+        const hs = grid[r].map(loose);
+        const id = hs.findIndex((h) => h === 'pmptid' || h === 'mptid' || h === 'ticket' || h === 'ticketid');
+        const st = hs.findIndex((h) => h.startsWith('ticketstatus'));
+        if (id >= 0 && st >= 0) { head = r; idAt = id; stAt = st; }
+      }
+      if (head < 0) throw new Error('The file needs a PMPT ID column and a Ticket Status column.');
+      const open = new Map(records.map((r) => [careTicketKey(r.ticket), r.ticket]));
+      const changes = new Map(); let notOpen = 0; let unknown = 0; let same = 0;
+      for (const row of grid.slice(head + 1)) {
+        const id = careTicketKey(row[idAt]);
+        const raw = String(row[stAt] ?? '').trim();
+        if (!id || !raw) continue;
+        const status = careStatusOf(raw);
+        if (!status) { unknown++; continue; }
+        const ticket = open.get(id);
+        if (!ticket) { notOpen++; continue; }
+        const n = notes?.get(ticket);
+        if (n && !n.fromTm && n.ticket_status === status) { same++; continue; }
+        changes.set(ticket, status);
+      }
+      setStatusPlan({ name: file.name, changes, notOpen, unknown, same });
+    } catch (e) {
+      setStatusMsg({ bad: true, text: e.message });
+    }
+  };
+  const applyStatusPlan = async () => {
+    const list = [...statusPlan.changes].map(([ticket, ticket_status]) => ({ state, ticket, ticket_status }));
+    setStatusPlan((p) => ({ ...p, busy: true }));
+    try {
+      for (let i = 0; i < list.length; i += 500) {
+        const { error: e } = await supabase.from('meeting_note').upsert(list.slice(i, i + 500), { onConflict: 'state,ticket' });
+        if (e) throw e;
+      }
+      setStatusPlan(null);
+      setStatusMsg({ text: `${list.length.toLocaleString()} updated` });
+      window.dispatchEvent(new Event('care-status-changed'));
+      await load();
+    } catch (e) {
+      setStatusPlan((p) => ({ ...p, busy: false }));
+      setStatusMsg({ bad: true, text: e.message });
+    }
+  };
 
   const commit = useCallback((ticket, key) => async (value) => {
     const updated = await saveField(state, ticket, key, value);
     setNotes((prev) => new Map(prev).set(ticket, updated));
+    if (key === 'ticket_status') window.dispatchEvent(new Event('care-status-changed'));
   }, [state]);
 
   /*
@@ -1697,6 +1830,7 @@ export default function MeetingTab({
       const note = notes.get(r.ticket) ?? {};
       return {
         ...r,
+        ...(care ? { ticket: careTicketId(ds, r.row) } : {}),
         // Dates as the page shows them. A date serial in a text column would be
         // a number nobody can read, and a real date cell needs a number format
         // this writer deliberately does not carry.
@@ -1737,6 +1871,30 @@ export default function MeetingTab({
    */
   const summary = useMemo(() => {
     if (view !== 'summary' || !notes) return null;
+    // Care 360: open calls by Ticket Status (with how long they have been open) and by state; no penalty
+    // (the user, 27 Nov: "need good useful summary, ie need pending wise also").
+    if (care) {
+      const ORDER = ['Under Observation', 'Customer', 'Revive Lab', 'Cyrix', 'Purchase', 'Completed', 'Not set'];
+      const AGES = [['0–2 days', 2], ['3–7 days', 7], ['8–15 days', 15], ['16–30 days', 30], ['Over 30 days', Infinity]];
+      const blank = (name) => ({ name, open: 0, counts: {}, ages: AGES.map(() => 0), oldest: 0, days: 0 });
+      const byState = new Map(); const byStatus = new Map(ORDER.map((k) => [k, blank(k)]));
+      const total = blank('Total');
+      for (const r of records) {
+        const st = notes.get(r.ticket)?.ticket_status || 'Not set';
+        const name = r.x_state || r.zone || '—';
+        if (!byState.has(name)) byState.set(name, blank(name));
+        const a = AGES.findIndex(([, max]) => r.age <= max);
+        for (const g of [byState.get(name), byStatus.get(st) ?? byStatus.get('Not set'), total]) {
+          g.open++; g.counts[st] = (g.counts[st] ?? 0) + 1; g.ages[a]++; g.days += r.age;
+          if (r.age > g.oldest) g.oldest = r.age;
+        }
+      }
+      return {
+        care: true, order: ORDER, ages: AGES.map(([l]) => l), total,
+        statuses: [...byStatus.values()],
+        lines: [...byState.values()].sort((a, b) => b.open - a.open || a.name.localeCompare(b.name)),
+      };
+    }
     const typeByRow = new Map();
     for (const r of records) {
       const name = notes.get(r.ticket)?.penalty_type;
@@ -1746,12 +1904,12 @@ export default function MeetingTab({
       ds, unresolvedRows ?? rows, (row) => typeByRow.get(row) ?? null, types,
       referenceDay,
     );
-  }, [view, notes, records, ds, unresolvedRows, rows, types, referenceDay]);
+  }, [view, notes, records, ds, unresolvedRows, rows, types, referenceDay, care]);
 
   if (!notes) {
     return (
       <div className="panel tracker-loading">
-        <h2>Daily penalty meeting</h2>
+        <h2>{care ? 'Ticket tracker' : 'Daily penalty meeting'}</h2>
         <p className="caption">
           {rows.length.toLocaleString()} calls, and what the meeting has recorded
           against each one.
@@ -1793,23 +1951,20 @@ export default function MeetingTab({
       {/* Raised while the column chooser is open: both panels animate in, so
           each is its own layer, and the grid's — later in the page — would
           otherwise paint over a panel that drops out of this one. */}
-      <div className={`panel${picking ? ' is-raised' : ''}`}>
+      <div className={`panel tracker-head${picking ? ' is-raised' : ''}`}>
         <div className="panel-head">
           <div>
-            <h2>Daily penalty meeting</h2>
+            <h2>{care ? 'Ticket tracker' : 'Daily penalty meeting'}</h2>
             {/* Says "every date" out loud, because the filter bar above this may
                 well read "This month" — and a count that disagrees with the
                 filter summary next to it looks like a fault rather than a
                 decision. The oldest calls are the point of the meeting.
                 Uttar Pradesh has no filter bar to disagree with; what it needs
                 said is that its penalty runs to today, as its workbook's does. */}
+            {/* One short line for every contract (the user, 27 Nov: less space). */}
             <p className="caption">
-              {rows.length.toLocaleString()} open calls as of {formatDay(referenceDay)}
-              {state === 'up'
-                ? ', with penalty counted to today.'
-                : ' — the whole backlog, every date, not just the selected range.'}
-              {' '}Entries save as you leave each field and carry over to tomorrow.
-              {sync?.closed ? ` ${sync.closed.toLocaleString()} closed since the last export.` : ''}
+              {rows.length.toLocaleString()} open calls · {formatDay(referenceDay)}
+              {sync?.closed ? ` · ${sync.closed.toLocaleString()} closed since the last export` : ''}
             </p>
           </div>
           <div className="meeting-views">
@@ -1848,7 +2003,7 @@ export default function MeetingTab({
             <input
               type="search"
               value={query}
-              placeholder={state === 'up'
+              placeholder={care ? 'Search ticket, state, hospital, equipment or barcode' : state === 'up'
                 ? 'Search MptId, district, hospital, asset no, product or model'
                 : `Search ticket, ${hasZone ? 'zone, ' : ''}district, facility or equipment`}
               aria-label="Search the open calls"
@@ -1878,9 +2033,6 @@ export default function MeetingTab({
 
           {/* Said once, and only until it has been used — a permanent
               instruction on a screen people work in every day is furniture. */}
-          {!sort && (
-            <span className="meeting-hint">Select any column heading to sort</span>
-          )}
 
           {/* Beside the search, because what it downloads is what the search
               left on screen. */}
@@ -1899,6 +2051,39 @@ export default function MeetingTab({
             </svg>
             Excel
           </button>
+
+          {care && canEdit && (
+            <span className="care-status-upload">
+              <input
+                ref={statusInput} type="file" accept=".xlsx" hidden
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) readStatusFile(f); }}
+              />
+              <button type="button" className="meeting-export" onClick={() => statusInput.current?.click()} disabled={statusPlan?.busy}>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 16V5M8 9l4-4 4 4" /><path d="M5 19h14" />
+                </svg>
+                Upload status
+              </button>
+              {statusPlan && (
+                <span className="care-status-plan" role="status">
+                  <span>
+                    {statusPlan.changes.size.toLocaleString()} to update
+                    {statusPlan.same ? ` · ${statusPlan.same.toLocaleString()} same` : ''}
+                    {statusPlan.notOpen ? ` · ${statusPlan.notOpen.toLocaleString()} not open` : ''}
+                    {statusPlan.unknown ? ` · ${statusPlan.unknown.toLocaleString()} status not known` : ''}
+                  </span>
+                  {statusPlan.changes.size > 0 && (
+                    <button type="button" className="care-status-ok" onClick={applyStatusPlan} disabled={statusPlan.busy}>
+                      {statusPlan.busy ? 'Updating…' : 'Update'}
+                    </button>
+                  )}
+                  <button type="button" className="care-status-cancel" onClick={() => setStatusPlan(null)} disabled={statusPlan.busy}>Cancel</button>
+                </span>
+              )}
+              {statusMsg && <span className={`care-status-msg${statusMsg.bad ? ' is-bad' : ''}`}>{statusMsg.text}</span>}
+            </span>
+          )}
 
           {/* Which columns to see; remembered on this device, for this contract. */}
           <span className="column-picker-wrap">
@@ -1962,9 +2147,71 @@ export default function MeetingTab({
         )}
       </div>
 
-      {view === 'summary' && summary && (
+      {view === 'summary' && summary && !summary.care && (
         <TrackerSummary summary={summary} referenceDay={referenceDay} formatDay={formatDay} />
       )}
+      {view === 'summary' && summary?.care && (() => {
+        // A press on a status opens its tickets (the grid's own Ticket Status filter).
+        const open = (k) => { setFilters({ ticket_status: [k === 'Not set' ? BLANK : k] }); setQuery(''); setView('tickets'); };
+        const n = (v) => (v ? v.toLocaleString() : '');
+        return (
+          <>
+            <div className="care-sum-cards">
+              {summary.statuses.map((g) => (
+                <button key={g.name} type="button" className={`care-sum-card tone-${CARE_TONES[g.name] ?? 'muted'}`} onClick={() => open(g.name)} disabled={!g.open}>
+                  <span className="care-sum-num">{g.open.toLocaleString()}</span>
+                  <span className="care-sum-name">{g.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="panel">
+              <h3>By pending status</h3>
+              <div className="table-scroll">
+                <table className="summary-grid care-status-summary">
+                  <thead>
+                    <tr>
+                      <th>Ticket status</th><th className="num">Open calls</th>
+                      {summary.ages.map((l) => <th key={l} className="num">{l}</th>)}
+                      <th className="num">Average days</th><th className="num">Oldest</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...summary.statuses.filter((g) => g.open), summary.total].map((g) => (
+                      <tr key={g.name} className={g === summary.total ? 'total' : undefined}>
+                        <td>{g === summary.total ? g.name : <button type="button" className="linkish" onClick={() => open(g.name)}><span className={`care-dot-tone tone-${CARE_TONES[g.name] ?? 'muted'}`} aria-hidden="true" />{g.name}</button>}</td>
+                        <td className="num">{g.open.toLocaleString()}</td>
+                        {g.ages.map((v, k) => <td key={k} className="num">{n(v)}</td>)}
+                        <td className="num">{g.open ? (g.days / g.open).toFixed(1) : ''}</td>
+                        <td className="num">{g.open ? `${g.oldest} d` : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="panel">
+              <h3>By state</h3>
+              <div className="table-scroll">
+                <table className="summary-grid care-status-summary">
+                  <thead>
+                    <tr><th>State</th><th className="num">Open calls</th>{summary.order.map((k) => <th key={k} className="num"><span className={`care-dot-tone tone-${CARE_TONES[k] ?? 'muted'}`} aria-hidden="true" />{k}</th>)}<th className="num">Oldest</th></tr>
+                  </thead>
+                  <tbody>
+                    {[...summary.lines, summary.total].map((g) => (
+                      <tr key={g.name} className={g === summary.total ? 'total' : undefined}>
+                        <td>{g.name}</td>
+                        <td className="num">{g.open.toLocaleString()}</td>
+                        {summary.order.map((k) => <td key={k} className="num">{n(g.counts[k])}</td>)}
+                        <td className="num">{g.open ? `${g.oldest} d` : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {view === 'tickets' && (
       <div className="panel">
@@ -2094,7 +2341,7 @@ export default function MeetingTab({
                           // must never scroll away is which row you are on.
                           <td key={c.key} className="col-pin">
                             <button type="button" className="linkish" onClick={() => onSelectRow(r.row)}>
-                              {r.ticket}
+                              {care ? careTicketId(ds, r.row) : r.ticket}
                             </button>
                             {/* The whole form, for when somebody is filling in one
                                 ticket properly rather than scanning across. Not a

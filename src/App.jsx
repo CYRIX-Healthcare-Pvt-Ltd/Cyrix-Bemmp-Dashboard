@@ -45,6 +45,7 @@ import CareReport from './components/CareReport.jsx';
 import { fixedFirstTime } from './data/careFix.js';
 import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
+import { STATUS_CHOICES, loadCareStatuses, statusByRow } from './data/careStatus.js';
 import ContractPanel from './components/ContractPanel.jsx';
 
 /*
@@ -674,6 +675,10 @@ export default function App() {
     }
     for (const [id, up] of Object.entries(uploads)) {
       const known = STATES.find((s) => s.id === id);
+      // The newer copy is the one that loads (see the loader below), so it is the one counted: a 25 Nov file kept in
+      // one browser showed 7,394 on Care 360 while the shared 27 Nov export of 3,520 was what opened (the user, 27 Nov).
+      const theirs = shared[id];
+      if (theirs && new Date(theirs.uploaded_at) > new Date(up.uploadedAt)) continue;
       byId.set(id, {
         id, short: up.short ?? known?.short, name: up.name ?? known?.name,
         rows: up.rows, source: 'upload',
@@ -929,10 +934,35 @@ export default function App() {
     for (let i = 0; i < ds.rows; i++) if (contractOf(ds, assets, i) === want) m[i] = 1;
     return m;
   }, [care, assets, ds, chosenFilters?.contract]);
-  const filters = useMemo(
-    () => (chosenFilters && contractMask ? { ...chosenFilters, keepMask: contractMask } : chosenFilters),
-    [chosenFilters, contractMask],
-  );
+  // Care 360's Ticket Status per row (the user, 27 Nov: a filter beside Status, and the Report's Pending split). Read
+  // again when the tracker saves one, which it announces.
+  const [careNotes, setCareNotes] = useState(null);
+  const careState = care ? ds?.meta.id : null;
+  useEffect(() => {
+    if (!careState) { setCareNotes(null); return undefined; }
+    let live = true;
+    const read = () => loadCareStatuses(careState).then((m) => { if (live) setCareNotes(m); }).catch(() => { if (live) setCareNotes(new Map()); });
+    read();
+    window.addEventListener('care-status-changed', read);
+    return () => { live = false; window.removeEventListener('care-status-changed', read); };
+  }, [careState]);
+  const ticketStatus = useMemo(() => (care && ds && careNotes ? statusByRow(ds, careNotes) : null), [care, ds, careNotes]);
+  const statusMask = useMemo(() => {
+    const want = chosenFilters?.ticketStatus;
+    if (!ticketStatus || !want) return null;
+    const m = new Uint8Array(ticketStatus.length);
+    for (let i = 0; i < m.length; i++) if (ticketStatus[i] === want) m[i] = 1;
+    return m;
+  }, [ticketStatus, chosenFilters?.ticketStatus]);
+  const filters = useMemo(() => {
+    if (!chosenFilters || (!contractMask && !statusMask)) return chosenFilters;
+    let keepMask = contractMask ?? statusMask;
+    if (contractMask && statusMask) {
+      keepMask = new Uint8Array(contractMask.length);
+      for (let i = 0; i < keepMask.length; i++) keepMask[i] = contractMask[i] & statusMask[i];
+    }
+    return { ...chosenFilters, keepMask };
+  }, [chosenFilters, contractMask, statusMask]);
   // The drill panels read contract type as one more column (the user, 26 Nov: "contract type also, before zone").
   const [barSlot, setBarSlot] = useState(null);
   const drillDs = useMemo(() => {
@@ -1569,6 +1599,7 @@ export default function App() {
             filters={chosenFilters}
             setFilters={setFilters}
             contractTypes={contractTypes}
+            ticketStatuses={care ? STATUS_CHOICES : null}
             slotRef={care ? setBarSlot : null}
             slotTall={activeTab === 'performance' || (activeTab === 'calls' && callView !== TRACKER)}
           />
@@ -1852,7 +1883,7 @@ export default function App() {
 
         {activeTab === 'report' && care && (
           <Boundary name="The report" resetKey={stateId}>
-            <CareReport key={stateId} ds={ds} filters={filters} assets={assets} />
+            <CareReport key={stateId} ds={ds} filters={filters} assets={assets} ticketStatus={ticketStatus} />
           </Boundary>
         )}
 

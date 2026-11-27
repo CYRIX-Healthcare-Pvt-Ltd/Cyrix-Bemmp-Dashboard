@@ -28,6 +28,14 @@ export function msOf(text) {
   return Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0));
 }
 
+/** The FieldPro id as their files write it: PMPT 13502 → PMPT_013502 (the upload drops the "_" and the zeros). */
+export function careTicketId(ds, i) {
+  const n = ds.cols.ticketNo[i];
+  const id = ds.cols.ticketPrefix[i];
+  const prefix = id == null || id < 0 ? '' : ds.dict.ticketPrefix[id] ?? '';
+  return n < 0 ? prefix : `${prefix}_${String(n).padStart(6, '0')}`;
+}
+
 const textOf = (ds, field, i) => {
   const id = ds.cols[field]?.[i];
   return id == null || id < 0 ? '' : ds.dict[field]?.[id] ?? '';
@@ -155,7 +163,7 @@ export const jobTypesOf = (ds) => (ds.dict.lifecycle ?? []).map((name, id) => ({
  * One row per state (or facility): calls, completed and pending in the first month, and both TATs in each month.
  * `filters` are the dashboard's (area and dimension filters stay); only the dates are the report's own.
  */
-export function careReport(ds, filters, { month, against, jobType, by }) {
+export function careReport(ds, filters, { month, against, jobType, by, status = null }) {
   const field = by === 'facility' ? 'facilityName' : 'zone';
   const ofType = (idx) => {
     const out = [];
@@ -190,8 +198,11 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
     const sa = mean(ds, endedIn(ds, g.a, month.from, month.to), 'resolution');
     const sb = against ? mean(ds, endedIn(ds, g.b, against.from, against.to), 'resolution') : null;
     const completed = g.a.filter((i) => done(ds, i)).length;
+    // Pending split by the tracker's Ticket Status (the user, 27 Nov).
+    const pendingBy = {};
+    if (status) for (const i of g.a) if (!done(ds, i)) pendingBy[status[i]] = (pendingBy[status[i]] ?? 0) + 1;
     return {
-      name, state, calls: g.a.length, completed, pending: g.a.length - completed,
+      name, state, calls: g.a.length, completed, pending: g.a.length - completed, pendingBy,
       responseA: ta.response, responseB: tb.response, responseChange: change(ta.response, tb.response),
       resolutionA: ta.resolution, resolutionB: tb.resolution, resolutionChange: change(ta.resolution, tb.resolution),
       sameA: sa, sameB: sb, sameChange: change(sa, sb),
@@ -301,4 +312,45 @@ export function ftfrByContract(ds, filters, assets, months, types = ['AMC', 'CAM
   const total = { label: 'Grand Total' };
   for (const t of [...types, TOTAL]) total[t] = sum(lines.map((l) => l[t]));
   return { types: [...types, TOTAL], lines, total };
+}
+
+const monthLabel = (ms) => (Number.isFinite(ms)
+  ? `${new Date(ms).toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' })} ${String(new Date(ms).getUTCFullYear()).slice(2)}`
+  : '');
+const sameMonth = (a, b) => Number.isFinite(a) && Number.isFinite(b)
+  && new Date(a).getUTCFullYear() === new Date(b).getUTCFullYear() && new Date(a).getUTCMonth() === new Date(b).getUTCMonth();
+
+/**
+ * Ticket wise, for the report's Excel (the user, 27 Nov: "if user want to see ticket wise also"): every call raised,
+ * started or ended between From and To, with the month each TAT counts in, so any summary figure can be traced to
+ * its calls. `days` are Excel serials of the wall-clock times.
+ */
+export function careTickets(ds, filters, { from, to, jobType, assets }) {
+  const every = allDates(ds, filters);
+  const lo = EPOCH + from * DAY; const hi = EPOCH + (to + 1) * DAY;
+  const inRange = (t) => t >= lo && t < hi;
+  const bd = isBreakdown(ds);
+  const out = [];
+  for (let k = 0; k < every.length; k++) {
+    const i = every[k];
+    if (jobType != null && ds.cols.lifecycle[i] !== jobType) continue;
+    const t = careTimes(ds, i);
+    if (!inRange(t.raised) && !inRange(t.start) && !inRange(t.end)) continue;
+    const tat = tatOf(ds, i);
+    const breakdown = bd(i);
+    out.push({
+      row: i,
+      raised: t.raised, start: t.start, end: t.end,
+      raisedMonth: monthLabel(t.raised),
+      responseMonth: Number.isFinite(tat.response) ? monthLabel(t.start) : '',
+      response: Number.isFinite(tat.response) ? tat.response : null,
+      resolutionMonth: Number.isFinite(tat.resolution) ? monthLabel(t.end) : '',
+      resolution: Number.isFinite(tat.resolution) ? tat.resolution : null,
+      same: Number.isFinite(tat.resolution) ? (sameMonth(t.raised, t.end) ? 'Yes' : 'No') : '',
+      ftfr: breakdown ? (fixedFirstTime(ds, i) ? 'Yes' : 'No') : '',
+      contract: assets ? contractOf(ds, assets, i) : null,
+      done: done(ds, i),
+    });
+  }
+  return out.sort((a, b) => (a.raised || 0) - (b.raised || 0));
 }

@@ -62,6 +62,10 @@ export class HeadingReader {
     if (this.state.keepRow && !this.state.keepRow(field)) return;
     const wrong = this.state.rowCheck?.(field);
     if (wrong) { this.bad.push([number, wrong]); return; }
+    if (this.rawAt) {
+      const byKey = new Map(cells);
+      this.builder.raw.rows.push(this.rawAt.map((k) => String(byKey.get(k) ?? '')));
+    }
     this.builder.addRow(field);
     this.added++;
   }
@@ -94,6 +98,11 @@ export class HeadingReader {
     if (at.size > this.closest.found) this.closest = { cells, found: at.size };
     if (missing.length) return false;
     this.fieldAt = at;
+    if (this.state.keepRaw) {
+      const heads = cells.filter(([, t]) => String(t ?? '').trim());
+      this.rawAt = heads.map(([k]) => k);
+      this.builder.raw = { headings: heads.map(([, t]) => String(t).trim()), rows: [] };
+    }
     return true;
   }
 
@@ -343,6 +352,8 @@ export const STATES = [
     numeric: {},
     derive: deriveFieldPro,
     keepRow: breakdownOrPms,
+    // Every column of the export kept as written, for the ticket tracker's column picker (the user, 27 Nov).
+    keepRaw: true,
     byHeading: {
       'PMPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
       'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
@@ -377,6 +388,8 @@ export const STATES = [
     numeric: {},
     derive: deriveFieldPro,
     keepRow: breakdownOrPms,
+    // Every column of the export kept as written, for the ticket tracker's column picker (the user, 27 Nov).
+    keepRaw: true,
     byHeading: {
       'MPT ID': 'ticket', Barcode: 'barcode', 'Facility Name': 'facilityName', 'Equipment Name': 'equipment',
       'Device Make': 'manufacturer', 'Device Model': 'model', 'Device Group': 'deviceGroup', Status: 'status',
@@ -762,6 +775,8 @@ export class Builder {
       formatVersion: FORMAT_VERSION,
       columns: COLUMNS,
       dictionaries: Object.fromEntries(CATEGORICAL_FIELDS.map((f) => [f, dicts[f].values])),
+      // The export's own columns, row for row (Care 360, `keepRaw`); older readers ignore it.
+      ...(this.raw ? { raw: this.raw } : {}),
       dateRange: { minDay: this.minDay, maxDay: this.maxDay },
       penaltyDays: state.penaltyDays,
       penaltyRates: state.penaltyRates,

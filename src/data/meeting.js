@@ -101,13 +101,27 @@ export const UP_FIELDS = [
   { key: 'dm_name', label: 'DM Name', kind: 'text', width: 170 },
 ];
 
-/** A contract's meeting fields: Uttar Pradesh's, or Kerala's (which Andhra shares). */
+/** Care 360's and Private Service's one column (the user, 27 Nov), as in their Ticket Master (0094). */
+export const CARE_STATUSES = ['Completed', 'Customer', 'Cyrix', 'Purchase', 'Revive Lab', 'Under Observation'];
+export const CARE_TONES = {
+  Completed: 'good', Customer: 'warn', Cyrix: 'bad', Purchase: 'violet', 'Revive Lab': 'magenta', 'Under Observation': 'info',
+};
+export const CARE_STATUS_HEADING = 'Ticket Status - Pending/Completed';
+export const CARE_FIELDS = [
+  { key: 'ticket_status', label: CARE_STATUS_HEADING, kind: 'select', primary: true, width: 200, options: CARE_STATUSES,
+    // One colour each (the user, 27 Nov: "make unique status colors").
+    tones: CARE_TONES },
+];
+const CARE = ['c360', 'pvt'];
+
+/** A contract's meeting fields: Care 360's, Uttar Pradesh's, or Kerala's (which Andhra shares). */
 export function fieldsFor(state) {
+  if (CARE.includes(state)) return CARE_FIELDS;
   return state === 'up' ? UP_FIELDS : MEETING_FIELDS;
 }
 
 /** Every field anybody enters, for what a key means wherever it turns up. */
-export const ALL_FIELDS = [...MEETING_FIELDS, ...UP_FIELDS.filter((u) => !MEETING_FIELDS.some((m) => m.key === u.key))];
+export const ALL_FIELDS = [...MEETING_FIELDS, ...UP_FIELDS.filter((u) => !MEETING_FIELDS.some((m) => m.key === u.key)), ...CARE_FIELDS];
 
 /** What is read for a contract: its own fields, and the row's bookkeeping. */
 const selectFor = (state) => ['state', 'ticket', 'closed_on', 'updated_at', 'legacy_values']
@@ -556,7 +570,53 @@ export const entryColumnsOf = (fields) => fields.map((f) => ({
 
 const ENTRY_COLUMNS = entryColumnsOf(MEETING_FIELDS);
 
-for (const c of [...ENTRY_COLUMNS, ...entryColumnsOf(UP_FIELDS)]) ENTRY_WIDTH[c.key] ??= c.w;
+for (const c of [...ENTRY_COLUMNS, ...entryColumnsOf(UP_FIELDS), ...entryColumnsOf(CARE_FIELDS)]) ENTRY_WIDTH[c.key] ??= c.w;
+
+const loose = (h) => String(h ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Care 360's tracker (the user, 27 Nov): every column of their FieldPro export, under its own name and in its own
+ * order — the Columns button chooses which to see — then Ticket Status. No penalty. `raw` is meta.raw (keepRaw);
+ * the export's own Ticket Status column is the fallback for the entry, so it is not offered twice.
+ */
+export function careColumns(raw) {
+  const heads = raw?.headings ?? [];
+  const cols = [{ key: 'ticket', label: 'Ticket', type: 'text', w: 128, group: 'tm' }];
+  heads.forEach((h, i) => {
+    const k = loose(h);
+    if (k === 'pmptid' || (k === 'mptid' && !heads.some((x) => loose(x) === 'pmptid'))) return;
+    if (k === loose(CARE_STATUS_HEADING)) return;
+    if (!CARE_KEEP.has(k)) return;
+    const date = /date/i.test(h);
+    const key = `x_${k}`;
+    if (cols.some((c) => c.key === key)) return;
+    cols.push({
+      key, label: h, type: 'text', group: 'tm', rawAt: i,
+      w: date ? 168 : /name|summary|note|reason|project/i.test(h) ? 220 : 130,
+      ...(date ? { sortBy: `${key}At`, filterBy: `${key}Day`, date: true } : {}),
+    });
+  });
+  return [...cols, ...entryColumnsOf(CARE_FIELDS)];
+}
+
+/**
+ * Their Ticket Master's columns, PMPT ID to WIP - Reason (the user, 27 Nov: "till wip reason only"). Down Days, day,
+ * ftf and Type are their own working columns and are not shown even when a file has them.
+ */
+export const CARE_EXPORT_HEADINGS = ['PMPT ID', 'MPT ID', 'Product Group', 'Device Group', 'State', 'District', 'Status',
+  'Sub Status', 'BME', 'Project Name', 'Facility Name', 'Facility Class', 'Device Make', 'Device Model', 'Equipment Name',
+  'Barcode', 'Note', 'Job Type', 'Raised Channel', 'Raised Mobile No', 'Resolution Summary', 'Raised Date',
+  'Assigned Date', 'Accepted Date', 'Job Start Date', 'Job End Date', 'Job Closed Date', 'Total Working Hours', 'TaT',
+  'TaT Days', 'WIP - Reason'];
+
+/** Shown until somebody chooses otherwise; the rest are a press away under Columns. */
+const CARE_KEEP = new Set(CARE_EXPORT_HEADINGS.map(loose));
+
+export const CARE_DEFAULT_SHOWN = ['state', 'district', 'facilityname', 'equipmentname', 'barcode', 'status', 'raiseddate', 'jobstartdate', 'wipreason']
+  .map((k) => `x_${k}`);
+
+/** The index of the export's own Ticket Status column in meta.raw, or -1. */
+export const careStatusAt = (raw) => (raw?.headings ?? []).findIndex((h) => loose(h) === loose(CARE_STATUS_HEADING));
 
 /**
  * Uttar Pradesh's tracker (the user, 23 Sep): the TM export's columns in its
