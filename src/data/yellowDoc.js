@@ -372,15 +372,20 @@ export async function autoYellow(file) {
         if (m && others.includes(m[2].trim().replace(/[\s,;:–—-]+$/, '').toLowerCase())) { if (paintAt(doc, q, m[1].length, m[1].length + m[2].trim().length)) added.push(m[2].trim()); }
       }
     }
-    // The lines under a customer heading (Mahally's "CUSTOMER NAME AND ADDRESS:").
+    // The lines under a customer heading (Mahally's "CUSTOMER NAME AND ADDRESS:"). A heading only, nothing written after
+    // it: "Customer Name - Pristyn Care Diyos Hospital" is the name itself (QTN065, 27 Nov: its next lines, past the price
+    // table, were the terms). The lines stop at a table, a TERMS heading or a numbered line.
     for (const p of innerPs(doc)) {
       const t = plain(p);
-      if (!/^(customer|client)('?s)?\b/i.test(t) || !/name|address/i.test(t) || t.length > 45) continue;
+      if (!/^(customer|client)('?s)?\s+(name|address|details)(\s*(and|&|\/)\s*(name|address|details))?\s*[:\-–]?\s*$/i.test(t)) continue;
       let gap = 0; let n = 0;
       for (let el = p.nextSibling; el && n < 4; el = el.nextSibling) {
+        if (el.nodeName === 'w:tbl') break;
         if (el.nodeName !== 'w:p') continue;
-        if (!plain(el)) { if (n || ++gap > 1) break; continue; }
-        if (paintLine(doc, el)) added.push(plain(el)); n++;
+        const u = plain(el);
+        if (!u) { if (n || ++gap > 1) break; continue; }
+        if (TERMS_HEAD.test(norm(u)) || wordNumbered(el) || MANUAL_NO.test(u)) break;
+        if (paintLine(doc, el)) added.push(u); n++;
       }
     }
     // Contract periods, and the dates of a sentence about the contract's start and end.
