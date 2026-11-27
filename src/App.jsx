@@ -43,8 +43,10 @@ import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
 import { fixedFirstTime } from './data/careFix.js';
-import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
+import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, hasTicketContract, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
+import { careUptime, uptimeBy } from './data/careUptime.js';
+import CareUptime from './components/CareUptime.jsx';
 import { STATUS_CHOICES, loadCareStatuses, statusByRow } from './data/careStatus.js';
 import ContractPanel from './components/ContractPanel.jsx';
 
@@ -218,6 +220,8 @@ const TABS = [
   // they are sub-tabs of one section rather than two sections asking the same
   // question.
   { id: 'money', label: 'Penalty', short: 'Penalty' },
+  // Care 360 only (the user, 27 Nov); before Report.
+  { id: 'uptime', label: 'Uptime %', short: 'Uptime' },
   // Care 360 only, in place of Penalty (the user, 26 Nov).
   { id: 'report', label: 'Report', short: 'Report' },
 ];
@@ -925,15 +929,21 @@ export default function App() {
     if (assetRow) fetchAssets(assetRow.state, assetRow.version).then((m) => { if (live) setAssets(m); }).catch(() => {});
     return () => { live = false; };
   }, [assetRow?.state, assetRow?.version]);
+  // What AMC / CAMC is read from: the ticket's own Contract Category once uploads carry it (the user, 27 Nov), the
+  // asset master by barcode for those that do not. Null when neither is there.
+  const contractAssets = useMemo(
+    () => (care && ds && (assets || hasTicketContract(ds)) ? (assets ?? new Map()) : null),
+    [care, ds, assets],
+  );
   // Care 360's AMC / CAMC filter (the user, 26 Nov): the contract type comes from the asset master by barcode, so it
   // rides into every filterRows as a row mask rather than a column.
   const contractMask = useMemo(() => {
     const want = chosenFilters?.contract;
-    if (!care || !assets || !want || !ds) return null;
+    if (!care || !contractAssets || !want || !ds) return null;
     const m = new Uint8Array(ds.rows);
-    for (let i = 0; i < ds.rows; i++) if (contractOf(ds, assets, i) === want) m[i] = 1;
+    for (let i = 0; i < ds.rows; i++) if (contractOf(ds, contractAssets, i) === want) m[i] = 1;
     return m;
-  }, [care, assets, ds, chosenFilters?.contract]);
+  }, [care, contractAssets, ds, chosenFilters?.contract]);
   // Care 360's Ticket Status per row (the user, 27 Nov: a filter beside Status, and the Report's Pending split). Read
   // again when the tracker saves one, which it announces.
   const [careNotes, setCareNotes] = useState(null);
@@ -972,24 +982,25 @@ export default function App() {
   // The drill panels read contract type as one more column (the user, 26 Nov: "contract type also, before zone").
   const [barSlot, setBarSlot] = useState(null);
   const drillDs = useMemo(() => {
-    if (!care || !assets || !ds) return ds;
+    if (!care || !contractAssets || !ds) return ds;
     const names = [];
     const ids = new Map();
     const col = new Int32Array(ds.rows);
     for (let i = 0; i < ds.rows; i++) {
-      const t = contractOf(ds, assets, i);
+      const t = contractOf(ds, contractAssets, i);
       let id = ids.get(t);
       if (id === undefined) { id = names.length; names.push(t); ids.set(t, id); }
       col[i] = id;
     }
     return { ...ds, cols: { ...ds.cols, contractType: col }, dict: { ...ds.dict, contractType: names } };
-  }, [care, assets, ds]);
-  const contractTypes = useMemo(
-    () => (care && assets && assetRow
-      ? Object.entries(assetRow.categories ?? {}).sort((a, b) => b[1] - a[1]).map(([k]) => k)
-      : null),
-    [care, assets, assetRow],
-  );
+  }, [care, contractAssets, ds]);
+  // The filter's choices: what the calls themselves carry, most calls first (not "Not in asset master").
+  const contractTypes = useMemo(() => {
+    if (!care || !contractAssets || !drillDs?.cols.contractType) return null;
+    const n = new Map();
+    for (const id of drillDs.cols.contractType) n.set(id, (n.get(id) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1]).map(([id]) => drillDs.dict.contractType[id]).filter((k) => k && !/^not in/i.test(k));
+  }, [care, contractAssets, drillDs]);
 
   const idx = useMemo(
     () => (ds && filters ? filterRows(ds, filters) : null),
@@ -1034,17 +1045,25 @@ export default function App() {
       };
       // FTFR is Breakdown calls only (the user, 26 Nov: "ftfr pms not needed"), by AMC / CAMC once assets are in.
       const settled = Array.from(idx).filter((i) => ds.cols.loggedDay[i] <= ftfrThrough);
-      const byType = (t) => ftfrOf(ds, settled.filter((i) => contractOf(ds, assets, i) === t)).pct;
+      const byType = (t) => ftfrOf(ds, settled.filter((i) => contractOf(ds, contractAssets, i) === t)).pct;
       return {
         ...averageTat(ds, careStarted, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
         breakdown: part('breakdown'), pms: part('pms'),
         ftfr: ftfrOf(ds, settled),
-        ftfrByType: assets ? { AMC: byType('AMC'), CAMC: byType('CAMC') } : null,
-        contracts: assets ? contractTable(ds, assets, { raised: Array.from(idx), started: careStarted, ended, ftfrRows: settled }) : null,
+        ftfrByType: contractAssets ? { AMC: byType('AMC'), CAMC: byType('CAMC') } : null,
+        contracts: contractAssets ? contractTable(ds, contractAssets, { raised: Array.from(idx), started: careStarted, ended, ftfrRows: settled }) : null,
       };
     },
-    [ds, idx, care, careEnded, careStarted, referenceDay, ftfrThrough, assets],
+    [ds, idx, care, careEnded, careStarted, referenceDay, ftfrThrough, contractAssets],
   );
+
+  // Uptime % over the dashboard's From – To, every asset master barcode (the user, 27 Nov).
+  const uptime = useMemo(() => (care ? careUptime(ds, filters, assets) : null), [care, ds, filters, assets]);
+  const uptimeTile = useMemo(() => {
+    if (!uptime) return null;
+    const by = new Map(uptimeBy(uptime.list, 'contract').map((g) => [g.name, g.uptime]));
+    return { value: uptime.uptime, amc: by.get('AMC') ?? null, camc: by.get('CAMC') ?? null };
+  }, [uptime]);
 
   // Until the user picks one, granularity follows the width of the selected range.
   const autoGranularity = filters
@@ -1067,16 +1086,16 @@ export default function App() {
     // FTFR: Breakdown calls as one line per contract type, AMC and CAMC (the user, 26 Nov); Breakdown alone until
     // the asset master is in.
     if (metric.percent) {
-      const lines = assets
+      const lines = contractAssets
         ? [['AMC', 'var(--series-1)'], ['CAMC', 'var(--series-2)']].map(([t, color]) => ({
-          key: t, label: t, color, map: by(Array.from(parts.breakdown).filter((i) => contractOf(ds, assets, i) === t)),
+          key: t, label: t, color, map: by(Array.from(parts.breakdown).filter((i) => contractOf(ds, contractAssets, i) === t)),
         }))
         : [{ key: 'bd', label: 'Breakdown', color: SPLIT_COLORS.breakdown, map: by(parts.breakdown) }];
       // A contract type with no calls here (the AMC / CAMC filter) leaves the chart and its legend.
       return { lines: lines.filter((l) => [...l.map.values()].some((p) => p.volume)) };
     }
     return { bd: by(parts.breakdown), pm: by(parts.pms) };
-  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, assets]);
+  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, contractAssets]);
 
   /**
    * Two of the four metrics cannot be judged right up to the reference date, and
@@ -1254,7 +1273,7 @@ export default function App() {
       ? [showMeeting
         ? { id: 'calls', label: 'Ticket tracker', short: 'Tracker' }
         : TABS.find((t) => t.id === 'calls')]
-      : TABS.filter((t) => (care ? t.id !== 'money' : t.id !== 'report'));
+      : TABS.filter((t) => (care ? t.id !== 'money' : t.id !== 'report' && t.id !== 'uptime'));
     return isAdmin(profile)
       ? [...base, { id: 'accounts', label: 'Accounts', short: 'Accounts' }]
       : base;
@@ -1266,7 +1285,7 @@ export default function App() {
    * Uttar Pradesh back to Kerala returns to wherever Kerala was.
    */
   const activeTab = trackerOnly && tab !== 'accounts' ? 'calls'
-    : (care && tab === 'money') || (!care && tab === 'report') ? 'dashboard' : tab;
+    : (care && tab === 'money') || (!care && (tab === 'report' || tab === 'uptime')) ? 'dashboard' : tab;
 
   /*
    * Remember the view.
@@ -1621,6 +1640,8 @@ export default function App() {
               penaltyDays={meta.penaltyDays}
               money={moneySummary}
               careTat={careTat}
+              uptime={uptimeTile}
+              onOpenUptime={() => setTab('uptime')}
               onOpenReport={() => setTab('report')}
               onOpenBucket={openBucket}
               onOpenPenalty={() => { setMoneyId('calls'); setTab('money'); }}
@@ -1887,9 +1908,15 @@ export default function App() {
           </>
         )}
 
+        {activeTab === 'uptime' && care && (
+          <Boundary name="Uptime" resetKey={stateId}>
+            <CareUptime key={stateId} uptime={uptime} />
+          </Boundary>
+        )}
+
         {activeTab === 'report' && care && (
           <Boundary name="The report" resetKey={stateId}>
-            <CareReport key={stateId} ds={ds} filters={filters} assets={assets} ticketStatus={ticketStatus} />
+            <CareReport key={stateId} ds={ds} filters={filters} assets={contractAssets} uptimeAssets={assets} ticketStatus={ticketStatus} />
           </Boundary>
         )}
 

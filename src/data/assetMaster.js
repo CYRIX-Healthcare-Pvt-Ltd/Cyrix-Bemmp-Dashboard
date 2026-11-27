@@ -37,6 +37,24 @@ function cellsOf(rowXml, shared) {
   return out;
 }
 
+/** The asset's own columns kept beside its category, in this order, for Uptime % by state and customer. */
+const EXTRA = [['state', 'state'], ['facility', 'facilityname'], ['district', 'district'], ['equipment', 'equipmentname'],
+  // When it joined: an asset mapped after the To date is not in that range's Uptime % (the user, 27 Nov).
+  ['mapped', 'dateofmapping']];
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+/** "08-May-2025", "08-05-2025" or an Excel serial → Excel day serial; null when it is none of those. */
+export function assetDay(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  if (/^\d+(\.\d+)?$/.test(t)) return Math.floor(+t);
+  const m = /^(\d{1,2})[-/ ]([A-Za-z]{3,}|\d{1,2})[-/ ](\d{4})/.exec(t);
+  if (!m) return null;
+  const mo = /^\d+$/.test(m[2]) ? +m[2] - 1 : MONTHS.indexOf(m[2].slice(0, 3).toLowerCase());
+  if (mo < 0) return null;
+  return Math.round((Date.UTC(+m[3], mo, +m[1]) - Date.UTC(1899, 11, 30)) / 864e5);
+}
+
 /** Barcode → Contract Category from the first sheet that has both headings. */
 export async function readAssetFile(file) {
   let z;
@@ -62,15 +80,19 @@ export async function readAssetFile(file) {
       if (!at) {
         if (++seen > 10) break;
         let bc = -1; let cc = -1;
+        const more = {};
         for (const [k, v] of cells) {
           if (loose(v) === 'barcode') bc = k;
           if (loose(v) === 'contractcategory') cc = k;
+          for (const [f, h] of EXTRA) if (loose(v) === h) more[f] = k;
         }
-        if (bc >= 0 && cc >= 0) at = { bc, cc };
+        if (bc >= 0 && cc >= 0) at = { bc, cc, more };
         continue;
       }
       const barcode = cells.get(at.bc);
-      if (barcode) pairs.push([barcode, cells.get(at.cc) || '']);
+      // [barcode, category, state, facility, district, equipment]: new Map() reads the first two, so older readers
+      // still work; the rest is for Uptime % (the user, 27 Nov).
+      if (barcode) pairs.push([barcode, cells.get(at.cc) || '', ...EXTRA.map(([f]) => cells.get(at.more[f]) || '')]);
     }
     if (at) {
       if (!pairs.length) throw new Error('The asset sheet has its headings but no rows.');
@@ -124,5 +146,11 @@ export async function listAssetMasters() {
 export async function fetchAssets(state, version) {
   const { data, error } = await supabase.storage.from(BUCKET).download(`${state}/assets/${version}.json.gz`);
   if (error) throw new Error(`Could not read the asset master: ${error.message}`);
-  return new Map(JSON.parse(await gunzip(data)));
+  const pairs = JSON.parse(await gunzip(data));
+  const out = new Map(pairs);
+  // Every barcode with what else the sheet said of it (blank for masters shared before 27 Nov).
+  out.detail = new Map(pairs.map(([b, c, state, facility, district, equipment, mapped]) => [
+    b, { contract: c || '', state: state || '', facility: facility || '', district: district || '', equipment: equipment || '', mapped: assetDay(mapped) },
+  ]));
+  return out;
 }

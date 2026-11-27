@@ -604,7 +604,7 @@ export function careColumns(raw) {
  * ftf and Type are their own working columns and are not shown even when a file has them.
  */
 export const CARE_EXPORT_HEADINGS = ['PMPT ID', 'MPT ID', 'Product Group', 'Device Group', 'State', 'District', 'Status',
-  'Sub Status', 'BME', 'Project Name', 'Facility Name', 'Facility Class', 'Device Make', 'Device Model', 'Equipment Name',
+  'Sub Status', 'BME', 'Project Name', 'Facility Name', 'Facility Class', 'Contract Category', 'Device Make', 'Device Model', 'Equipment Name',
   'Barcode', 'Note', 'Job Type', 'Raised Channel', 'Raised Mobile No', 'Resolution Summary', 'Raised Date',
   'Assigned Date', 'Accepted Date', 'Job Start Date', 'Job End Date', 'Job Closed Date', 'Total Working Hours', 'TaT',
   'TaT Days', 'WIP - Reason'];

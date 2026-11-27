@@ -362,6 +362,8 @@ export const STATES = [
       'Job End Date': 'completedAt', 'Job Closed Date': 'closedAt', 'Sub Status': 'subStatus',
       State: 'zone', District: 'district', 'Project Name': 'department', 'Facility Class': 'equipmentType',
       'WIP - Reason': 'parkedReason', 'Product Group': 'facilityType',
+      // The ticket's own AMC / CAMC, column M of the new Ticket Master (the user, 27 Nov).
+      'Contract Category': 'division',
     },
     required: ['PMPT ID', 'Facility Name', 'Status', 'Raised Date'],
     rowCheck: (field) => {
@@ -396,7 +398,7 @@ export const STATES = [
       BME: 'engineer', 'Job Type': 'lifecycle', 'Raised Mobile No': 'contactNo',
       'Raised Date': 'receivedAt', 'Accepted Date': 'respondedAt', 'Job Start Date': 'attendedAt',
       'Job End Date': 'completedAt', 'Job Closed Date': 'closedAt', 'Sub Status': 'subStatus',
-      'Product Group': 'department',
+      'Product Group': 'department', 'Contract Category': 'division',
     },
     required: ['MPT ID', 'Facility Name', 'Status', 'Raised Date'],
     rowCheck: (field) => {

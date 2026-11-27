@@ -23,6 +23,7 @@ const ICONS = {
     <path d="M9.5 15l1.8 1.8 3.4-3.6" /></>,
   ftfr: <><path d="M3 17l5-6 4 4 5-8 4 5" /></>,
   resolution: <><circle cx="12" cy="12" r="8.4" /><path d="M12 7.4V12l3 1.8" /></>,
+  uptime: <><path d="M3 12h4l2.5-6 4 12 2.5-6H21" /></>,
   response: <><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z" /></>,
 };
 
@@ -120,7 +121,7 @@ function slaNote(penaltyDays) {
  * a confident ₹0 — Andhra supplies its own penalty figures instead of a card.
  */
 export default function KpiTiles({
-  summary, repeats, penaltyDays, money, careTat, onOpenReport,
+  summary, repeats, penaltyDays, money, careTat, onOpenReport, uptime = null, onOpenUptime,
   onOpenBucket, onOpenPenalty, onOpenRepeats, onOpenPerformance, onOpenMoney,
 }) {
   const share = (n) => (summary.total ? `${((n / summary.total) * 100).toFixed(1)}% of calls` : '—');
@@ -157,15 +158,18 @@ export default function KpiTiles({
           value={summary.open + summary.parked} format={int} note="Not completed · drill in"
           split={bdPms(careTat.split.open.breakdown, careTat.split.open.pms)} onClick={() => onOpenBucket(0)}
         />
+        {/* Not started left the grid; Repeat calls took its place and Uptime % the next (the user, 27 Nov). */}
         <Tile
-          index={3} label="Not started" icon="parked" dot="parked" accent="warning"
-          value={careTat.notStarted} format={int} note="Open, no job start yet · drill in"
-          split={bdPms(careTat.split.notStarted.breakdown, careTat.split.notStarted.pms)} onClick={() => onOpenBucket(0)}
-        />
-        <Tile
-          index={4} label="Repeat calls · Breakdown" icon="repeat" value={careTat.breakdown.repeats} format={int}
+          index={3} label="Repeat calls · Breakdown" icon="repeat" value={careTat.breakdown.repeats} format={int}
           note="2nd+ Breakdown call on an asset · drill in"
           onClick={onOpenRepeats} split={[['Total', num(repeats.followUps)], ['PMS', num(careTat.pms.repeats)]]}
+        />
+        <Tile
+          index={4} label="Uptime %" icon="uptime" accent="good" value={uptime?.value ?? 0}
+          format={(n) => (uptime?.value == null ? '—' : `${(n * 100).toFixed(1)}%`)}
+          note={uptime ? 'Asset master, days in range · drill in' : 'Needs the asset master'}
+          onClick={onOpenUptime}
+          split={uptime ? [['AMC', uptime.amc == null ? '—' : `${(uptime.amc * 100).toFixed(1)}%`], ['CAMC', uptime.camc == null ? '—' : `${(uptime.camc * 100).toFixed(1)}%`]] : null}
         />
         <Tile
           index={5} label="FTFR · Breakdown" icon="ftfr" accent="good" value={ftfr.pct ?? 0} format={(n) => (ftfr.pct == null ? '—' : pct1(n))}

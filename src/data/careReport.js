@@ -227,7 +227,22 @@ function change(now, before) {
 export const NOT_IN_ASSETS = 'Not in asset master';
 export const CONTRACT_ORDER = ['AMC', 'CAMC', 'Non Contract', 'Warranty', 'In House', 'Rental'];
 
+/** AMC / CAMC as the ticket itself carries it ("Contract Category"), '' when the upload had no such column. */
+export function ticketContract(ds, i) {
+  const id = ds.cols.division?.[i];
+  if (id == null || id < 0) return '';
+  const v = String(ds.dict.division?.[id] ?? '').trim();
+  return /^camc$/i.test(v) ? 'CAMC' : /^amc$/i.test(v) ? 'AMC' : v;
+}
+
+/** Whether this upload carries its own contract per ticket. */
+export const hasTicketContract = (ds) => (ds.dict.division ?? []).some((v) => String(v ?? '').trim());
+
 export function contractOf(ds, assets, i) {
+  // The ticket's own Contract Category first (the user, 27 Nov), the asset master only for older uploads.
+  const own = ticketContract(ds, i);
+  if (own) return own;
+  if (!assets) return NOT_IN_ASSETS;
   const id = ds.cols.barcode[i];
   const code = id == null || id < 0 ? '' : String(ds.dict.barcode[id] ?? '').trim();
   return (code && assets.get(code)) || NOT_IN_ASSETS;

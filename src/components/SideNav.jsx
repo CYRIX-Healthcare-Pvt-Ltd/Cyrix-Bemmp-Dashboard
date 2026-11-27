@@ -39,6 +39,7 @@ const ICONS = {
   money: <><path d="M7 5h10M7 9h10M8 5c4 0 6 1.6 6 4s-2 4-6 4h-1l7 6" /></>,
   // A sheet with a table on it: the Care 360 Report (26 Nov).
   report: <><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 12h7M9 15.5h7M9 19h4" /></>,
+  uptime: <><path d="M3 12h4l2.5-6 4 12 2.5-6H21" /></>,
   accounts: <><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
   checklist: <><rect x="5" y="4" width="14" height="17" rx="2.5" /><path d="M9 4.5V3h6v1.5" /><path d="M8.5 12.5l2.3 2.3 4.7-4.8" /></>,
   /* Quotation tracker (Quotation.jsx). */

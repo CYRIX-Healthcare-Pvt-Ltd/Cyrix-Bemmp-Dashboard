@@ -975,9 +975,9 @@ select option {
 .kpi:nth-child(8)  { --k-tint: var(--nav-money); }       /* Closure ₹     */
 .kpi:nth-child(9)  { --k-tint: var(--nav-performance); } /* FTFR          */
 .kpi:nth-child(10) { --k-tint: var(--nav-performance); } /* Avg resolution */
-/* Care 360's eight tiles: Total, Resolved, Open, Not started, Repeats, FTFR, Response, Resolution. */
-.kpis-care .kpi:nth-child(4) { --k-tint: var(--nav-calls); }
-.kpis-care .kpi:nth-child(5) { --k-tint: var(--nav-repeats); }
+/* Care 360's eight tiles: Total, Resolved, Open, Repeats, Uptime %, FTFR, Response, Resolution (27 Nov). */
+.kpis-care .kpi:nth-child(4) { --k-tint: var(--nav-repeats); }
+.kpis-care .kpi:nth-child(5) { --k-tint: var(--nav-uptime); }
 .kpis-care .kpi:nth-child(n+6) { --k-tint: var(--nav-performance); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -3023,6 +3023,8 @@ html.no-swipe-back body {
   --nav-money:       var(--status-critical);
   /* Care 360's Report tab: the dashboard's own hue (26 Nov). */
   --nav-report:      var(--series-1);
+  /* Care 360's Uptime % tab (27 Nov). */
+  --nav-uptime:      var(--series-2);
   /* Accounts is the one section that is not a measure, so it takes the one hue
      that encodes no data anywhere else on the page. */
   --nav-accounts:    var(--text-muted);
@@ -4075,9 +4077,22 @@ select.cell.tone-magenta, select.cell option.tone-magenta { color: var(--series-
 .care-report-controls .care-job { width: 260px; }
 .care-report-controls .care-download { margin-left: auto; }
 .care-grid th, .care-grid td { white-space: nowrap; }
+/* Care 360's report and uptime headings one step brighter, both themes (the user, 27 Nov). */
+.care-grid th, .uptime-grid th { color: var(--text-secondary); }
+/* The heading band set apart from the striped rows (the user, 27 Nov: "header is main"). */
+.care-grid thead th:not(.is-total), .uptime-grid thead th { background: color-mix(in srgb, var(--surface) 76%, var(--text-primary)); color: var(--text-primary); }
 .care-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .care-dot.better { background: var(--status-good); }
 .care-dot.worse { background: var(--status-critical); }
+.care-chg { display: inline-flex; align-items: center; justify-content: flex-end; }
+.care-chg-v { display: inline-block; min-width: 8ch; text-align: right; font-variant-numeric: tabular-nums; }
+/* Pending opens its status columns from the heading (the user, 27 Nov). */
+.care-pend-toggle {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--brand-red, #c8102e);
+  background: none; border: 0; padding: 2px 4px; margin: -2px -4px; cursor: pointer; border-radius: 4px; white-space: nowrap;
+}
+.care-pend-toggle:hover { background: var(--surface-2, rgba(0,0,0,.05)); }
+.care-pend-chev { display: inline-block; margin-left: 3px; font-weight: 700; color: var(--brand-red, #c8102e); opacity: 1; }
 @media (max-width: 640px) {
   .care-report-controls .field { width: calc(50% - 6px); }
   .care-report-controls .care-job { width: 100%; }
@@ -4171,7 +4186,10 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .care-ftfr .ftfr-band.is-total { color: var(--status-good); }
 .care-ftfr .is-total { background: color-mix(in srgb, var(--status-good) 7%, transparent); }
 .care-ftfr td { padding-top: 12px; padding-bottom: 12px; font-variant-numeric: tabular-nums; }
-.care-ftfr .ftfr-pct b { display: block; font-weight: 700; font-size: 14px; }
+/* One size for every figure (the user, 27 Nov: "standardise font size"); the % only bolder. */
+.care-ftfr .ftfr-pct b { display: block; font-weight: 650; font-size: inherit; }
+/* With Uptime beside FTFR the table scrolls rather than squeezing its headings. */
+.care-ftfr.has-uptime { min-width: 1500px; }
 .care-ftfr .ftfr-grand td { font-weight: 700; border-top: 2px solid var(--control-border); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .care-ftfr .ftfr-grand td.is-total { background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .line-point-label { font-size: 9.5px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 3px; stroke-linejoin: round; }
@@ -4224,3 +4242,30 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .care-dot-tone { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 7px; vertical-align: 1px; }
 .care-sum-name { font-size: 12px; color: var(--text-secondary); }
 @media (max-width: 640px) { .care-sum-cards { grid-template-columns: repeat(2, 1fr); } }
+
+/* Care 360 Uptime % (the user, 27 Nov). */
+.uptime-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-left: auto; font-size: 13px; color: var(--text-secondary); }
+.uptime-fig { font-variant-numeric: tabular-nums; font-weight: 600; }
+.uptime-fig.big { font-size: 20px; }
+.uptime-fig.tone-good { color: var(--status-good); }
+.uptime-fig.tone-warn { color: var(--status-warning); }
+.uptime-fig.tone-bad { color: var(--status-critical); }
+.uptime-grid td:first-child { white-space: normal; }
+.uptime-open { cursor: pointer; }
+.uptime-open:hover td { background: var(--surface-2, rgba(0,0,0,.04)); }
+.uptime-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; text-decoration: none; }
+.uptime-crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 13px; }
+.uptime-crumbs button { font: inherit; color: var(--brand-red, #c8102e); background: none; border: 0; padding: 0; cursor: pointer; }
+@media (max-width: 640px) { .uptime-head { margin-left: 0; width: 100%; justify-content: space-between; } }
+.uptime-grid th .uptime-sort {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0;
+  padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.uptime-grid th.num .uptime-sort { flex-direction: row; }
+.uptime-sort-mark { font-size: 10px; opacity: 0.45; }
+.uptime-sort.is-on { color: var(--text-primary); }
+.uptime-sort.is-on .uptime-sort-mark { opacity: 1; color: var(--brand-red, #c8102e); }
+.uptime-sort:hover .uptime-sort-mark { opacity: 0.8; }
+.uptime-crumb { display: inline-flex; align-items: center; gap: 8px; }
+.uptime-small { display: inline; font-size: 11px; color: var(--text-secondary); margin-left: 8px; white-space: nowrap; }
+@media (max-width: 640px) { .uptime-grid .uptime-wide { display: none; } .uptime-head .uptime-fig.big { margin-left: auto; } }

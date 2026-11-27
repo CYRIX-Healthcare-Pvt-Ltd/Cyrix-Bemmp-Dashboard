@@ -12,7 +12,7 @@ const S = { head: 1, sub: 2, text: 3, int: 4, days: 5, pct: 6, ftfr: 7, tText: 8
 
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="4"><numFmt numFmtId="164" formatCode="0.00"/><numFmt numFmtId="165" formatCode="0%"/><numFmt numFmtId="166" formatCode="0.0%"/><numFmt numFmtId="167" formatCode="dd-mm-yyyy hh:mm"/></numFmts>
+<numFmts count="4"><numFmt numFmtId="164" formatCode="0.00"/><numFmt numFmtId="165" formatCode="+0.0%;-0.0%;0.0%"/><numFmt numFmtId="166" formatCode="0.0%"/><numFmt numFmtId="167" formatCode="dd-mm-yyyy hh:mm"/></numFmts>
 <fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
 <fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3A3A3A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FFA6A6A6"/></left><right style="thin"><color rgb="FFA6A6A6"/></right><top style="thin"><color rgb="FFA6A6A6"/></top><bottom style="medium"><color rgb="FFDA251D"/></bottom><diagonal/></border></borders>
@@ -46,12 +46,12 @@ function c(ref, value, style) {
  * One workbook for the From – To chosen (the user, 27 Nov): State wise, Customer wise, FTFR contract wise and
  * Ticket wise. `summaries` are [{ report, by }] from careReport(); A is the To month's label, B the From month's.
  */
-export async function careReportXlsx({ summaries, A, B, ftfr, tickets, ds, cmp = true, splits = [], status = null }) {
+export async function careReportXlsx({ summaries, A, B, ftfr, upC = null, tickets, ds, cmp = true, splits = [], status = null }) {
   const sheets = summaries.map(({ report, by }) => ({
     name: by === 'facility' ? 'Customer Wise' : 'State Wise',
     xml: summarySheet({ report, A, B, by, cmp, splits }),
   }));
-  if (ftfr) sheets.push({ name: 'FTFR Contract Wise', xml: ftfrSheet(ftfr) });
+  if (ftfr) sheets.push({ name: upC ? 'FTFR Uptime Contract Wise' : 'FTFR Contract Wise', xml: ftfrSheet(ftfr, upC) });
   if (tickets) sheets.push({ name: 'Ticket Wise', xml: ticketSheet(ds, tickets, status) });
   return writeStyledBook(sheets, STYLES);
 }
@@ -69,6 +69,8 @@ ${A}`, `pend:${k}`])];
     ['Resolution TAT · closed in month (days)', 'resolution', 'days', true],
     ['Logged & closed same month (days)', 'same', 'days', true],
     ['FTFR', 'ftfr', 'ftfr', false],
+    // Uptime % (the user, 27 Nov).
+    ...(report.hasUptime ? [['Uptime %', 'uptime', 'ftfr', false]] : []),
   ];
   const cols = [
     ...lead.map(([h, key, kind]) => ({ h, key, kind })),
@@ -140,8 +142,8 @@ ${cf}
 }
 
 /** FTFR by AMC / CAMC, a row per month and a Grand Total, as their own FTFR sheet (the user, 26 Nov). */
-function ftfrSheet(ftfr) {
-  const n = ftfr.types.length;
+function ftfrSheet(ftfr, upC = null) {
+  const n = ftfr.types.length + (upC ? upC.types.length : 0);
   const r1 = [c('A1', 'Month', S.head)]; const r2 = [c('A2', '', S.head)];
   const merges = ['A1:A2'];
   ftfr.types.forEach((t, g) => {
@@ -149,6 +151,14 @@ function ftfrSheet(ftfr) {
     r1.push(c(`${colName(at)}1`, t === 'Total' ? 'Total · AMC + CAMC' : t, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
     merges.push(`${colName(at)}1:${colName(at + 2)}1`);
     r2.push(c(`${colName(at)}2`, 'Total calls received', S.sub), c(`${colName(at + 1)}2`, 'Completed in 24 hrs', S.sub), c(`${colName(at + 2)}2`, 'FTFR %', S.sub));
+  });
+  // Uptime % after FTFR, AMC / CAMC / both (the user, 27 Nov).
+  const u0 = 1 + ftfr.types.length * 3;
+  upC?.types.forEach((t, g) => {
+    const at = u0 + g * 3;
+    r1.push(c(`${colName(at)}1`, t === 'Total' ? 'Uptime · AMC + CAMC' : `Uptime · ${t}`, S.head), c(`${colName(at + 1)}1`, '', S.head), c(`${colName(at + 2)}1`, '', S.head));
+    merges.push(`${colName(at)}1:${colName(at + 2)}1`);
+    r2.push(c(`${colName(at)}2`, 'Assets', S.sub), c(`${colName(at + 1)}2`, 'Assets down', S.sub), c(`${colName(at + 2)}2`, 'Uptime %', S.sub));
   });
   const lines = [...ftfr.lines, ftfr.total];
   const body = lines.map((l, k) => {
@@ -160,6 +170,14 @@ function ftfrSheet(ftfr) {
         c(`${colName(at)}${r}`, v.calls, total ? S.tInt : S.int),
         c(`${colName(at + 1)}${r}`, v.fixed, total ? S.tInt : S.int),
         c(`${colName(at + 2)}${r}`, v.pct == null ? null : v.pct / 100, total ? S.tFtfr : S.ftfr),
+      );
+    });
+    upC?.types.forEach((t, g) => {
+      const at = u0 + g * 3; const u = (total ? upC.total : upC.lines[k])?.[t];
+      cells.push(
+        c(`${colName(at)}${r}`, u ? u.assets : null, total ? S.tInt : S.int),
+        c(`${colName(at + 1)}${r}`, u ? u.downAssets : null, total ? S.tInt : S.int),
+        c(`${colName(at + 2)}${r}`, u?.uptime ?? null, total ? S.tFtfr : S.ftfr),
       );
     });
     return `<row r="${r}" ht="18" customHeight="1">${cells.join('')}</row>`;
