@@ -947,6 +947,12 @@ export default function App() {
     return () => { live = false; window.removeEventListener('care-status-changed', read); };
   }, [careState]);
   const ticketStatus = useMemo(() => (care && ds && careNotes ? statusByRow(ds, careNotes) : null), [care, ds, careNotes]);
+  // The filter lists only the statuses some call has (the user, 27 Nov), and keeps the one already picked.
+  const statusChoices = useMemo(() => {
+    if (!ticketStatus) return null;
+    const have = new Set(ticketStatus);
+    return STATUS_CHOICES.filter((k) => have.has(k) || k === chosenFilters?.ticketStatus);
+  }, [ticketStatus, chosenFilters?.ticketStatus]);
   const statusMask = useMemo(() => {
     const want = chosenFilters?.ticketStatus;
     if (!ticketStatus || !want) return null;
@@ -1599,7 +1605,7 @@ export default function App() {
             filters={chosenFilters}
             setFilters={setFilters}
             contractTypes={contractTypes}
-            ticketStatuses={care ? STATUS_CHOICES : null}
+            ticketStatuses={care ? statusChoices : null}
             slotRef={care ? setBarSlot : null}
             slotTall={activeTab === 'performance' || (activeTab === 'calls' && callView !== TRACKER)}
           />
