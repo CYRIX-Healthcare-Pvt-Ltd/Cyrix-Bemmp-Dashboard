@@ -163,7 +163,7 @@ export const jobTypesOf = (ds) => (ds.dict.lifecycle ?? []).map((name, id) => ({
  * One row per state (or facility): calls, completed and pending in the first month, and both TATs in each month.
  * `filters` are the dashboard's (area and dimension filters stay); only the dates are the report's own.
  */
-export function careReport(ds, filters, { month, against, jobType, by, status = null }) {
+export function careReport(ds, filters, { month, against, jobType, by, status = null, groupOf = null }) {
   const field = by === 'facility' ? 'facilityName' : 'zone';
   const ofType = (idx) => {
     const out = [];
@@ -176,7 +176,8 @@ export function careReport(ds, filters, { month, against, jobType, by, status = 
   const startedOf = (m) => startedIn(ds, every, m.from, m.to);
   const groups = new Map();
   const at = (i) => {
-    const name = textOf(ds, field, i).trim() || '—';
+    // `groupOf` names a line by something that is not a column, e.g. the contract (Month wise, 27 Nov).
+    const name = (groupOf ? groupOf(i) : textOf(ds, field, i).trim()) || '—';
     if (!groups.has(name)) groups.set(name, { name, state: textOf(ds, 'zone', i).trim(), a: [], b: [], ea: [], eb: [], sa: [], sb: [] });
     return groups.get(name);
   };

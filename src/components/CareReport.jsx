@@ -4,8 +4,18 @@ import { saveBlob } from '../data/xlsx.js';
 import { careReportXlsx } from '../data/careReportXlsx.js';
 import { NOT_SET, PENDING_ORDER } from '../data/careStatus.js';
 import { uptimeByContract, withUptime } from '../data/careUptime.js';
+import { careMonthWise, MONTH_MEASURES } from '../data/careMonthWise.js';
 
 const d2 = (n) => (n == null ? '–' : n.toFixed(2));
+/** One Month wise cell, as the two-month report writes that measure. */
+const mwText = (line, m) => {
+  const v = line?.[m.key];
+  if (v == null) return '–';
+  if (m.kind === 'int') return v.toLocaleString();
+  if (m.kind === 'ftfr') return `${v.toFixed(1)}%`;
+  if (m.kind === 'uptime') return `${v.toFixed(2)}%`;
+  return v.toFixed(2);
+};
 // Growth to one decimal in every column (the user, 27 Nov); never "-0.0%".
 const pctText = (n) => {
   if (n == null) return '–';
@@ -59,11 +69,15 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
   const month = months.find((m) => m.key === monthKey) ?? months[0];
   const against = months.find((m) => m.key === againstKey) ?? null;
   const contractWise = by === 'contract';
+  // Month wise (the user, 27 Nov): every month From → To, rows State or Customer, one measure at a time on screen.
+  const monthWise = by === 'month';
+  const [mwRows, setMwRows] = useState('state');
+  const [mwMeasure, setMwMeasure] = useState('ftfrA');
   const report = useMemo(
-    () => (month && !contractWise
+    () => (month && !contractWise && !monthWise
       ? withUptime(ds, filters, uptimeAssets, careReport(ds, filters, { month, against, jobType, by, status: ticketStatus }), { month, against, by })
       : null),
-    [ds, filters, month, against, jobType, by, ticketStatus, uptimeAssets],
+    [ds, filters, month, against, jobType, by, ticketStatus, uptimeAssets, monthWise],
   );
   // FTFR by AMC / CAMC, month by month From → To, like their own FTFR sheet (the user, 26 Nov).
   const span = useMemo(() => {
@@ -81,7 +95,13 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
     () => (contractWise && span.length ? uptimeByContract(ds, filters, uptimeAssets, span) : null),
     [ds, filters, uptimeAssets, span, contractWise],
   );
-  if (!month || (!contractWise && !report)) return <div className="panel"><p className="empty">No calls in this export.</p></div>;
+  const mw = useMemo(
+    () => (monthWise && span.length ? careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: mwRows, contracts: assets }) : null),
+    [ds, filters, uptimeAssets, span, jobType, mwRows, monthWise, assets],
+  );
+  const measures = MONTH_MEASURES.filter((m) => m.key !== 'uptimeA' || mw?.hasUptime);
+  const measure = measures.find((m) => m.key === mwMeasure) ?? measures[0];
+  if (!month || (!contractWise && !monthWise && !report)) return <div className="panel"><p className="empty">No calls in this export.</p></div>;
 
   const A = month.label; const B = against?.label ?? '–';
   const cmp = Boolean(against) && against.key !== month.key;
@@ -107,7 +127,10 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
     const hi = Math.max(month.to, against?.to ?? month.to);
     const tickets = careTickets(ds, filters, { from: lo, to: hi, jobType, assets });
     saveBlob(
-      await careReportXlsx({ summaries, ftfr, upC: uptimeByContract(ds, filters, uptimeAssets, span), tickets, ds, A, B, cmp, splits: splitsOf(summaries[0].report), status: ticketStatus }),
+      await careReportXlsx({
+        summaries, ftfr, upC: uptimeByContract(ds, filters, uptimeAssets, span),
+        monthWise: ['state', 'facility', ...(assets ? ['contract'] : [])].map((k) => ({ by: k, mw: careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: k, contracts: assets }) })),
+        tickets, ds, A, B, cmp, splits: splitsOf(summaries[0].report), status: ticketStatus }),
       cmp ? `${ds.meta.name} Report ${B} to ${A}.xlsx` : `${ds.meta.name} Report ${A}.xlsx`,
     );
   };
@@ -116,7 +139,7 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
     <div className="panel care-report">
       <div className="care-report-controls">
         <div className="segmented" role="tablist" aria-label="Report by">
-          {[['state', 'State wise'], ['facility', 'Customer wise'], ['contract', 'FTFR & Uptime · Contract wise']].map(([id, label]) => (
+          {[['state', 'State wise'], ['facility', 'Customer wise'], ['contract', 'FTFR & Uptime · Contract wise'], ['month', 'Month wise']].map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={by === id} onClick={() => setBy(id)}>{label}</button>
           ))}
         </div>
@@ -151,11 +174,11 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
         <button
           type="button" className="meeting-export care-download" onClick={download}
         >
-          Download Excel
+          Excel
         </button>
       </div>
 
-      {!contractWise && (
+      {!contractWise && !monthWise && (
       <div className="summary-scroll">
         <table className={`summary-grid care-grid${cmp ? '' : ' care-single'}`}>
           {cmp ? (
@@ -265,6 +288,50 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
           </tfoot>
         </table>
       </div>
+      )}
+
+      {monthWise && mw && (
+        <>
+          <div className="care-mw-controls">
+            <div className="segmented care-mw-rows" role="tablist" aria-label="Rows">
+              {[['state', 'State'], ['facility', 'Customer'], ...(assets ? [['contract', 'Contract']] : [])].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={mwRows === id} onClick={() => setMwRows(id)}>{label}</button>
+              ))}
+            </div>
+            <div className="segmented care-mw-measure" role="tablist" aria-label="Measure">
+              {measures.map((m) => (
+                <button key={m.key} type="button" role="tab" aria-selected={measure.key === m.key} onClick={() => setMwMeasure(m.key)}>{m.short ?? m.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="summary-scroll">
+            <table className="summary-grid care-grid care-mw">
+              <thead>
+                <tr>
+                  <th>{{ facility: 'Customer', contract: 'Contract' }[mwRows] ?? 'State'}</th>
+                  {mwRows === 'facility' && <th>State</th>}
+                  {mw.months.map((m) => <th key={m.key} className="num">{m.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {mw.lines.map((l) => (
+                  <tr key={l.name + l.state}>
+                    <td><strong>{l.name}</strong></td>
+                    {mwRows === 'facility' && <td>{l.state}</td>}
+                    {mw.months.map((m) => <td key={m.key} className="num">{mwText(l.by[m.key], measure)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><strong>Grand Total</strong></td>
+                  {mwRows === 'facility' && <td />}
+                  {mw.months.map((m) => <td key={m.key} className="num strong">{mwText(mw.total[m.key], measure)}</td>)}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
       )}
 
       {contractWise && !ftfr && <p className="empty">Upload the asset master to see FTFR by contract.</p>}

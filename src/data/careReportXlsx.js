@@ -4,6 +4,7 @@
  * from Excel's own icon set — TATs green when they fall, FTFR green when it rises. Company colours: black heading,
  * light grey sub-heading and Grand Total; the heading dark grey, not black, so its column lines show (26 Nov).
  */
+import { MONTH_MEASURES } from './careMonthWise.js';
 import { colName, esc, writeStyledBook } from './xlsx.js';
 import { careTicketId } from './careReport.js';
 
@@ -46,12 +47,15 @@ function c(ref, value, style) {
  * One workbook for the From – To chosen (the user, 27 Nov): State wise, Customer wise, FTFR contract wise and
  * Ticket wise. `summaries` are [{ report, by }] from careReport(); A is the To month's label, B the From month's.
  */
-export async function careReportXlsx({ summaries, A, B, ftfr, upC = null, tickets, ds, cmp = true, splits = [], status = null }) {
+export async function careReportXlsx({ summaries, A, B, ftfr, upC = null, monthWise = null, tickets, ds, cmp = true, splits = [], status = null }) {
   const sheets = summaries.map(({ report, by }) => ({
     name: by === 'facility' ? 'Customer Wise' : 'State Wise',
     xml: summarySheet({ report, A, B, by, cmp, splits }),
   }));
   if (ftfr) sheets.push({ name: upC ? 'FTFR Uptime Contract Wise' : 'FTFR Contract Wise', xml: ftfrSheet(ftfr, upC) });
+  for (const { by, mw } of monthWise ?? []) {
+    if (mw) sheets.push({ name: { facility: 'Month Wise Customer', contract: 'Month Wise Contract' }[by] ?? 'Month Wise State', xml: monthSheet(mw, by) });
+  }
   if (tickets) sheets.push({ name: 'Ticket Wise', xml: ticketSheet(ds, tickets, status) });
   return writeStyledBook(sheets, STYLES);
 }
@@ -188,6 +192,58 @@ function ftfrSheet(ftfr, upC = null) {
 <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="2" topLeftCell="B3" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
 <cols>${widths}</cols>
 <sheetData><row r="1" ht="22" customHeight="1">${r1.join('')}</row><row r="2" ht="34" customHeight="1">${r2.join('')}</row>${body}</sheetData>
+<mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>
+</worksheet>`;
+}
+
+/**
+ * Month wise (the user, 27 Nov): a row per state, customer or contract; per measure, a column per month From → To.
+ */
+function monthSheet(mw, by) {
+  const facility = by === 'facility';
+  const lead = facility ? ['Customer', 'State'] : [by === 'contract' ? 'Contract' : 'State'];
+  const measures = MONTH_MEASURES.filter((m) => m.key !== 'uptimeA' || mw.hasUptime);
+  const n = mw.months.length;
+  const r1 = []; const r2 = []; const merges = [];
+  lead.forEach((h, i) => {
+    r1.push(c(`${colName(i)}1`, h, S.head)); r2.push(c(`${colName(i)}2`, '', S.head));
+    merges.push(`${colName(i)}1:${colName(i)}2`);
+  });
+  measures.forEach((m, g) => {
+    const at = lead.length + g * n;
+    r1.push(c(`${colName(at)}1`, m.kind === 'days' ? `${m.label} (days)` : m.label, S.head));
+    for (let k = 1; k < n; k++) r1.push(c(`${colName(at + k)}1`, '', S.head));
+    if (n > 1) merges.push(`${colName(at)}1:${colName(at + n - 1)}1`);
+    mw.months.forEach((mo, k) => r2.push(c(`${colName(at + k)}2`, mo.label, S.sub)));
+  });
+  const val = (line, m) => {
+    const v = line?.[m.key];
+    if (v == null) return null;
+    if (m.kind === 'ftfr' || m.kind === 'uptime') return v / 100;
+    if (m.kind === 'days') return Math.round(v * 100) / 100;
+    return v;
+  };
+  const sty = (m, total) => ({
+    int: total ? S.tInt : S.int, days: total ? S.tDays : S.days, ftfr: total ? S.tFtfr : S.ftfr, uptime: total ? S.tFtfr : S.ftfr,
+  })[m.kind];
+  const rows = [...mw.lines.map((l) => ({ name: l.name, state: l.state, by: l.by })), { name: 'Grand Total', state: '', by: mw.total, total: true }];
+  const body = rows.map((row, k) => {
+    const r = k + 3;
+    const cells = [c(`A${r}`, row.name, row.total ? S.tText : S.text)];
+    if (facility) cells.push(c(`B${r}`, row.state, row.total ? S.tText : S.text));
+    measures.forEach((m, g) => mw.months.forEach((mo, j) => {
+      cells.push(c(`${colName(lead.length + g * n + j)}${r}`, val(row.by[mo.key], m), sty(m, row.total)));
+    }));
+    return `<row r="${r}" ht="18" customHeight="1">${cells.join('')}</row>`;
+  }).join('');
+  const nameWidth = Math.min(48, Math.max(10, ...rows.map((row) => String(row.name).length)) + 3);
+  const widths = `<col min="1" max="1" width="${nameWidth}" customWidth="1"/>${facility ? '<col min="2" max="2" width="16" customWidth="1"/>' : ''}`
+    + `<col min="${lead.length + 1}" max="${lead.length + measures.length * n}" width="10" customWidth="1"/>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="${lead.length}" ySplit="2" topLeftCell="${colName(lead.length)}3" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<cols>${widths}</cols>
+<sheetData><row r="1" ht="30" customHeight="1">${r1.join('')}</row><row r="2" ht="20" customHeight="1">${r2.join('')}</row>${body}</sheetData>
 <mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>
 </worksheet>`;
 }

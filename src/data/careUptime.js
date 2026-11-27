@@ -132,20 +132,22 @@ export function withUptime(ds, filters, assets, report, { month, against, by }) 
   const uA = of(month);
   const uB = against && against.key !== month.key ? of(against) : null;
   const key = (n, s) => (by === 'facility' ? `${loose(n)}|${loose(s)}` : loose(n));
-  const index = (u) => {
+  const groups = []; // the To month's, with names, for lines that have no calls (Month wise)
+  const index = (u, keep = false) => {
     const m = new Map();
     if (!u) return m;
+    const put = (name, state, uptime) => { m.set(key(name, state), uptime); if (keep) groups.push({ name, state, uptime }); };
     if (by !== 'facility') {
-      for (const g of uptimeBy(u.list, 'state')) m.set(key(g.name), g.uptime);
+      for (const g of uptimeBy(u.list, by === 'contract' ? 'contract' : 'state')) put(g.name, '', g.uptime);
       return m;
     }
     // A customer is named within its state.
     for (const g of uptimeBy(u.list, 'customer')) {
-      for (const s of uptimeBy(g.items, 'state')) m.set(key(g.name, s.name), s.uptime);
+      for (const s of uptimeBy(g.items, 'state')) put(g.name, s.name, s.uptime);
     }
     return m;
   };
-  const a = index(uA);
+  const a = index(uA, true);
   const b = index(uB);
   const pct = (v) => (v == null ? null : v * 100);
   const add = (line, ua, ub) => ({
@@ -159,6 +161,7 @@ export function withUptime(ds, filters, assets, report, { month, against, by }) 
       return add(l, a.get(k) ?? null, b.get(k) ?? null);
     }),
     total: add(report.total, uA?.uptime ?? null, uB?.uptime ?? null),
+    uptimeGroups: groups.map((g) => ({ ...g, uptime: g.uptime * 100 })),
   };
 }
 

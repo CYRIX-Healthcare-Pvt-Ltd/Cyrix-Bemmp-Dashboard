@@ -4269,3 +4269,9 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .uptime-crumb { display: inline-flex; align-items: center; gap: 8px; }
 .uptime-small { display: inline; font-size: 11px; color: var(--text-secondary); margin-left: 8px; white-space: nowrap; }
 @media (max-width: 640px) { .uptime-grid .uptime-wide { display: none; } .uptime-head .uptime-fig.big { margin-left: auto; } }
+
+/* Care 360 Report · Month wise (the user, 27 Nov). */
+.care-mw-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px; }
+.care-mw-measure { overflow-x: auto; max-width: 100%; }
+.care-mw-measure button { white-space: nowrap; }
+.care-mw td:first-child { white-space: normal; min-width: 140px; }
