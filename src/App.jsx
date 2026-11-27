@@ -43,7 +43,7 @@ import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
 import { fixedFirstTime } from './data/careFix.js';
-import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, tatOf } from './data/careReport.js';
+import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
 import ContractPanel from './components/ContractPanel.jsx';
 
@@ -974,10 +974,15 @@ export default function App() {
     [ds, idx, referenceDay, ftfrThrough],
   );
   const repeats = useMemo(() => (idx ? analyzeRepeats(ds, idx) : null), [ds, idx]);
-  // Response over the calls raised in the range; resolution over the calls whose Job End Date is in it (26 Nov).
+  // Response over the calls whose Job Start Date is in the range (27 Nov); resolution over those whose Job End Date is (26 Nov).
   // Closed in range, whenever raised: what Resolution TAT is measured over.
   const careEnded = useMemo(
     () => (idx && care ? endedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo) : []),
+    [ds, idx, care, filters],
+  );
+  // Started in range, whenever raised: what Response TAT is measured over (the user, 27 Nov).
+  const careStarted = useMemo(
+    () => (idx && care ? startedIn(ds, allDates(ds, filters), filters.dayFrom, filters.dayTo) : []),
     [ds, idx, care, filters],
   );
   const careTat = useMemo(
@@ -985,9 +990,9 @@ export default function App() {
       if (!idx || !care) return null;
       const ended = careEnded;
       // Each measure again on Breakdown and on PMS jobs alone, shown small on the tile (the user, 26 Nov).
-      const raisedBy = byJob(ds, idx); const endedBy = byJob(ds, ended);
+      const raisedBy = byJob(ds, idx); const endedBy = byJob(ds, ended); const startedBy = byJob(ds, careStarted);
       const part = (key) => {
-        const t = averageTat(ds, raisedBy[key], endedBy[key]);
+        const t = averageTat(ds, startedBy[key], endedBy[key]);
         const s = summarize(ds, raisedBy[key], referenceDay, { ftfrThrough });
         return { repeats: analyzeRepeats(ds, raisedBy[key]).followUps, ftfrPct: s.ftfrPct, ...t };
       };
@@ -995,14 +1000,14 @@ export default function App() {
       const settled = Array.from(idx).filter((i) => ds.cols.loggedDay[i] <= ftfrThrough);
       const byType = (t) => ftfrOf(ds, settled.filter((i) => contractOf(ds, assets, i) === t)).pct;
       return {
-        ...averageTat(ds, idx, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
+        ...averageTat(ds, careStarted, ended), notStarted: notStarted(ds, idx), split: jobSplit(ds, idx),
         breakdown: part('breakdown'), pms: part('pms'),
         ftfr: ftfrOf(ds, settled),
         ftfrByType: assets ? { AMC: byType('AMC'), CAMC: byType('CAMC') } : null,
-        contracts: assets ? contractTable(ds, assets, { raised: Array.from(idx), ended, ftfrRows: settled }) : null,
+        contracts: assets ? contractTable(ds, assets, { raised: Array.from(idx), started: careStarted, ended, ftfrRows: settled }) : null,
       };
     },
-    [ds, idx, care, careEnded, referenceDay, ftfrThrough, assets],
+    [ds, idx, care, careEnded, careStarted, referenceDay, ftfrThrough, assets],
   );
 
   // Until the user picks one, granularity follows the width of the selected range.
@@ -1088,11 +1093,11 @@ export default function App() {
     const inRange = new Set(idx);
     return {
       ftfr: Array.from(bd),
-      response: Array.from(idx).filter(ok('response')),
+      response: careStarted.filter(ok('response')),
       resolution: careEnded.filter(ok('resolution')),
       same: careEnded.filter((i) => inRange.has(i) && ok('resolution')(i)),
     };
-  }, [care, ds, idx, ftfrRows, careEnded]);
+  }, [care, ds, idx, ftfrRows, careEnded, careStarted]);
 
   const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
 

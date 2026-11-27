@@ -2,7 +2,9 @@
  * Care 360 (and Private BEMMP): turnaround in fractional days from the export's own date-times, and the month
  * against month report the Care 360 team keep in "Ticket Master_Care 360" (the user, 26 Nov).
  *
- * Response TAT = Job Start Date − Raised Date, over the calls raised in the month (with calls, completed, pending).
+ * Response TAT = Job Start Date − Raised Date, over the calls whose Job Start Date is in the month, whenever raised
+ * (the user, 27 Nov: logged 25 Aug, started 5 Sep, closed 10 Oct → its response counts in Sept, its resolution in Oct —
+ * as their workbook's "Response Month"). Calls, completed and pending stay by the month raised.
  * Resolution TAT = Job End Date − Raised Date, over the calls whose Job End Date is in the month, whenever they were
  * raised (the user, 26 Nov: "oct tat means like that"). A call not yet started is left out, not counted as zero.
  * Their workbook counts Breakdown Support calls only, so the report opens on that job type.
@@ -60,23 +62,28 @@ const mean = (ds, rows, key) => {
   return n ? sum / n : null;
 };
 
-/** Rows whose Job End Date falls on Excel days from..to (inclusive). */
-export function endedIn(ds, rows, from, to) {
+function timedIn(ds, rows, field, from, to) {
   const lo = EPOCH + from * DAY; const hi = EPOCH + (to + 1) * DAY;
   const out = [];
   for (let k = 0; k < rows.length; k++) {
-    const e = msOf(textOf(ds, 'completedAt', rows[k]));
+    const e = msOf(textOf(ds, field, rows[k]));
     if (e >= lo && e < hi) out.push(rows[k]);
   }
   return out;
 }
 
+/** Rows whose Job End Date falls on Excel days from..to (inclusive). */
+export const endedIn = (ds, rows, from, to) => timedIn(ds, rows, 'completedAt', from, to);
+
+/** Rows whose Job Start Date falls on Excel days from..to (inclusive): what Response TAT is measured over. */
+export const startedIn = (ds, rows, from, to) => timedIn(ds, rows, 'attendedAt', from, to);
+
 /** Every row the dashboard's filters allow, whatever its dates. */
 export const allDates = (ds, filters) => filterRows(ds, { ...filters, dayFrom: ds.meta.dateRange.minDay, dayTo: ds.meta.dateRange.maxDay + 400 });
 
-/** The tiles: response over the calls raised in the range, resolution over the calls ended in it. */
-export function averageTat(ds, raised, ended) {
-  return { response: mean(ds, raised, 'response'), resolution: mean(ds, ended, 'resolution') };
+/** The tiles: response over the calls started in the range, resolution over the calls ended in it. */
+export function averageTat(ds, started, ended) {
+  return { response: mean(ds, started, 'response'), resolution: mean(ds, ended, 'resolution') };
 }
 
 const done = (ds, i) => /^(completed|closed)$/i.test(textOf(ds, 'status', i).trim());
@@ -158,20 +165,24 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
   const rowsIn = (m) => ofType(filterRows(ds, { ...filters, dayFrom: m.from, dayTo: m.to }));
   const every = ofType(allDates(ds, filters));
   const endedOf = (m) => endedIn(ds, every, m.from, m.to);
+  const startedOf = (m) => startedIn(ds, every, m.from, m.to);
   const groups = new Map();
   const at = (i) => {
     const name = textOf(ds, field, i).trim() || '—';
-    if (!groups.has(name)) groups.set(name, { name, state: textOf(ds, 'zone', i).trim(), a: [], b: [], ea: [], eb: [] });
+    if (!groups.has(name)) groups.set(name, { name, state: textOf(ds, 'zone', i).trim(), a: [], b: [], ea: [], eb: [], sa: [], sb: [] });
     return groups.get(name);
   };
   const a = rowsIn(month); const b = against ? rowsIn(against) : [];
   const ea = endedOf(month); const eb = against ? endedOf(against) : [];
+  const sta = startedOf(month); const stb = against ? startedOf(against) : [];
   for (const i of a) at(i).a.push(i);
   for (const i of b) at(i).b.push(i);
   for (const i of ea) at(i).ea.push(i);
   for (const i of eb) at(i).eb.push(i);
+  for (const i of sta) at(i).sa.push(i);
+  for (const i of stb) at(i).sb.push(i);
   const line = (name, state, g) => {
-    const ta = averageTat(ds, g.a, g.ea); const tb = averageTat(ds, g.b, g.eb);
+    const ta = averageTat(ds, g.sa, g.ea); const tb = averageTat(ds, g.sb, g.eb);
     // FTFR: of the calls raised in the month, the share fixed within 24 hours (Saturday: 48 hours), as on the tile.
     const ftfr = (rows) => (rows.length ? (100 * rows.filter((i) => fixedFirstTime(ds, i)).length) / rows.length : null);
     const fa = ftfr(g.a); const fb = against ? ftfr(g.b) : null;
@@ -189,7 +200,7 @@ export function careReport(ds, filters, { month, against, jobType, by }) {
   };
   const lines = [...groups.values()].map((g) => line(g.name, g.state, g))
     .sort((x, y) => (by === 'facility' ? y.calls - x.calls || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
-  return { lines, total: line('Grand Total', '', { a, b, ea, eb }) };
+  return { lines, total: line('Grand Total', '', { a, b, ea, eb, sa: sta, sb: stb }) };
 }
 
 /** Change of this month against the other, as a fraction (−0.6 = 60% faster); null when either is missing. */
@@ -235,16 +246,17 @@ export function ftfrOf(ds, rows) {
 
 /**
  * The dashboard's contract table: per contract type, calls raised in range, open, not started, FTFR (Breakdown
- * calls whose window has closed), response (raised in range) and resolution (closed in range).
+ * calls whose window has closed), response (started in range) and resolution (closed in range).
  */
-export function contractTable(ds, assets, { raised, ended, ftfrRows }) {
+export function contractTable(ds, assets, { raised, started, ended, ftfrRows }) {
   const groups = new Map();
   const at = (name) => {
-    if (!groups.has(name)) groups.set(name, { name, raised: [], ended: [], ftfr: [] });
+    if (!groups.has(name)) groups.set(name, { name, raised: [], started: [], ended: [], ftfr: [] });
     return groups.get(name);
   };
   for (const i of raised) at(contractOf(ds, assets, i)).raised.push(i);
   for (const i of ended) at(contractOf(ds, assets, i)).ended.push(i);
+  for (const i of started) at(contractOf(ds, assets, i)).started.push(i);
   for (const i of ftfrRows) at(contractOf(ds, assets, i)).ftfr.push(i);
   const rank = (n) => (n === NOT_IN_ASSETS ? 99 : CONTRACT_ORDER.indexOf(n) < 0 ? 50 : CONTRACT_ORDER.indexOf(n));
   return [...groups.values()]
@@ -257,11 +269,11 @@ export function contractTable(ds, assets, { raised, ended, ftfrRows }) {
         open: open.length,
         notStarted: notStarted(ds, open),
         ftfr: ftfrOf(ds, g.ftfr),
-        response: mean(ds, g.raised, 'response'),
+        response: mean(ds, g.started, 'response'),
         resolution: mean(ds, g.ended, 'resolution'),
       };
     })
-    .filter((g) => g.calls || g.resolution != null);
+    .filter((g) => g.calls || g.resolution != null || g.response != null);
 }
 
 /**

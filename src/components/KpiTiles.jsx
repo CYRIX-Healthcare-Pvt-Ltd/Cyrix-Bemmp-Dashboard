@@ -175,7 +175,7 @@ export default function KpiTiles({
         />
         <Tile
           index={6} label="Response TAT" icon="response" value={careTat.response ?? 0}
-          format={(n) => (careTat.response == null ? '—' : `${n.toFixed(2)} d`)} note="Raised in range, to job start · drill in"
+          format={(n) => (careTat.response == null ? '—' : `${n.toFixed(2)} d`)} note="Job started in range · drill in"
           split={bdPms(careTat.breakdown.response, careTat.pms.response, dd)} onClick={() => onOpenPerformance('response')}
         />
         <Tile
