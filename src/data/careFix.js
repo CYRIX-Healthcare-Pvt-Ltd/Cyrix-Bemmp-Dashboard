@@ -8,6 +8,7 @@ import { isFirstTimeFix } from '../../shared/schema.mjs';
 const CARE = ['c360', 'pvt'];
 const EPOCH = Date.UTC(1899, 11, 30);
 const DAY = 86400000;
+const MIN = 60000;
 
 /** "24-01-2026 10:12:58" or an Excel serial → milliseconds (wall clock as UTC); NaN when blank. */
 function ms(text) {
@@ -34,7 +35,8 @@ function fixes(ds) {
     const r = ms(text('receivedAt', i)); const e = ms(text('completedAt', i));
     if (!Number.isFinite(r) || !Number.isFinite(e) || e < r) continue;
     const saturday = new Date(r).getUTCDay() === 6;
-    out[i] = e - r <= (saturday ? 2 * DAY : DAY) ? 1 : 0;
+    // To the minute: seconds are not counted (the user, 27 Nov: "hr and min is same").
+    out[i] = Math.floor(e / MIN) - Math.floor(r / MIN) <= (saturday ? 2 * DAY : DAY) / MIN ? 1 : 0;
   }
   cache.set(ds, out);
   return out;
