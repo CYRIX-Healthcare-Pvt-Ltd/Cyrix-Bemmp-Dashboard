@@ -2678,7 +2678,7 @@ function EngFix({ r, onDone }) {
 
 function CoordInitial({ r, onDone }) {
   const [a, setA] = useState('to_purchase');
-  const [v, setV] = useState({ item_code: r.item_code ?? '', vendor: '', rate: '', tax: '', note: '', pr_no: '', pr_date: '', contract: '' });
+  const [v, setV] = useState({ item_code: r.item_code ?? '', vendor: '', rate: '', tax: '', note: '', pr_no: '', pr_date: '', contract: '', itr_no: '', itr_date: '', approved_qty: r.qty });
   const s = useSend(r, onDone);
   /*
     A hospital under both contracts: the Coordinator picks AMC or CAMC first and the flow follows it (the user, 19 Nov;
@@ -2687,10 +2687,10 @@ function CoordInitial({ r, onDone }) {
   const both = /amc.*&.*amc/i.test(r.category ?? '');
   const camc = both ? v.contract === 'CAMC' : isCamc(r);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
-  const pick = (c) => { set('contract', c); setA(c === 'CAMC' ? 'camc_pr' : (x) => (x === 'camc_pr' ? 'to_purchase' : x)); };
-  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(both ? { contract: v.contract } : {}), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date } : {}) };
+  const pick = (c) => { set('contract', c); setA(c === 'CAMC' ? 'camc_pr' : (x) => (x === 'camc_pr' || x === 'itr' ? 'to_purchase' : x)); };
+  const p = { action: a, note: v.note, item_code: v.item_code, vendor: v.vendor, rate: v.rate === '' ? null : Number(v.rate), tax: v.tax === '' ? null : Number(v.tax), ...(both ? { contract: v.contract } : {}), ...(a === 'close' ? { pr_no: v.pr_no, pr_date: v.pr_date } : {}), ...(a === 'itr' ? { itr_no: v.itr_no, itr_date: v.itr_date, approved_qty: Number(v.approved_qty) } : {}) };
   // Remarks on every action (the user, 19 Nov; 0074).
-  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.'], [a === 'to_purchase' || v.note, 'Write the remarks.']]); // Send to Purchase: remarks optional (the user, 25 Nov; 0089).
+  const needContract = () => s.need([[!both || v.contract, 'Choose the contract.'], [a === 'to_purchase' || a === 'itr' || v.note, 'Write the remarks.']]); // Send to Purchase: remarks optional (the user, 25 Nov; 0089).
   return (
     <>
       {both && (
@@ -2700,7 +2700,7 @@ function CoordInitial({ r, onDone }) {
       )}
       <div className={both && !v.contract ? 'qt-faded' : undefined}>
       <Choice value={a} onChange={setA} options={camc
-        ? [['camc_pr', 'Send to PR', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]
+        ? [['camc_pr', 'Send to PR', 'good', 'coordinator'], ['itr', 'From stock - ITR', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]
         : [['to_purchase', 'Ask Purchase for rates', 'good', 'purchase'], ['sap', 'SAP rate', 'good', 'coordinator'], ['hold', 'Hold', 'good', 'coordinator'], ['ask_tl', 'Clarify with Team Lead', 'good', 'team_lead'], ['close', 'Close', 'bad']]} />
       </div>
       {a === 'sap' && (
@@ -2710,6 +2710,17 @@ function CoordInitial({ r, onDone }) {
           <Field label="Rate (₹)"><MoneyInput value={v.rate} onChange={(x) => set('rate', x)} placeholder="0" /></Field>
           <TaxChips value={v.tax} onChange={(x) => set('tax', x)} />
           <TotalLine rate={v.rate} tax={v.tax} />
+        </div>
+      )}
+      {/* CAMC from stock at the first check (the user, 27 Nov; 0093), the same fields as at PR. */}
+      {a === 'itr' && (
+        <div className="qt-grid">
+          <div className="qt-date-pair">
+            <Field label="ITR no"><input value={v.itr_no} onChange={(e) => set('itr_no', e.target.value)} autoComplete="off" /></Field>
+            <Field label="ITR date"><input type="date" value={v.itr_date} max={todayIst()} onChange={(e) => set('itr_date', e.target.value)} /></Field>
+          </div>
+          <Field label="Item code"><input value={v.item_code} onChange={(e) => set('item_code', e.target.value)} /></Field>
+          <Field label="Approved qty"><input type="number" inputMode="numeric" min="1" value={v.approved_qty} onChange={(e) => set('approved_qty', e.target.value)} /></Field>
         </div>
       )}
       {/* Close: PR no and date if there is one, never required; the reason is (the user, 14 Nov; 0053). */}
@@ -2723,6 +2734,7 @@ function CoordInitial({ r, onDone }) {
         <textarea rows={2} value={v.note} onChange={(e) => set('note', e.target.value)} />
       </Field>
       {a === 'hold' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.go(`Put ${r.no} on hold?`, [v.note], 'Hold', p, `${r.no} is on hold.`)}>Hold</button>}
+      {a === 'itr' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.need([[v.itr_no, 'Write the ITR no.'], [v.itr_date, 'Choose the ITR date.'], [v.item_code, 'Write the item code.'], [Number(v.approved_qty) > 0, 'Write the approved qty.']]) && s.go(`Complete ${r.no} from stock?`, [`ITR ${v.itr_no} · ${dayText(v.itr_date)}`, `Item ${v.item_code} × ${v.approved_qty}`, v.note], 'Complete', p, `${r.no} completed from stock.`)}>Complete from stock</button>}
       {a === 'camc_pr' && <button type="button" data-role="coordinator" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to PR?`, ['CAMC: no pricing, straight to PR.'], 'Send to PR', p, `${r.no} is at PR.`)}>Send to PR</button>}
       {a === 'to_purchase' && <button type="button" data-role="purchase" className="mt-go" onClick={() => needContract() && s.go(`Send ${r.no} to Purchase?`, ['Purchase gives the rates.'], 'Send', p, `${r.no} sent to Purchase.`)}>Send to Purchase</button>}
       {a === 'ask_tl' && <button type="button" data-role="team_lead" className="mt-go" onClick={() => s.need([[!both || v.contract, 'Choose the contract.'], [v.note, 'Write the question.']]) && s.go(`Clarify ${r.no} with the Team Lead?`, [r.team_lead_name, v.note], 'Send', p, `Sent to ${r.team_lead_name ?? 'the Team Lead'}.`)}>Clarify with Team Lead</button>}

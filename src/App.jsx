@@ -324,7 +324,7 @@ const PERFORMANCE = [
  * Fractional days from the export's date-times, as on the tiles and the Report.
  */
 const CARE_PERF = [
-  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed within 24 hours (Saturday: by Monday), worst first' },
+  { ...PERFORMANCE[0], caption: 'Share of Breakdown calls fixed within 24 hours (Saturday: 48 hours), worst first' },
   {
     id: 'response', label: 'Response TAT', tab: 'Response TAT', color: 'var(--series-1)', sort: 'desc', minSamples: 5,
     format: (v) => `${v.toFixed(2)} d`, subtitle: (n) => `${n.toLocaleString()} started`,
