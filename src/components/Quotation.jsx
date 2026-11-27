@@ -406,6 +406,7 @@ function Viewer({ paths, start, name, onClose }) {
   const drag = useRef(null);
   const pinch = useRef(null);
   const swipe = useRef(null);
+  const stage = useRef(null);
   const n = paths.length;
   const go = (d) => { setI((k) => (k + d + n) % n); setZ({ s: 1, x: 0, y: 0 }); };
   useEffect(() => {
@@ -428,15 +429,23 @@ function Viewer({ paths, start, name, onClose }) {
   }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clamp = (s) => Math.min(5, Math.max(1, s));
+  /** A zoomed photo moves only as far as its own edges, never off the screen into black (the user, 27 Nov). */
+  const inside = (o) => {
+    if (o.s <= 1) return { s: 1, x: 0, y: 0 };
+    const el = stage.current; const w = el?.clientWidth ?? window.innerWidth; const h = el?.clientHeight ?? window.innerHeight;
+    // The photo's own size before zoom (it sits in the middle): its edge stops at the screen's edge.
+    const im = el?.querySelector('img'); const iw = im?.offsetWidth || w; const ih = im?.offsetHeight || h;
+    const mx = Math.max(0, (o.s * iw - w) / 2); const my = Math.max(0, (o.s * ih - h) / 2);
+    return { s: o.s, x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
+  };
   /** Zoom by k around the point (cx, cy) measured from the screen's centre. */
   const zoomAt = (k, cx, cy) => setZ((o) => {
     const s = clamp(o.s * k);
     if (s === 1) return { s: 1, x: 0, y: 0 };
     const f = s / o.s;
-    return { s, x: cx - (cx - o.x) * f, y: cy - (cy - o.y) * f };
+    return inside({ s, x: cx - (cx - o.x) * f, y: cy - (cy - o.y) * f });
   });
   const fromCentre = (e) => ({ cx: e.clientX - window.innerWidth / 2, cy: e.clientY - window.innerHeight / 2 });
-  const stage = useRef(null);
   useEffect(() => {
     const el = stage.current; if (!el) return undefined;
     const wheel = (e) => { e.preventDefault(); const { cx, cy } = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, cx, cy); };
@@ -458,11 +467,13 @@ function Viewer({ paths, start, name, onClose }) {
       const [a, b] = e.touches;
       const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       const s = clamp(pinch.current.s * (d / pinch.current.d));
-      setZ((o) => (s === 1 ? { s: 1, x: 0, y: 0 } : { ...o, s }));
+      setZ((o) => inside({ ...o, s }));
       return;
     }
-    const p = e.touches?.[0] ?? e;
-    if (drag.current) setZ((o) => ({ ...o, x: p.clientX - drag.current.x, y: p.clientY - drag.current.y }));
+    // The drag's start is read now, not when React applies the change: a finger lifted in between cleared it, and
+    // reading it then broke the page (the screen went blank, the user, 27 Nov).
+    const p = e.touches?.[0] ?? e; const from = drag.current;
+    if (from) { const x = p.clientX - from.x; const y = p.clientY - from.y; setZ((o) => inside({ ...o, x, y })); }
   };
   const up = (e) => {
     const p = e.changedTouches?.[0] ?? e;
