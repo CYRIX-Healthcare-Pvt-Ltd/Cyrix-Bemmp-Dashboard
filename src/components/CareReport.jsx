@@ -119,6 +119,17 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
   // Laid out like their own workbook: two heading rows, colours, icons (the user, 26 Nov).
   // One workbook whichever sub-tab is open: State wise, Customer wise, FTFR contract wise, Ticket wise (the user, 27 Nov).
   const download = async () => {
+    // Month wise downloads its own sheets only; every other tab the workbook as before (the user, 27 Nov).
+    if (monthWise) {
+      saveBlob(
+        await careReportXlsx({
+          summaries: [], ftfr: null, tickets: null, ds, A, B,
+          monthWise: ['state', 'facility', ...(assets ? ['contract'] : [])].map((k) => ({ by: k, mw: careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: k, contracts: assets }) })),
+        }),
+        `${ds.meta.name} Month wise ${span[0]?.label ?? A} to ${span[span.length - 1]?.label ?? A}.xlsx`,
+      );
+      return;
+    }
     const summaries = ['state', 'facility'].map((k) => ({
       by: k,
       report: withUptime(ds, filters, uptimeAssets, careReport(ds, filters, { month, against, jobType, by: k, status: ticketStatus }), { month, against, by: k }),
@@ -129,7 +140,6 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
     saveBlob(
       await careReportXlsx({
         summaries, ftfr, upC: uptimeByContract(ds, filters, uptimeAssets, span),
-        monthWise: ['state', 'facility', ...(assets ? ['contract'] : [])].map((k) => ({ by: k, mw: careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: k, contracts: assets }) })),
         tickets, ds, A, B, cmp, splits: splitsOf(summaries[0].report), status: ticketStatus }),
       cmp ? `${ds.meta.name} Report ${B} to ${A}.xlsx` : `${ds.meta.name} Report ${A}.xlsx`,
     );
