@@ -196,7 +196,8 @@ export function careReport(ds, filters, { month, against, jobType, by, status = 
     const ftfr = (rows) => (rows.length ? (100 * rows.filter((i) => fixedFirstTime(ds, i)).length) / rows.length : null);
     const fa = ftfr(g.a); const fb = against ? ftfr(g.b) : null;
     // Raised and closed in the same month (the user, 26 Nov).
-    const sa = mean(ds, endedIn(ds, g.a, month.from, month.to), 'resolution');
+    const sameRows = endedIn(ds, g.a, month.from, month.to);
+    const sa = mean(ds, sameRows, 'resolution');
     const sb = against ? mean(ds, endedIn(ds, g.b, against.from, against.to), 'resolution') : null;
     const completed = g.a.filter((i) => done(ds, i)).length;
     // Pending split by the tracker's Ticket Status (the user, 27 Nov).
@@ -204,6 +205,10 @@ export function careReport(ds, filters, { month, against, jobType, by, status = 
     if (status) for (const i of g.a) if (!done(ds, i)) pendingBy[status[i]] = (pendingBy[status[i]] ?? 0) + 1;
     return {
       name, state, calls: g.a.length, completed, pending: g.a.length - completed, pendingBy,
+      // Closed in the month, whenever logged (Month wise "Calls resolved", the user, 27 Nov).
+      resolvedIn: g.ea.length,
+      // Logged and closed in the month (Month wise, the user, 27 Nov).
+      sameCount: sameRows.length,
       responseA: ta.response, responseB: tb.response, responseChange: change(ta.response, tb.response),
       resolutionA: ta.resolution, resolutionB: tb.resolution, resolutionChange: change(ta.resolution, tb.resolution),
       sameA: sa, sameB: sb, sameChange: change(sa, sb),

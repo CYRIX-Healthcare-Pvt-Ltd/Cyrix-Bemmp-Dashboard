@@ -1,17 +1,19 @@
 /*
  * Care 360 Report · Month wise (the user, 27 Nov: "apr to oct month wise, state wise ftfr uptime% resp tat etc").
  * Every month From → To, one line per state (or customer), each measure counted the way the two-month report counts
- * it: calls raised in the month, Response TAT on calls started in it, Resolution TAT on calls ended in it, FTFR of the
+ * it: calls logged in the month, calls resolved (closed) in it whenever logged, Response TAT on calls started in it, Resolution TAT on calls ended in it, FTFR of the
  * calls raised in it, Uptime % over the month's days (to the export's last day for the month still running).
  */
 import { careReport, contractOf } from './careReport.js';
 import { withUptime } from './careUptime.js';
 
 export const MONTH_MEASURES = [
-  { key: 'calls', label: 'Calls', kind: 'int' },
+  { key: 'calls', label: 'Calls logged', kind: 'int' },
+  { key: 'sameCount', label: 'Logged & closed same month', short: 'Closed same month', kind: 'int' },
+  { key: 'resolvedIn', label: 'Calls resolved', kind: 'int' },
   { key: 'responseA', label: 'Response TAT', kind: 'days' },
   { key: 'resolutionA', label: 'Resolution TAT · closed in month', short: 'Resolution TAT', kind: 'days' },
-  { key: 'sameA', label: 'Logged & closed same month', short: 'Same month', kind: 'days' },
+  { key: 'sameA', label: 'Logged & closed same month TAT', short: 'Same month TAT', kind: 'days' },
   { key: 'ftfrA', label: 'FTFR', kind: 'ftfr' },
   { key: 'uptimeA', label: 'Uptime %', kind: 'uptime' },
 ];
@@ -45,7 +47,7 @@ export function careMonthWise(ds, filters, assets, span, { jobType, by, status =
         lines.set(k, { name: g.name, state: g.state, by: {} });
       }
       const line = lines.get(k);
-      if (!line.by[m.key]) line.by[m.key] = { calls: 0, uptimeA: g.uptime };
+      if (!line.by[m.key]) line.by[m.key] = { calls: 0, sameCount: 0, resolvedIn: 0, uptimeA: g.uptime };
     }
   }
   const out = [...lines.values()];
