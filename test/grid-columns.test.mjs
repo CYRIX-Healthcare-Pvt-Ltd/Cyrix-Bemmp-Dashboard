@@ -45,7 +45,9 @@ function bodyRow() {
 }
 
 test('the heading row and the body row draw the same list', () => {
-  const head = SOURCE.slice(SOURCE.indexOf('<thead>'), SOURCE.indexOf('</thead>'));
+  // The tracker's own table: the Summary's tables come before it in the file.
+  const at = SOURCE.indexOf('<thead>', SOURCE.indexOf('meeting-table is-sortable'));
+  const head = SOURCE.slice(at, SOURCE.indexOf('</thead>', at));
   assert.match(head, /\{shown[.]map\(\(c\) =>/, 'the heading row no longer maps `shown`');
   const body = bodyRow();
   assert.match(body, /\{shown[.]map\(\(c\) =>/, 'the body row no longer maps `shown`');
@@ -56,7 +58,8 @@ test('the heading row and the body row draw the same list', () => {
 });
 
 test('the ticket is always shown, whatever is chosen', () => {
-  assert.match(SOURCE, /columns[.]filter\(\(c\) => c[.]key === 'ticket' \|\| !hidden[.]has\(c[.]key\)\)/);
+  // `ordered` is `columns` in the order the headings were dragged into (28 Nov).
+  assert.match(SOURCE, /ordered[.]filter\(\(c\) => c[.]key === 'ticket' \|\| !hidden[.]has\(c[.]key\)\)/);
   for (const [name, list] of Object.entries(LISTS)) {
     assert.equal(list[0].key, 'ticket', `${name}: the ticket is not the first column`);
   }

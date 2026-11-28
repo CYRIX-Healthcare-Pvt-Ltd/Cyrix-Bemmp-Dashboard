@@ -828,6 +828,18 @@ export function buildSeries(ds, idx, granularity, referenceDay) {
     if (isPenalty(ds, windows, referenceDay, i)) p.penalties++;
   }
 
+  // A week the range starts inside is named by the range's first day, not the Monday before it (the user, 28 Nov:
+  // a financial year read "30 Mar 26" though it holds nothing before 1 Apr).
+  if (granularity === 'week' && periods.size) {
+    let first = Infinity;
+    for (let k = 0; k < idx.length; k++) {
+      const day = cols.loggedDay[idx[k]];
+      if (day >= 0 && day < first) first = day;
+    }
+    const p = periods.get(periodStart(first, granularity));
+    if (p && first > p.key) p.label = periodLabel(first, 'day');
+  }
+
   const out = [...periods.values()].sort((a, b) => a.key - b.key);
   for (const p of out) p.ftfrPct = p.volume ? (p.fixes / p.volume) * 100 : 0;
   return out;
