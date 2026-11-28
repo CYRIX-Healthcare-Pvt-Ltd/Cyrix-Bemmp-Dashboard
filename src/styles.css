@@ -2960,7 +2960,8 @@ html.no-swipe-back body {
      width of dashboard showing beside it — that sliver is not usable, and a
      panel that nearly covers the page while still showing it reads as two
      things overlapping rather than one thing opening. */
-  width: min(360px, 100vw);
+  /* Wider since filters sit two a row (the user, 28 Nov). */
+  width: min(460px, 100vw);
   display: block;
   overflow-y: auto;
   border-radius: 0;
