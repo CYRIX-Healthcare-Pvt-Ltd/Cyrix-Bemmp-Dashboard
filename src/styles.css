@@ -1193,7 +1193,8 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 /* ================================================================== drawer == */
 
 .drawer-scrim {
-  position: fixed; inset: 0; z-index: 40;
+  /* Above the tracker's full screen (60), so a ticket opens there too (the user, 28 Nov). */
+  position: fixed; inset: 0; z-index: 70;
   background: rgba(8, 10, 16, 0.34);
   backdrop-filter: blur(3px);
   animation: fadeIn 0.22s ease both;
@@ -1201,7 +1202,7 @@ tbody tr[aria-selected='true'] td:first-child { box-shadow: inset 3px 0 0 var(--
 /* Inset from the edges rather than butting into them, so the glass has a visible
    edge all the way round and the page shows behind it. */
 .drawer {
-  position: fixed; top: 12px; right: 12px; bottom: 12px; z-index: 41;
+  position: fixed; top: 12px; right: 12px; bottom: 12px; z-index: 71;
   width: min(470px, calc(100vw - 24px));
   display: flex; flex-direction: column;
   border-radius: var(--radius-lg);

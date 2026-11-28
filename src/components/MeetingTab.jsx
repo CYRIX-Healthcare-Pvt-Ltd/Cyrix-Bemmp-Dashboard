@@ -1022,6 +1022,8 @@ export default function MeetingTab({
       if (e.key !== 'Escape') return;
       // A list or a dialog is nearer the front; its own handler has it.
       if (openFilter || detail || log) return;
+      // The ticket popup closes first; full screen stays.
+      if (document.querySelector('.drawer')) return;
       setFull(false);
     };
     document.addEventListener('keydown', onKey);

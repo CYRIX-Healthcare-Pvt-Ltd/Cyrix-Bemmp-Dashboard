@@ -1185,6 +1185,12 @@ export default function App() {
       : []),
     [ds, undatedIdx],
   );
+  // Care 360's tracker: Breakdown calls only, no PMS (the user, 28 Nov).
+  const trackerRows = useMemo(() => {
+    if (!care || !ds) return unresolvedRows;
+    const bd = (ds.dict.lifecycle ?? []).map((t) => /breakdown/i.test(t ?? ''));
+    return unresolvedRows.filter((r) => bd[ds.cols.lifecycle[r]]);
+  }, [care, ds, unresolvedRows]);
 
   const accruing = useMemo(
     () => (idx ? accruingRows(ds, undatedIdx, filters.dayFrom, filters.dayTo) : []),
@@ -1837,8 +1843,8 @@ export default function App() {
               <MeetingTab
                 key={`tracker-${stateId}`}
                 ds={ds}
-                rows={unresolvedRows}
-                unresolvedRows={unresolvedRows}
+                rows={trackerRows}
+                unresolvedRows={trackerRows}
                 referenceDay={referenceDay}
                 canEdit={canEditMeeting(profile)}
                 onSelectRow={setDrawerRow}
