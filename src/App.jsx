@@ -1981,7 +1981,7 @@ export default function App() {
               </div>
             </div>
             {perfChart && (
-              <div className="panel chart-panel" style={{ '--i': 0 }}>
+              <div className="panel chart-panel" style={{ '--i': 0, marginBottom: 16 }}>
                 <div className="chart-head">
                   <h2>{perfChart.metric.label}</h2>
                   <div className="segmented" role="tablist" aria-label="Granularity">
@@ -2123,7 +2123,7 @@ export default function App() {
         {activeTab === 'repeats' && (
           <>
             {perfChart && (
-              <div className="panel chart-panel" style={{ '--i': 0 }}>
+              <div className="panel chart-panel" style={{ '--i': 0, marginBottom: 16 }}>
                 <div className="chart-head">
                   <h2>{perfChart.metric.label}</h2>
                   <div className="segmented" role="tablist" aria-label="Granularity">
