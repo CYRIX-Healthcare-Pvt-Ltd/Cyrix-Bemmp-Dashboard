@@ -234,15 +234,43 @@ export const NOT_IN_ASSETS = 'Not in asset master';
 export const CONTRACT_ORDER = ['AMC', 'CAMC', 'Non Contract', 'Warranty', 'In House', 'Rental'];
 
 /** AMC / CAMC as the ticket itself carries it ("Contract Category"), '' when the upload had no such column. */
+/*
+ * The ticket's Contract Category, column per row. From the `division` field when the upload read it, else from the
+ * export's own column kept in meta.raw: uploads made before the field was mapped (Sabin's 27 Nov one) still have it.
+ */
+const ownContracts = new WeakMap();
+const normContract = (v) => {
+  const t = String(v ?? '').trim();
+  return /^camc$/i.test(t) ? 'CAMC' : /^amc$/i.test(t) ? 'AMC' : t;
+};
+function contractColumn(ds) {
+  if (ownContracts.has(ds)) return ownContracts.get(ds);
+  let col = null;
+  if ((ds.dict.division ?? []).some((v) => String(v ?? '').trim())) {
+    col = new Array(ds.rows);
+    for (let i = 0; i < ds.rows; i++) {
+      const id = ds.cols.division?.[i];
+      col[i] = id == null || id < 0 ? '' : normContract(ds.dict.division[id]);
+    }
+  } else {
+    const raw = ds.meta?.raw;
+    const at = (raw?.headings ?? []).findIndex((h) => String(h ?? '').toLowerCase().replace(/[^a-z]/g, '') === 'contractcategory');
+    if (at >= 0) {
+      col = new Array(ds.rows);
+      for (let i = 0; i < ds.rows; i++) col[i] = normContract(raw.rows[i]?.[at]);
+    }
+  }
+  ownContracts.set(ds, col);
+  return col;
+}
+
+/** AMC / CAMC as the ticket itself carries it ("Contract Category"), '' when the upload has no such column. */
 export function ticketContract(ds, i) {
-  const id = ds.cols.division?.[i];
-  if (id == null || id < 0) return '';
-  const v = String(ds.dict.division?.[id] ?? '').trim();
-  return /^camc$/i.test(v) ? 'CAMC' : /^amc$/i.test(v) ? 'AMC' : v;
+  return contractColumn(ds)?.[i] ?? '';
 }
 
 /** Whether this upload carries its own contract per ticket. */
-export const hasTicketContract = (ds) => (ds.dict.division ?? []).some((v) => String(v ?? '').trim());
+export const hasTicketContract = (ds) => Boolean(contractColumn(ds)?.some((v) => v));
 
 export function contractOf(ds, assets, i) {
   // The ticket's own Contract Category first (the user, 27 Nov), the asset master only for older uploads.
