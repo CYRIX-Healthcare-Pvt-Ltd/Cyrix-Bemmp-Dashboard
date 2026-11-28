@@ -1079,7 +1079,7 @@ export default function App() {
   // Uptime % joins Care 360's chart (the user, 28 Nov), drawn from the Uptime tab's own per-period figures.
   const metrics = care
     ? [...METRICS.filter((m) => m.id !== 'penalty'), {
-      id: 'uptime', tab: 'Uptime %', label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true,
+      id: 'uptime', tab: 'Uptime %', label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true, floor90: true, noun: 'assets',
       caption: 'Breakdown downtime against every asset in the master, AMC and CAMC',
     }]
     : METRICS;
@@ -1238,7 +1238,7 @@ export default function App() {
       return { key: p.key, label: p.label };
     });
     return {
-      metric: { label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true },
+      metric: { label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true, floor90: true, noun: 'assets' },
       series,
       split: { lines: types.map(([t, color]) => ({ key: t, label: t, color, map: maps[t] })).filter((l) => l.map.size) },
     };

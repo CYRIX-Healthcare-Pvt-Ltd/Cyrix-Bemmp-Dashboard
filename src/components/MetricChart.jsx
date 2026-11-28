@@ -536,7 +536,10 @@ function LinesChart({ series, metric, split, height = 300 }) {
     })).filter((l) => l.vals.some((v) => v != null));
     const all = lines.flatMap((l) => l.vals.filter((v) => v != null));
     if (!all.length) return null;
-    const lo = pct ? Math.max(0, Math.min(80, Math.floor((Math.min(...all) - 5) / 10) * 10)) : 0;
+    const least = Math.min(...all);
+    // Uptime: from 90%, or 80% once a point falls under 90 (the user, 28 Nov).
+    const lo = metric.floor90 && least >= 80 ? (least >= 90 ? 90 : 80)
+      : pct ? Math.max(0, Math.min(80, Math.floor((least - 5) / 10) * 10)) : 0;
     const top = pct ? 100 : niceMax(Math.max(...all, 1));
     const step = n > 1 ? plotW / (n - 1) : 0;
     const x = (i) => PAD.left + (n > 1 ? step * i : plotW / 2);
@@ -557,7 +560,7 @@ function LinesChart({ series, metric, split, height = 300 }) {
     const ends = lines.map((l) => l.end).filter(Boolean).sort((a, b) => a.ty - b.ty);
     for (let k = 1; k < ends.length; k++) if (ends[k].ty - ends[k - 1].ty < 15) ends[k].ty = ends[k - 1].ty + 15;
     // Round steps: every 10 points, or 20 when the scale runs from low down.
-    const gap = pct ? (top - lo > 50 ? 20 : 10) : top / 4;
+    const gap = metric.floor90 && top - lo <= 20 ? (top - lo) / 5 : pct ? (top - lo > 50 ? 20 : 10) : top / 4;
     const ticks = [];
     for (let v = lo; v <= top + 1e-9; v += gap) ticks.push({ v, y: y(v) });
     const every = Math.max(1, Math.ceil(n / Math.max(1, plotW / 62)));
@@ -572,7 +575,8 @@ function LinesChart({ series, metric, split, height = 300 }) {
     const pointLabels = [];
     const room = n > 1 ? step : plotW;
     const stride = Math.max(1, Math.ceil(36 / Math.max(1, room)));
-    for (let i = 0; i < n - 1; i++) {
+    // On a phone the values are on a press only; the labels crowded the lines (the user, 28 Nov).
+    for (let i = 0; i < n - 1 && W >= 600; i++) {
       if (i % stride) continue;
       const here = lines.filter((l) => l.vals[i] != null).sort((a, b) => b.vals[i] - a.vals[i]);
       here.forEach((l, k) => {
@@ -668,7 +672,7 @@ function LinesChart({ series, metric, split, height = 300 }) {
           {geom.lines.map((l) => (
             <div key={l.key} className="t-row">
               <span><i className="split-key" style={{ background: l.color }} />{l.label}</span>
-              <span>{fmt(l.vals[h])}{(pct || dp) && l.calls[h] ? ` · ${l.calls[h].toLocaleString()} calls` : ''}</span>
+              <span>{fmt(l.vals[h])}{(pct || dp) && l.calls[h] ? ` · ${l.calls[h].toLocaleString()} ${metric.noun ?? 'calls'}` : ''}</span>
             </div>
           ))}
         </div>
