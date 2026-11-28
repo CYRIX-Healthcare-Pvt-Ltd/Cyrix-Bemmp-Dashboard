@@ -172,7 +172,8 @@ export function monthsOf(ds) {
   for (let y = last.getUTCFullYear(), m = last.getUTCMonth(); y > first.getUTCFullYear() || (y === first.getUTCFullYear() && m >= first.getUTCMonth());) {
     const from = (Date.UTC(y, m, 1) - EPOCH) / DAY;
     const to = (Date.UTC(y, m + 1, 1) - EPOCH) / DAY - 1;
-    const label = `${new Date(Date.UTC(y, m, 1)).toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' })} ${String(y).slice(2)}`;
+    // "Sep", as every chart writes it; the Indian locale gives "Sept" (28 Nov).
+    const label = `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m]} ${String(y).slice(2)}`;
     out.push({ key: `${y}-${String(m + 1).padStart(2, '0')}`, label, from, to });
     if (--m < 0) { m = 11; y--; }
   }
@@ -187,7 +188,8 @@ export const jobTypesOf = (ds) => (ds.dict.lifecycle ?? []).map((name, id) => ({
  * `filters` are the dashboard's (area and dimension filters stay); only the dates are the report's own.
  */
 export function careReport(ds, filters, { month, against, jobType, by, status = null, groupOf = null }) {
-  const field = by === 'facility' ? 'facilityName' : 'zone';
+  // Engineer wise in Month wise (the user, 28 Nov).
+  const field = by === 'facility' ? 'facilityName' : by === 'engineer' ? 'engineer' : 'zone';
   const ofType = (idx) => {
     const out = [];
     for (let k = 0; k < idx.length; k++) if (jobType == null || ds.cols.lifecycle[idx[k]] === jobType) out.push(idx[k]);
@@ -239,7 +241,7 @@ export function careReport(ds, filters, { month, against, jobType, by, status = 
     };
   };
   const lines = [...groups.values()].map((g) => line(g.name, g.state, g))
-    .sort((x, y) => (by === 'facility' ? y.calls - x.calls || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
+    .sort((x, y) => (by === 'facility' || by === 'engineer' ? y.calls - x.calls || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
   return { lines, total: line('Grand Total', '', { a, b, ea, eb, sa: sta, sb: stb }) };
 }
 

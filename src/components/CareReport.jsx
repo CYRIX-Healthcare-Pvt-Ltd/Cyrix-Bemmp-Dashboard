@@ -124,7 +124,7 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
       saveBlob(
         await careReportXlsx({
           summaries: [], ftfr: null, tickets: null, ds, A, B,
-          monthWise: ['state', 'facility', ...(assets ? ['contract'] : [])].map((k) => ({ by: k, mw: careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: k, contracts: assets }) })),
+          monthWise: ['state', 'facility', ...(assets ? ['contract'] : []), 'engineer'].map((k) => ({ by: k, mw: careMonthWise(ds, filters, uptimeAssets, span, { jobType, by: k, contracts: assets }) })),
         }),
         `${ds.meta.name} Month wise ${span[0]?.label ?? A} to ${span[span.length - 1]?.label ?? A}.xlsx`,
       );
@@ -149,10 +149,12 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
     <div className="panel care-report">
       <div className="care-report-controls">
         <div className="segmented" role="tablist" aria-label="Report by">
-          {[['state', 'State wise'], ['facility', 'Customer wise'], ['contract', 'FTFR & Uptime · Contract wise'], ['month', 'Month wise']].map(([id, label]) => (
+          {[['state', 'State wise'], ['facility', 'Customer wise'], ['contract', 'FTFR & Uptime'], ['month', 'Month wise']].map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={by === id} onClick={() => setBy(id)}>{label}</button>
           ))}
         </div>
+        {/* From, To and Job type stay together, so a narrow screen moves them as one line (the user, 28 Nov). */}
+        <div className="care-report-pickers">
         <div className="field">
           <label htmlFor="care-against">From</label>
           <select
@@ -174,10 +176,10 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
         </div>
         {!contractWise && (
         <div className="field care-job">
-          <label htmlFor="care-job">Job type</label>
-          <select id="care-job" value={jobType ?? ''} onChange={(e) => setJobType(e.target.value === '' ? null : Number(e.target.value))}>
+          {/* No word beside it (the user, 28 Nov); "All job types" / "Breakdown Support" says what it is. */}
+          <select id="care-job" aria-label="Job type" value={jobType ?? ''} onChange={(e) => setJobType(e.target.value === '' ? null : Number(e.target.value))}>
             <option value="">All job types</option>
-            {jobTypes.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+            {jobTypes.map((j) => <option key={j.id} value={j.id}>{j.name.replace(/^service job\s*-\s*/i, '').replace(/\s+support$/i, '')}</option>)}
           </select>
         </div>
         )}
@@ -186,6 +188,7 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
         >
           Excel
         </button>
+        </div>
       </div>
 
       {!contractWise && !monthWise && (
@@ -304,7 +307,7 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
         <>
           <div className="care-mw-controls">
             <div className="segmented care-mw-rows" role="tablist" aria-label="Rows">
-              {[['state', 'State'], ['facility', 'Customer'], ...(assets ? [['contract', 'Contract']] : [])].map(([id, label]) => (
+              {[['state', 'State'], ['facility', 'Customer'], ...(assets ? [['contract', 'Contract']] : []), ['engineer', 'Engineer']].map(([id, label]) => (
                 <button key={id} type="button" role="tab" aria-selected={mwRows === id} onClick={() => setMwRows(id)}>{label}</button>
               ))}
             </div>
@@ -318,7 +321,7 @@ export default function CareReport({ ds, filters, assets, uptimeAssets = null, t
             <table className="summary-grid care-grid care-mw">
               <thead>
                 <tr>
-                  <th>{{ facility: 'Customer', contract: 'Contract' }[mwRows] ?? 'State'}</th>
+                  <th>{{ facility: 'Customer', contract: 'Contract', engineer: 'Engineer' }[mwRows] ?? 'State'}</th>
                   {mwRows === 'facility' && <th>State</th>}
                   {mw.months.map((m) => <th key={m.key} className="num">{m.label}</th>)}
                 </tr>

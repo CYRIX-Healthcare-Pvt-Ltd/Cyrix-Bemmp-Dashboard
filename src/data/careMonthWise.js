@@ -29,7 +29,9 @@ export function careMonthWise(ds, filters, assets, span, { jobType, by, status =
   for (const m of span) {
     // Contract rows: AMC, CAMC … as the ticket (else the asset master) gives them.
     const groupOf = by === 'contract' && contracts ? (i) => contractOf(ds, contracts, i) : null;
-    const r = withUptime(ds, filters, assets, careReport(ds, filters, { month: m, against: null, jobType, by, status, groupOf }), { month: m, against: null, by });
+    // An engineer has no assets of his own, so no uptime line for one.
+    const base = careReport(ds, filters, { month: m, against: null, jobType, by, status, groupOf });
+    const r = by === 'engineer' ? base : withUptime(ds, filters, assets, base, { month: m, against: null, by });
     hasUptime = hasUptime || Boolean(r.hasUptime);
     total[m.key] = r.total;
     const keyOf = (name, state) => (by === 'facility' ? `${loose(name)}|${loose(state)}` : loose(name));
@@ -39,7 +41,7 @@ export function careMonthWise(ds, filters, assets, span, { jobType, by, status =
       lines.get(k).by[m.key] = l;
     }
     // No calls in the month still has an uptime (100% when nothing was down that month).
-    for (const g of r.uptimeGroups ?? []) {
+    for (const g of (by === 'engineer' ? [] : r.uptimeGroups ?? [])) {
       const k = keyOf(g.name, g.state);
       // Customers: only those with calls get a row; a state or contract always does.
       if (!lines.has(k)) {
@@ -53,6 +55,6 @@ export function careMonthWise(ds, filters, assets, span, { jobType, by, status =
   const out = [...lines.values()];
   // States by name; customers by their calls over the months, most first.
   const calls = (l) => Object.values(l.by).reduce((n, x) => n + x.calls, 0);
-  out.sort((x, y) => (by === 'facility' ? calls(y) - calls(x) || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
+  out.sort((x, y) => (by === 'facility' || by === 'engineer' ? calls(y) - calls(x) || x.name.localeCompare(y.name) : x.name.localeCompare(y.name)));
   return { months: span.map((m) => ({ key: m.key, label: m.label })), lines: out, total, hasUptime };
 }

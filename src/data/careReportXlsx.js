@@ -54,7 +54,7 @@ export async function careReportXlsx({ summaries, A, B, ftfr, upC = null, monthW
   }));
   if (ftfr) sheets.push({ name: upC ? 'FTFR Uptime Contract Wise' : 'FTFR Contract Wise', xml: ftfrSheet(ftfr, upC) });
   for (const { by, mw } of monthWise ?? []) {
-    if (mw) sheets.push({ name: { facility: 'Month Wise Customer', contract: 'Month Wise Contract' }[by] ?? 'Month Wise State', xml: monthSheet(mw, by) });
+    if (mw) sheets.push({ name: { facility: 'Month Wise Customer', contract: 'Month Wise Contract', engineer: 'Month Wise Engineer' }[by] ?? 'Month Wise State', xml: monthSheet(mw, by) });
   }
   if (tickets) sheets.push({ name: 'Ticket Wise', xml: ticketSheet(ds, tickets, status) });
   return writeStyledBook(sheets, STYLES);
@@ -201,7 +201,7 @@ function ftfrSheet(ftfr, upC = null) {
  */
 function monthSheet(mw, by) {
   const facility = by === 'facility';
-  const lead = facility ? ['Customer', 'State'] : [by === 'contract' ? 'Contract' : 'State'];
+  const lead = facility ? ['Customer', 'State'] : [{ contract: 'Contract', engineer: 'Engineer' }[by] ?? 'State'];
   const measures = MONTH_MEASURES.filter((m) => m.key !== 'uptimeA' || mw.hasUptime);
   const n = mw.months.length;
   const r1 = []; const r2 = []; const merges = [];
