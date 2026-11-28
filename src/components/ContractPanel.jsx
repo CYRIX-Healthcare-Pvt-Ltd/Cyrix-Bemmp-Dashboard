@@ -26,11 +26,20 @@ export default function ContractPanel({ table, hasAssets, onUpload }) {
     <div className="panel contract-panel" style={{ '--i': 0 }}>
       <h2>By contract type</h2>
       <div className="contract-cards">
-        {table.map((r) => {
+        {table.map((r, k) => {
           const share = total ? Math.round((r.calls / total) * 100) : 0;
           const key = r.name === 'AMC' || r.name === 'CAMC';
+          // No empty places in the last row (the user, 28 Nov): three small cards a row, the last one or two widened.
+          const small = table.filter((x) => x.name !== 'AMC' && x.name !== 'CAMC');
+          const at = small.indexOf(r);
+          const left = small.length % 3;
+          // One left over from four or more: the last four go two and two rather than three and one.
+          const halves = left === 1 && small.length >= 4 ? 4 : left === 2 ? 2 : 0;
+          const fill = key || at < 0 ? '' : at >= small.length - halves ? ' fill-half' : left === 1 && at === small.length - 1 ? ' fill-full' : '';
+          // Two a row on a tablet: an odd last card takes the row.
+          const odd = table.length % 2 === 1 && k === table.length - 1 ? ' fill-pair' : '';
           return (
-            <section key={r.name} className={`contract-card${key ? ' is-key' : ''}`} style={{ '--tone': TONE[r.name] ?? 'var(--text-secondary)' }}>
+            <section key={r.name} className={`contract-card${key ? ' is-key' : ''}${fill}${odd}`} style={{ '--tone': TONE[r.name] ?? 'var(--text-secondary)' }}>
               <header className="contract-card-head">
                 <span className="contract-name"><span className="contract-dot" aria-hidden="true" />{r.name}</span>
                 <span className="contract-pill">{share}%</span>
