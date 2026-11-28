@@ -191,6 +191,21 @@ export function blankFilters(meta) {
  * per contract is a table to maintain for a value nobody else reads.
  */
 const DEFAULT_KEY = (stateId) => `bemmp-default-filters:${stateId}`;
+/** The drawer's order and added filters, kept on every change so a reload keeps them (the user, 28 Nov). */
+const LAYOUT_KEY = (stateId) => `bemmp-filter-layout:${stateId}`;
+
+export function saveFilterLayout(stateId, layout, extraKeys) {
+  try { localStorage.setItem(LAYOUT_KEY(stateId), JSON.stringify({ layout, extra: extraKeys })); } catch { /* full */ }
+}
+
+function withLayout(ds, f) {
+  let kept = null;
+  try { kept = JSON.parse(localStorage.getItem(LAYOUT_KEY(ds.meta.id)) ?? 'null'); } catch { kept = null; }
+  if (!kept || !Array.isArray(kept.layout)) return f;
+  const extra = { ...(f.extra ?? {}) };
+  for (const k of Array.isArray(kept.extra) ? kept.extra : []) if (typeof k === 'string' && !(k in extra)) extra[k] = new Set();
+  return { ...f, layout: kept.layout, extra };
+}
 
 /*
  * Stored as **labels**, not ids.
@@ -248,6 +263,10 @@ export function clearDefaultFilters(stateId) {
  * window with no way to tell why.
  */
 export function defaultFiltersFor(ds) {
+  return withLayout(ds, savedFiltersFor(ds));
+}
+
+function savedFiltersFor(ds) {
   const blank = blankFilters(ds.meta);
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(DEFAULT_KEY(ds.meta.id)) ?? 'null'); } catch { saved = null; }

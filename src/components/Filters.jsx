@@ -4,7 +4,7 @@ import {
   serialToISO, dateToSerial, monthStart, financialYearStart, formatDay, BUCKET_LABEL,
 } from '../data/store.js';
 import {
-  FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, clearDefaultFilters, hasDefaultFilters,
+  FILTER_DIMS, defaultFiltersFor, saveDefaultFilters, saveFilterLayout, clearDefaultFilters, hasDefaultFilters,
   sameFilters, facetOptions,
 } from '../data/query.js';
 import { extraFields, extraLabel, extraOptions } from '../data/extraFilters.js';
@@ -267,7 +267,10 @@ export default function Filters({ ds, assets = null, filters, setFilters, contra
     return base;
   })();
   const labelOf = (id) => standardById[id]?.label ?? extraLabel(id);
-  const setLayout = (next, patch = {}) => set({ layout: next, ...patch });
+  const setLayout = (next, patch = {}) => {
+    saveFilterLayout(stateId, next, Object.keys(patch.extra ?? extra));
+    set({ layout: next, ...patch });
+  };
   const toggleField = (id) => {
     if (layout.includes(id)) {
       const patch = {};
@@ -635,7 +638,7 @@ export default function Filters({ ds, assets = null, filters, setFilters, contra
                 type="button"
                 className="filter-default is-save"
                 onClick={setAsDefault}
-                disabled={activeCount === 0 && !filters.layout}
+                disabled={activeCount === 0}
               >
                 Save as default view
               </button>
