@@ -86,16 +86,18 @@ export async function readAssetFile(file) {
           if (loose(v) === 'contractcategory') cc = k;
           for (const [f, h] of EXTRA) if (loose(v) === h) more[f] = k;
         }
-        if (bc >= 0 && cc >= 0) at = { bc, cc, more };
+        // Every heading too, for Add filters (the user, 28 Nov).
+        if (bc >= 0 && cc >= 0) at = { bc, cc, more, heads: [...cells].filter(([, v]) => v).sort((a, b) => a[0] - b[0]) };
         continue;
       }
       const barcode = cells.get(at.bc);
       // [barcode, category, state, facility, district, equipment]: new Map() reads the first two, so older readers
       // still work; the rest is for Uptime % (the user, 27 Nov).
-      if (barcode) pairs.push([barcode, cells.get(at.cc) || '', ...EXTRA.map(([f]) => cells.get(at.more[f]) || '')]);
+      if (barcode) pairs.push([barcode, cells.get(at.cc) || '', ...EXTRA.map(([f]) => cells.get(at.more[f]) || ''), at.heads.map(([k]) => cells.get(k) || '')]);
     }
     if (at) {
       if (!pairs.length) throw new Error('The asset sheet has its headings but no rows.');
+      pairs.headings = at.heads.map(([, v]) => v);
       return pairs;
     }
   }
@@ -117,7 +119,8 @@ export async function publishAssets(state, pairs, filename) {
   if (!supabase) throw new Error('Not connected.');
   const version = new Date().toISOString().replace(/[:.]/g, '-');
   const path = `${state}/assets/${version}.json.gz`;
-  const body = await gzip(JSON.stringify(pairs));
+  // { headings, pairs } once every column is kept (28 Nov); a bare list before.
+  const body = await gzip(JSON.stringify(pairs.headings ? { headings: pairs.headings, pairs } : pairs));
   const { data: before } = await supabase.from('asset_master').select('version').eq('state', state).maybeSingle();
   const id = (await supabase.auth.getUser()).data.user?.id ?? null;
   const me = id ? (await supabase.from('profile').select('code, full_name').eq('id', id).maybeSingle()).data : null;
@@ -146,8 +149,14 @@ export async function listAssetMasters() {
 export async function fetchAssets(state, version) {
   const { data, error } = await supabase.storage.from(BUCKET).download(`${state}/assets/${version}.json.gz`);
   if (error) throw new Error(`Could not read the asset master: ${error.message}`);
-  const pairs = JSON.parse(await gunzip(data));
+  const parsed = JSON.parse(await gunzip(data));
+  const pairs = Array.isArray(parsed) ? parsed : parsed.pairs ?? [];
   const out = new Map(pairs);
+  // Every column of the sheet, for Add filters (masters shared from 28 Nov).
+  if (!Array.isArray(parsed) && parsed.headings) {
+    out.headings = parsed.headings;
+    out.all = new Map(pairs.map((p) => [p[0], p[7] ?? []]));
+  }
   // Every barcode with what else the sheet said of it (blank for masters shared before 27 Nov).
   out.detail = new Map(pairs.map(([b, c, state, facility, district, equipment, mapped]) => [
     b, { contract: c || '', state: state || '', facility: facility || '', district: district || '', equipment: equipment || '', mapped: assetDay(mapped) },

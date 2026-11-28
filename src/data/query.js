@@ -173,6 +173,8 @@ export function blankFilters(meta) {
     // Care 360's two, by name, any number of each (the user, 28 Nov).
     ticketStatus: new Set(),
     contract: new Set(),
+    // Added filters, column heading → values, in the order they were added (the user, 28 Nov).
+    extra: {},
   };
 }
 
@@ -227,6 +229,8 @@ export function saveDefaultFilters(ds, filters) {
     ),
     ticketStatus: [...(filters.ticketStatus ?? [])],
     contract: [...(filters.contract ?? [])],
+    extra: Object.entries(filters.extra ?? {}).map(([k, v]) => [k, [...v]]),
+    ...(Array.isArray(filters.layout) ? { layout: filters.layout } : {}),
   };
   try { localStorage.setItem(DEFAULT_KEY(ds.meta.id), JSON.stringify(payload)); } catch { /* full */ }
 }
@@ -264,6 +268,9 @@ export function defaultFiltersFor(ds) {
     ),
     ticketStatus: new Set(Array.isArray(saved.ticketStatus) ? saved.ticketStatus : []),
     contract: new Set(Array.isArray(saved.contract) ? saved.contract : []),
+    extra: Object.fromEntries((Array.isArray(saved.extra) ? saved.extra : []).map(([k, v]) => [k, new Set(Array.isArray(v) ? v : [])])),
+    // The drawer's order, standard and added filters together (the user, 28 Nov).
+    ...(Array.isArray(saved.layout) ? { layout: saved.layout } : {}),
   };
 }
 
@@ -284,6 +291,14 @@ export function sameFilters(a, b) {
     const y = b[key] ?? new Set();
     if (x.size !== y.size) return false;
     for (const v of x) if (!y.has(v)) return false;
+  }
+  if (JSON.stringify(a.layout ?? null) !== JSON.stringify(b.layout ?? null)) return false;
+  // Added filters: the same columns in the same order, the same values ticked.
+  const ea = Object.entries(a.extra ?? {}); const eb = Object.entries(b.extra ?? {});
+  if (ea.length !== eb.length) return false;
+  for (let k = 0; k < ea.length; k++) {
+    if (ea[k][0] !== eb[k][0] || ea[k][1].size !== eb[k][1].size) return false;
+    for (const v of ea[k][1]) if (!eb[k][1].has(v)) return false;
   }
   return true;
 }

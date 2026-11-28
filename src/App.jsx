@@ -46,6 +46,7 @@ import { fixedFirstTime } from './data/careFix.js';
 import { allDates, averageTat, tatSeries, byJob, contractOf, contractTable, endedIn, ftfrOf, hasTicketContract, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
 import { careUptime, summaryOf, uptimeBy } from './data/careUptime.js';
+import { extraMask } from './data/extraFilters.js';
 import CareUptime from './components/CareUptime.jsx';
 import { STATUS_CHOICES, loadCareStatuses, statusByRow } from './data/careStatus.js';
 import ContractPanel from './components/ContractPanel.jsx';
@@ -970,15 +971,21 @@ export default function App() {
     for (let i = 0; i < m.length; i++) if (want.has(ticketStatus[i])) m[i] = 1;
     return m;
   }, [ticketStatus, chosenFilters?.ticketStatus]);
+  // Added filters, any TM export or asset master column (the user, 28 Nov).
+  const extraRowMask = useMemo(
+    () => (care && ds ? extraMask(ds, assets, chosenFilters?.extra) : null),
+    [care, ds, assets, chosenFilters?.extra],
+  );
   const filters = useMemo(() => {
-    if (!chosenFilters || (!contractMask && !statusMask)) return chosenFilters;
-    let keepMask = contractMask ?? statusMask;
-    if (contractMask && statusMask) {
-      keepMask = new Uint8Array(contractMask.length);
-      for (let i = 0; i < keepMask.length; i++) keepMask[i] = contractMask[i] & statusMask[i];
+    const masks = [contractMask, statusMask, extraRowMask].filter(Boolean);
+    if (!chosenFilters || !masks.length) return chosenFilters;
+    let keepMask = masks[0];
+    if (masks.length > 1) {
+      keepMask = new Uint8Array(masks[0].length);
+      for (let i = 0; i < keepMask.length; i++) keepMask[i] = masks.every((m) => m[i]) ? 1 : 0;
     }
     return { ...chosenFilters, keepMask };
-  }, [chosenFilters, contractMask, statusMask]);
+  }, [chosenFilters, contractMask, statusMask, extraRowMask]);
   // The drill panels read contract type as one more column (the user, 26 Nov: "contract type also, before zone").
   const [barSlot, setBarSlot] = useState(null);
   const drillDs = useMemo(() => {
@@ -1720,6 +1727,7 @@ export default function App() {
         {!trackerOnly && (
           <Filters
             ds={ds}
+            assets={care ? assets : null}
             filters={chosenFilters}
             setFilters={setFilters}
             contractTypes={contractTypes}

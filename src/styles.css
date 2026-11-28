@@ -4393,3 +4393,31 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .multi-pick-option:hover { background: var(--hover-wash); }
 .multi-pick-option input { width: 16px; height: 16px; flex: none; accent-color: var(--series-1); }
 .multi-pick-clear { margin-top: 6px; font-size: 13px; }
+
+/* Filters: two a row, an opened list takes the row (the user, 28 Nov). */
+.filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.filter-grid .multi-pick.is-open { grid-column: 1 / -1; }
+.multi-pick-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.multi-pick-head label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-pick-btn { padding: 8px 12px; font-size: 13.5px; }
+/* Add filters: any TM export or asset master column (the user, 28 Nov). */
+.multi-pick-remove { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text-secondary); cursor: pointer; }
+.multi-pick-remove:hover:not(:disabled) { background: var(--hover-wash); color: var(--text-primary); }
+.multi-pick-remove:disabled { opacity: 0.3; cursor: default; }
+.filter-add { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 2px 0 14px; padding: 9px 14px; border-radius: 999px; border: 1px dashed color-mix(in srgb, var(--series-1) 55%, var(--baseline)); background: none; color: var(--series-1); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.filter-add:hover { background: color-mix(in srgb, var(--series-1) 8%, transparent); }
+.addf-backdrop { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.45); }
+.addf-card { width: min(760px, 100%); height: min(620px, calc(100dvh - 32px)); display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 16px; background: var(--surface); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3); }
+.addf-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; color: var(--text-primary); }
+.addf-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.addf-group { margin: 8px 0 2px; font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.addf-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.addf-order { min-height: 0; overflow-y: auto; padding-right: 12px; border-right: 1px solid var(--gridline); }
+.addf-side { min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 640px) {
+  .addf-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .addf-order { max-height: 38dvh; padding-right: 0; border-right: 0; border-bottom: 1px solid var(--gridline); padding-bottom: 6px; }
+}
+.addf-row { display: flex; align-items: center; gap: 2px; padding: 3px 4px; font-size: 13.5px; color: var(--text-primary); }
+.addf-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addf-done { margin-top: 4px; padding: 9px 14px; border-radius: 999px; border: 0; background: var(--text-primary); color: var(--surface); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
