@@ -301,7 +301,7 @@ function SplitChart({ series, metric, split, height = 300 }) {
     // Bars sit in the middle of their slot; lines use the same x so a hover lands on the same period.
     const x = (i) => PAD.left + step * (i + 0.5);
     const y = (v) => PAD.top + plotH - (v / top) * plotH;
-    const barW = Math.max(3, Math.min(30, step * 0.62));
+    const barW = Math.max(3, Math.min(34, step * 0.68));
 
     const path = (vals) => {
       let d = '';
@@ -363,6 +363,13 @@ function SplitChart({ series, metric, split, height = 300 }) {
       const d = Math.abs(geom.x(i) - svgX);
       if (d < bestDist) { bestDist = d; best = i; }
     }
+    // Calls: the figures only while the pointer is on a bar itself (the user, 28 Nov).
+    if (!percent) {
+      const svgY = ((e.clientY - rect.top) / rect.height) * H;
+      const onBar = bestDist <= geom.barW / 2 + 2 && geom.totals[best] > 0
+        && svgY >= geom.y(geom.totals[best]) - 4 && svgY <= PAD.top + geom.plotH;
+      if (!onBar) { setHover(null); return; }
+    }
     setHover({ i: best, leftPct: (geom.x(best) / W) * 100 });
   };
 
@@ -385,16 +392,36 @@ function SplitChart({ series, metric, split, height = 300 }) {
           </g>
         ))}
 
+        {!percent && (
+          // Soft top-to-bottom shading and a rounded top on each bar, a hairline between the two parts (the user, 28 Nov).
+          <defs>
+            <linearGradient id="split-bd" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={SPLIT_COLORS.breakdown} stopOpacity="1" />
+              <stop offset="100%" stopColor={SPLIT_COLORS.breakdown} stopOpacity="0.72" />
+            </linearGradient>
+            <linearGradient id="split-pm" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={SPLIT_COLORS.pms} stopOpacity="1" />
+              <stop offset="100%" stopColor={SPLIT_COLORS.pms} stopOpacity="0.78" />
+            </linearGradient>
+          </defs>
+        )}
+        {!percent && h != null && (
+          <rect className="bar-hover" x={geom.x(h) - (geom.barW / 2) - 6} y={PAD.top} width={geom.barW + 12} height={geom.plotH} rx="8" />
+        )}
         {!percent && series.map((d, i) => {
           const b = geom.bd[i] ?? 0;
           const p = geom.pm[i] ?? 0;
           const x0 = geom.x(i) - geom.barW / 2;
           const yb = geom.y(b);
           const yt = geom.y(b + p);
+          const r = Math.min(5, geom.barW / 2);
+          const gap = p > 0 && b > 0 ? 1.5 : 0;
           return (
             <g key={d.key} className={h != null && h !== i ? 'split-dim' : ''}>
-              <rect x={x0} y={yb} width={geom.barW} height={Math.max(0, base - yb)} fill={SPLIT_COLORS.breakdown} rx="1.5" />
-              <rect x={x0} y={yt} width={geom.barW} height={Math.max(0, yb - yt)} fill={SPLIT_COLORS.pms} rx="1.5" />
+              {b > 0 && (p > 0
+                ? <rect x={x0} y={yb + gap} width={geom.barW} height={Math.max(0, base - yb - gap)} fill="url(#split-bd)" />
+                : <path d={roundTop(x0, yb, geom.barW, base - yb, r)} fill="url(#split-bd)" />)}
+              {p > 0 && <path d={roundTop(x0, yt, geom.barW, Math.max(0, yb - yt), r)} fill="url(#split-pm)" />}
             </g>
           );
         })}
@@ -468,6 +495,13 @@ function smooth(pts, minY = -Infinity, maxY = Infinity) {
   return d;
 }
 
+/** A bar with rounded top corners only, so a stack sits flat on the axis. */
+function roundTop(x, y, w, h, r) {
+  if (h <= 0) return '';
+  const rr = Math.min(r, h, w / 2);
+  return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
+}
+
 function LinesChart({ series, metric, split, height = 300 }) {
   const wrapRef = useRef(null);
   const [hover, setHover] = useState(null);
@@ -483,7 +517,12 @@ function LinesChart({ series, metric, split, height = 300 }) {
     return () => ro.disconnect();
   }, []);
   const H = height;
-  const fmt = (v) => (v == null ? '–' : `${v.toFixed(1)}%`);
+  // Percent (FTFR by contract) or a count (Care 360's Breakdown repeat calls, the user, 28 Nov).
+  const pct = Boolean(metric.percent);
+  // Days to two places for the TAT charts (the user, 28 Nov).
+  const dp = metric.digits ?? 0;
+  const num = (v) => (dp ? v.toFixed(dp) : Math.round(v).toLocaleString());
+  const fmt = (v) => (v == null ? '–' : pct ? `${v.toFixed(1)}%` : `${num(v)}${metric.unit ?? ''}`);
 
   const geom = useMemo(() => {
     if (!series.length) return null;
@@ -497,8 +536,8 @@ function LinesChart({ series, metric, split, height = 300 }) {
     })).filter((l) => l.vals.some((v) => v != null));
     const all = lines.flatMap((l) => l.vals.filter((v) => v != null));
     if (!all.length) return null;
-    const lo = Math.max(0, Math.min(80, Math.floor((Math.min(...all) - 5) / 10) * 10));
-    const top = 100;
+    const lo = pct ? Math.max(0, Math.min(80, Math.floor((Math.min(...all) - 5) / 10) * 10)) : 0;
+    const top = pct ? 100 : niceMax(Math.max(...all, 1));
     const step = n > 1 ? plotW / (n - 1) : 0;
     const x = (i) => PAD.left + (n > 1 ? step * i : plotW / 2);
     const y = (v) => PAD.top + plotH - ((v - lo) / (top - lo)) * plotH;
@@ -518,9 +557,9 @@ function LinesChart({ series, metric, split, height = 300 }) {
     const ends = lines.map((l) => l.end).filter(Boolean).sort((a, b) => a.ty - b.ty);
     for (let k = 1; k < ends.length; k++) if (ends[k].ty - ends[k - 1].ty < 15) ends[k].ty = ends[k - 1].ty + 15;
     // Round steps: every 10 points, or 20 when the scale runs from low down.
-    const gap = top - lo > 50 ? 20 : 10;
+    const gap = pct ? (top - lo > 50 ? 20 : 10) : top / 4;
     const ticks = [];
-    for (let v = lo; v <= top; v += gap) ticks.push({ v, y: y(v) });
+    for (let v = lo; v <= top + 1e-9; v += gap) ticks.push({ v, y: y(v) });
     const every = Math.max(1, Math.ceil(n / Math.max(1, plotW / 62)));
     // The last label always shows; one that would sit on it is dropped.
     const xLabels = series.map((d, i) => ({ i, label: d.label }))
@@ -581,7 +620,7 @@ function LinesChart({ series, metric, split, height = 300 }) {
         {geom.ticks.map((t) => (
           <g key={t.v}>
             <line className="gridline" x1={PAD.left} x2={W - PAD.right} y1={t.y} y2={t.y} />
-            <text className="tick" x={PAD.left - 10} y={t.y + 4} textAnchor="end">{`${Math.round(t.v)}%`}</text>
+            <text className="tick" x={PAD.left - 10} y={t.y + 4} textAnchor="end">{pct ? `${Math.round(t.v)}%` : dp ? +t.v.toFixed(2) : compact(t.v)}</text>
           </g>
         ))}
         {geom.lines.map((l) => <path key={`a${l.key}`} d={l.area} fill={`url(#fill-${l.key})`} stroke="none" />)}
@@ -593,7 +632,7 @@ function LinesChart({ series, metric, split, height = 300 }) {
         ))))}
         {geom.pointLabels.map((p) => (
           <text key={`p${p.key}`} x={p.x} y={p.y} textAnchor="middle" className="line-point-label" style={{ fill: p.color }}>
-            {p.v.toFixed(1)}
+            {pct ? p.v.toFixed(1) : num(p.v)}
           </text>
         ))}
         {geom.lines.map((l) => l.end && (
@@ -629,7 +668,7 @@ function LinesChart({ series, metric, split, height = 300 }) {
           {geom.lines.map((l) => (
             <div key={l.key} className="t-row">
               <span><i className="split-key" style={{ background: l.color }} />{l.label}</span>
-              <span>{fmt(l.vals[h])}{l.calls[h] ? ` · ${l.calls[h].toLocaleString()} calls` : ''}</span>
+              <span>{fmt(l.vals[h])}{(pct || dp) && l.calls[h] ? ` · ${l.calls[h].toLocaleString()} calls` : ''}</span>
             </div>
           ))}
         </div>

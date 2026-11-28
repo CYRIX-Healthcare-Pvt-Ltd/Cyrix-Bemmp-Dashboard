@@ -142,6 +142,51 @@ function Search({ label, dict, value, onChange, allLabel, allow }) {
   );
 }
 
+/**
+ * A list to tick any number from (the user, 28 Nov: "except dates we need filter multiple selection"). Opens in
+ * place inside the drawer, so on a phone it is one press and a scroll; the long lists get a find box.
+ */
+function MultiPick({ id, label, options, selected, onChange, allLabel, find = false }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const chosen = options.filter((o) => selected.has(o.value));
+  const needle = q.trim().toLowerCase();
+  // What is ticked first, then the rest, so a choice made never scrolls away.
+  const list = [...chosen, ...options.filter((o) => !selected.has(o.value))]
+    .filter((o) => !needle || o.label.toLowerCase().includes(needle));
+  const text = !chosen.length ? allLabel : chosen.length <= 2 ? chosen.map((o) => o.label).join(', ') : `${chosen.length} selected`;
+  const toggle = (v) => {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    onChange(next);
+  };
+  return (
+    <div className="field multi-pick">
+      <label htmlFor={id}>{label}</label>
+      <button id={id} type="button" className={`multi-pick-btn${chosen.length ? ' has-value' : ''}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span>{text}</span>
+        <svg className={`chev${open ? ' up' : ''}`} viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && (
+        <div className="multi-pick-list">
+          {options.length > 6 && (
+            <input className="multi-pick-find" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Find ${label.toLowerCase()}`} autoComplete="off" spellCheck="false" />
+          )}
+          <div className="multi-pick-options">
+            {list.map((o) => (
+              <label key={o.value} className="multi-pick-option">
+                <input type="checkbox" checked={selected.has(o.value)} onChange={() => toggle(o.value)} />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+          {chosen.length > 0 && <button type="button" className="linkish multi-pick-clear" onClick={() => onChange(new Set())}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Filters({ ds, filters, setFilters, contractTypes, ticketStatuses, slotRef, slotTall = false }) {
   const { dict } = ds;
   const dateRange = ds.meta.dateRange;
@@ -170,8 +215,12 @@ export default function Filters({ ds, filters, setFilters, contractTypes, ticket
    * whole contract. Anything else is one, whether it came from a preset or from
    * two typed dates.
    */
+  const care = ['c360', 'pvt'].includes(stateId);
   const activeCount = dims.reduce((n, k) => n + (filters[k].size ? 1 : 0), 0)
     + (filters.bucket.size ? 1 : 0)
+    + (care && filters.lifecycle?.size ? 1 : 0)
+    + (filters.ticketStatus?.size ? 1 : 0)
+    + (filters.contract?.size ? 1 : 0)
     + (filters.preset === 'all' ? 0 : 1);
 
   /*
@@ -186,7 +235,13 @@ export default function Filters({ ds, filters, setFilters, contractTypes, ticket
     [open, ds, filters],
   );
 
-  const firstOf = (s) => (s.size ? [...s][0] : null);
+  // One choice by its name; more than one as a count.
+  const named = (s, nameOf, noun) => (!s?.size ? null : s.size === 1 ? nameOf([...s][0]) : `${s.size} ${noun}`);
+  const NOUN = { zone: 'zones', district: 'districts', facilityName: 'facilities', equipment: 'equipment' };
+  const optionsOf = (key) => (dict[key] ?? [])
+    .map((name, id) => ({ value: id, label: name }))
+    .filter((o) => !facets[key] || facets[key].has(o.value) || filters[key]?.has(o.value))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   /**
    * What is selected, in one line. The bar is collapsed by default, so without
@@ -199,17 +254,19 @@ export default function Filters({ ds, filters, setFilters, contractTypes, ticket
       : `${formatDay(filters.dayFrom)} – ${formatDay(filters.dayTo)}`;
     return [
       range,
-      ...dims.map((k) => (filters[k].size ? dict[k][firstOf(filters[k])] : null)),
-      filters.bucket.size ? BUCKET_LABEL[firstOf(filters.bucket)] : null,
+      ...dims.map((k) => named(filters[k], (id) => dict[k][id], NOUN[k] ?? 'chosen')),
+      care ? named(filters.lifecycle, (id) => dict.lifecycle?.[id], 'job types') : null,
+      named(filters.bucket, (id) => BUCKET_LABEL[id], 'statuses'),
+      named(filters.ticketStatus, (v) => v, 'ticket statuses'),
+      named(filters.contract, (v) => v, 'contract types'),
     ].filter(Boolean).join(' · ');
-  }, [filters, dict, dims]);
+  }, [filters, dict, dims, care]);
 
   const applyPreset = (p) => {
     const [from, to] = p.range(dateRange);
     set({ preset: p.id, dayFrom: Math.max(from, dateRange.minDay), dayTo: to });
   };
 
-  const single = (key) => (id) => set({ [key]: id == null ? new Set() : new Set([id]) });
 
   /*
    * Reset returns the page to whatever it *opens* on, which is the saved default
@@ -367,76 +424,61 @@ export default function Filters({ ds, filters, setFilters, contractTypes, ticket
           </div>
         </div>
 
-        {/* Zone and district are two values and fourteen, so they pair too. On a
-            contract with no zone the pair holds one control and it fills the row
-            rather than sitting in half of it. */}
-        <div className="field-pair">
-          {dims.filter((k) => !FIELDS[k].search).map((key) => (
-            <Dropdown
-              key={key}
-              label={FIELDS[key].label}
-              dict={dict[key]}
-              allow={facets[key]}
-              allLabel={FIELDS[key].all}
-              value={firstOf(filters[key])}
-              onChange={single(key)}
-            />
-          ))}
-        </div>
-
-        {dims.filter((k) => FIELDS[k].search).map((key) => (
-          <Search
+        {/* Every list takes any number of choices (the user, 28 Nov); only the dates stay single. */}
+        {dims.map((key) => (
+          <MultiPick
             key={key}
+            id={`f-${key}`}
             label={FIELDS[key].label}
-            dict={dict[key]}
-            allow={facets[key]}
+            options={optionsOf(key)}
+            selected={filters[key]}
+            onChange={(next) => set({ [key]: next })}
             allLabel={FIELDS[key].all}
-            value={firstOf(filters[key])}
-            onChange={single(key)}
+            find={Boolean(FIELDS[key].search)}
           />
         ))}
 
-        <div className="field">
-          <label htmlFor="f-status">Status</label>
-          <select
-            id="f-status"
-            value={filters.bucket.size ? firstOf(filters.bucket) : ''}
-            onChange={(e) => set({
-              bucket: e.target.value === '' ? new Set() : new Set([Number(e.target.value)]),
-            })}
-          >
-            <option value="">All statuses</option>
-            {BUCKET_LABEL.map((l, i) => <option key={l} value={i}>{l}</option>)}
-          </select>
-        </div>
+        {care && dict.lifecycle?.length > 0 && (
+          <MultiPick
+            id="f-job-type"
+            label="Job type"
+            options={dict.lifecycle.map((name, id) => ({ value: id, label: name })).sort((a, b) => a.label.localeCompare(b.label))}
+            selected={filters.lifecycle ?? new Set()}
+            onChange={(next) => set({ lifecycle: next })}
+            allLabel="All job types"
+          />
+        )}
+
+        <MultiPick
+          id="f-status"
+          label="Status"
+          options={BUCKET_LABEL.map((l, i) => ({ value: i, label: l }))}
+          selected={filters.bucket}
+          onChange={(next) => set({ bucket: next })}
+          allLabel="All statuses"
+        />
 
         {/* Care 360's tracker column, beside Status (the user, 27 Nov). */}
         {ticketStatuses?.length > 0 && (
-          <div className="field">
-            <label htmlFor="f-ticket-status">Ticket status</label>
-            <select
-              id="f-ticket-status"
-              value={filters.ticketStatus ?? ''}
-              onChange={(e) => set({ ticketStatus: e.target.value || null })}
-            >
-              <option value="">All ticket statuses</option>
-              {ticketStatuses.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          <MultiPick
+            id="f-ticket-status"
+            label="Ticket status"
+            options={ticketStatuses.map((t) => ({ value: t, label: t }))}
+            selected={filters.ticketStatus ?? new Set()}
+            onChange={(next) => set({ ticketStatus: next })}
+            allLabel="All ticket statuses"
+          />
         )}
 
         {contractTypes?.length > 0 && (
-          <div className="field">
-            <label htmlFor="f-contract">Contract type</label>
-            <select
-              id="f-contract"
-              value={filters.contract ?? ''}
-              onChange={(e) => set({ contract: e.target.value || null })}
-            >
-              <option value="">All contract types</option>
-              {contractTypes.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          <MultiPick
+            id="f-contract"
+            label="Contract type"
+            options={contractTypes.map((t) => ({ value: t, label: t }))}
+            selected={filters.contract ?? new Set()}
+            onChange={(next) => set({ contract: next })}
+            allLabel="All contract types"
+          />
         )}
 
         {/*

@@ -178,7 +178,34 @@ export default function SideNav({
    *
    * Only the arrow closes it (14 Nov).
    */
-  const select = (id) => onSelect(id);
+  // A second press on the open section folds the rail, like the arrow (the user, 28 Nov).
+  const select = (id) => {
+    if (id === active && window.matchMedia(HAS_RAIL).matches) { setOpen((v) => !v); return; }
+    onSelect(id);
+  };
+
+  const modulesLink = (
+<a
+            className="sidenav-item sidenav-apps"
+            href="/"
+            title={open ? undefined : 'All Cyrix modules'}
+            aria-label="All Cyrix modules"
+          >
+            <svg
+              viewBox="0 0 24 24" width="18" height="18" fill="none"
+              stroke="currentColor" strokeWidth="1.7"
+              strokeLinecap="round" strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+            </svg>
+            <span className="sidenav-label">Modules</span>
+          </a>
+  );
+  const modulesCell = <li className="sidenav-apps-cell">{modulesLink}</li>;
 
   return (
     <nav
@@ -230,36 +257,8 @@ export default function SideNav({
           </li>
         ))}
 
-        {/* The way out to the other Cyrix modules. Last, so the sections
-            above keep the positions people already reach for, and an anchor
-            rather than a button because it genuinely leaves this app — the
-            portal is above the /bemmp base and is a different application.
-            Neutral rather than tinted: the rail's colours name measures on
-            the charts, and this is not one of them. */}
-        {/* Its own class because on a phone this cell is pinned to the
-            right edge while the sections scroll past behind it — the way
-            out should not be something you have to scroll to find. */}
-        <li className="sidenav-apps-cell">
-          <a
-            className="sidenav-item sidenav-apps"
-            href="/"
-            title={open ? undefined : 'All Cyrix modules'}
-            aria-label="All Cyrix modules"
-          >
-            <svg
-              viewBox="0 0 24 24" width="18" height="18" fill="none"
-              stroke="currentColor" strokeWidth="1.7"
-              strokeLinecap="round" strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
-              <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
-              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
-              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
-            </svg>
-            <span className="sidenav-label">Modules</span>
-          </a>
-        </li>
+        {/* On a phone the way out stays in the strip; on the rail it sits just above Sign out (the user, 28 Nov). */}
+        {!showAccountControls && modulesCell}
       </ul>
 
       {/*
@@ -328,6 +327,8 @@ export default function SideNav({
             </span>
           </div>
         )}
+
+        {modulesLink}
 
         {signedIn && (
           <button

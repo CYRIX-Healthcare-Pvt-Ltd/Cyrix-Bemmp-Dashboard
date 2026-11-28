@@ -61,7 +61,7 @@ export function careUptime(ds, filters, assets) {
   // The asset master's barcodes, narrowed by the dashboard's state / district / customer / contract by name.
   const want = (key) => (filters[key]?.size ? new Set([...filters[key]].map((id) => loose(ds.dict[key]?.[id]))) : null);
   const wantState = want('zone'); const wantDistrict = want('district'); const wantFacility = want('facilityName');
-  const wantContract = filters.contract ? loose(filters.contract) : null;
+  const wantContract = filters.contract?.size ? new Set([...filters.contract].map(loose)) : null;
   const detail = assets.detail ?? new Map();
 
   const list = [];
@@ -78,7 +78,7 @@ export function careUptime(ds, filters, assets) {
     if (wantState && !wantState.has(loose(state))) continue;
     if (wantDistrict && !wantDistrict.has(loose(district))) continue;
     if (wantFacility && !wantFacility.has(loose(customer))) continue;
-    if (wantContract && loose(contract) !== wantContract) continue;
+    if (wantContract && !wantContract.has(loose(contract))) continue;
     let down = 0;
     const spans = e?.spans ?? [];
     if (spans.length) {

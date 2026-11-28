@@ -10,7 +10,7 @@ import { STATES } from '../shared/schema.mjs';
 const CARE_IDS = ['c360', 'pvt'];
 import UploadPanel from './components/UploadPanel.jsx';
 import {
-  filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries,
+  filterRows, summarize, analyzeRepeats, countBy, topN, buildSeries, periodStart, periodLabel,
   defaultGranularity, rowsInBucket, penaltyRows, resolvedRows, FTFR_MAX_DAYS,
   accruingRows, closurePenalty, penaltyEligibleThrough, ftfrSettledThrough,
   maxResolvedDay, defaultFiltersFor, isFirstTimeFix, areaLimitFor, setAreaLimit,
@@ -43,9 +43,9 @@ import TicketDrawer from './components/TicketDrawer.jsx';
 import AssistantPanel from './components/AssistantPanel.jsx';
 import CareReport from './components/CareReport.jsx';
 import { fixedFirstTime } from './data/careFix.js';
-import { allDates, averageTat, byJob, contractOf, contractTable, endedIn, ftfrOf, hasTicketContract, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
+import { allDates, averageTat, tatSeries, byJob, contractOf, contractTable, endedIn, ftfrOf, hasTicketContract, isCare, jobSplit, notStarted, startedIn, tatOf } from './data/careReport.js';
 import { fetchAssets, listAssetMasters } from './data/assetMaster.js';
-import { careUptime, uptimeBy } from './data/careUptime.js';
+import { careUptime, summaryOf, uptimeBy } from './data/careUptime.js';
 import CareUptime from './components/CareUptime.jsx';
 import { STATUS_CHOICES, loadCareStatuses, statusByRow } from './data/careStatus.js';
 import ContractPanel from './components/ContractPanel.jsx';
@@ -939,9 +939,9 @@ export default function App() {
   // rides into every filterRows as a row mask rather than a column.
   const contractMask = useMemo(() => {
     const want = chosenFilters?.contract;
-    if (!care || !contractAssets || !want || !ds) return null;
+    if (!care || !contractAssets || !want?.size || !ds) return null;
     const m = new Uint8Array(ds.rows);
-    for (let i = 0; i < ds.rows; i++) if (contractOf(ds, contractAssets, i) === want) m[i] = 1;
+    for (let i = 0; i < ds.rows; i++) if (want.has(contractOf(ds, contractAssets, i))) m[i] = 1;
     return m;
   }, [care, contractAssets, ds, chosenFilters?.contract]);
   // Care 360's Ticket Status per row (the user, 27 Nov: a filter beside Status, and the Report's Pending split). Read
@@ -961,13 +961,13 @@ export default function App() {
   const statusChoices = useMemo(() => {
     if (!ticketStatus) return null;
     const have = new Set(ticketStatus);
-    return STATUS_CHOICES.filter((k) => have.has(k) || k === chosenFilters?.ticketStatus);
+    return STATUS_CHOICES.filter((k) => have.has(k) || chosenFilters?.ticketStatus?.has(k));
   }, [ticketStatus, chosenFilters?.ticketStatus]);
   const statusMask = useMemo(() => {
     const want = chosenFilters?.ticketStatus;
-    if (!ticketStatus || !want) return null;
+    if (!ticketStatus || !want?.size) return null;
     const m = new Uint8Array(ticketStatus.length);
-    for (let i = 0; i < m.length; i++) if (ticketStatus[i] === want) m[i] = 1;
+    for (let i = 0; i < m.length; i++) if (want.has(ticketStatus[i])) m[i] = 1;
     return m;
   }, [ticketStatus, chosenFilters?.ticketStatus]);
   const filters = useMemo(() => {
@@ -1076,11 +1076,17 @@ export default function App() {
     [ds, idx, activeGranularity, referenceDay],
   );
   // Care 360 has no penalty, so no penalty chart (the user, 26 Nov).
-  const metrics = care ? METRICS.filter((m) => m.id !== 'penalty') : METRICS;
+  // Uptime % joins Care 360's chart (the user, 28 Nov), drawn from the Uptime tab's own per-period figures.
+  const metrics = care
+    ? [...METRICS.filter((m) => m.id !== 'penalty'), {
+      id: 'uptime', tab: 'Uptime %', label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true,
+      caption: 'Breakdown downtime against every asset in the master, AMC and CAMC',
+    }]
+    : METRICS;
   const metric = metrics.find((m) => m.id === metricId) ?? metrics[0];
   // Breakdown and PMS each on their own, for Care 360's split chart.
   const splitSeries = useMemo(() => {
-    if (!care || !idx) return null;
+    if (!care || !idx || metric.id === 'uptime') return null;
     const parts = byJob(ds, idx);
     const by = (rows) => new Map(buildSeries(ds, rows, activeGranularity, referenceDay).map((p) => [p.key, p]));
     // FTFR: Breakdown calls as one line per contract type, AMC and CAMC (the user, 26 Nov); Breakdown alone until
@@ -1094,8 +1100,12 @@ export default function App() {
       // A contract type with no calls here (the AMC / CAMC filter) leaves the chart and its legend.
       return { lines: lines.filter((l) => [...l.map.values()].some((p) => p.volume)) };
     }
+    // Repeat calls: Breakdown only, as a line (the user, 28 Nov: "repeated we dont need pms").
+    if (metric.id === 'repeats') {
+      return { lines: [{ key: 'bd', label: 'Breakdown', color: 'var(--series-5)', map: by(parts.breakdown) }] };
+    }
     return { bd: by(parts.breakdown), pm: by(parts.pms) };
-  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, contractAssets]);
+  }, [care, ds, idx, activeGranularity, referenceDay, metric.percent, metric.id, contractAssets]);
 
   /**
    * Two of the four metrics cannot be judged right up to the reference date, and
@@ -1153,6 +1163,89 @@ export default function App() {
       same: careEnded.filter((i) => inRange.has(i) && ok('resolution')(i)),
     };
   }, [care, ds, idx, ftfrRows, careEnded, careStarted]);
+
+  // Each FTFR-area sub-tab's own trend (the user, 28 Nov): FTFR % as the dashboard draws it, the TATs per period,
+  // Breakdown and PMS as two lines.
+  const perfChart = useMemo(() => {
+    if (!care || !idx || !carePerfRows || (tab !== 'performance' && tab !== 'repeats')) return null;
+    const g = activeGranularity;
+    // Repeat calls tab: the dashboard's Repeat calls chart, Breakdown only.
+    if (tab === 'repeats') {
+      const m = METRICS.find((x) => x.id === 'repeats');
+      const map = new Map(buildSeries(ds, byJob(ds, idx).breakdown, g, referenceDay).map((p) => [p.key, p]));
+      return { metric: m, series, split: { lines: [{ key: 'bd', label: 'Breakdown', color: 'var(--series-5)', map }] } };
+    }
+    if (perfId === 'ftfr') {
+      const m = METRICS.find((x) => x.id === 'ftfr');
+      const bd = byJob(ds, idx).breakdown;
+      const by = (rows) => new Map(buildSeries(ds, rows, g, referenceDay).map((p) => [p.key, p]));
+      const lines = contractAssets
+        ? [['AMC', 'var(--series-1)'], ['CAMC', 'var(--series-2)']].map(([t, color]) => ({
+          key: t, label: t, color, map: by(Array.from(bd).filter((i) => contractOf(ds, contractAssets, i) === t)),
+        }))
+        : [{ key: 'bd', label: 'Breakdown', color: SPLIT_COLORS.breakdown, map: by(bd) }];
+      const cutoff = m.through(ds, referenceDay);
+      return {
+        metric: m,
+        series: series.filter((p) => p.key <= cutoff),
+        split: { lines: lines.filter((l) => [...l.map.values()].some((p) => p.volume)) },
+      };
+    }
+    const m = CARE_PERF.find((x) => x.id === perfId);
+    if (!m) return null;
+    const rows = carePerfRows[perfId];
+    const key = perfId === 'response' ? 'response' : 'resolution';
+    const field = perfId === 'response' ? 'attendedAt' : 'completedAt';
+    const parts = byJob(ds, rows);
+    const same = perfId === 'same';
+    const map = (r) => new Map(tatSeries(ds, r, key, field, g, same).map((p) => [p.key, p]));
+    return {
+      metric: { label: m.label, color: m.color, value: (d) => d.tat, digits: 2, unit: ' d' },
+      series: tatSeries(ds, rows, key, field, g, same),
+      split: {
+        lines: [
+          { key: 'bd', label: 'Breakdown', color: SPLIT_COLORS.breakdown, map: map(parts.breakdown) },
+          { key: 'pm', label: 'PMS', color: SPLIT_COLORS.pms, map: map(parts.pms) },
+        ].filter((l) => l.map.size),
+      },
+    };
+  }, [care, idx, carePerfRows, tab, activeGranularity, perfId, ds, referenceDay, contractAssets, series]);
+
+  /*
+   * Uptime % per period, AMC and CAMC as two lines (the user, 28 Nov: "can we have uptime graph also?"). Monthly or
+   * weekly only: a day each is hundreds of passes over the calls for a line nobody reads.
+   */
+  const uptimeGranularity = activeGranularity === 'day' ? 'week' : activeGranularity;
+  const uptimeChart = useMemo(() => {
+    if (!care || !(tab === 'uptime' || (tab === 'dashboard' && metric.id === 'uptime')) || !ds || !filters || !assets?.size) return null;
+    const last = Math.min(filters.dayTo, ds.meta.dateRange?.maxDay ?? filters.dayTo);
+    const periods = [];
+    for (let d = filters.dayFrom; d <= last;) {
+      const start = periodStart(d, uptimeGranularity);
+      let end = d;
+      while (end + 1 <= last && periodStart(end + 1, uptimeGranularity) === start) end++;
+      periods.push({ key: start, label: d > start && uptimeGranularity === 'week' ? periodLabel(d, 'day') : periodLabel(start, uptimeGranularity), from: d, to: end });
+      d = end + 1;
+    }
+    const types = [['AMC', 'var(--series-1)'], ['CAMC', 'var(--series-2)']];
+    const maps = Object.fromEntries(types.map(([t]) => [t, new Map()]));
+    const series = periods.map((p) => {
+      const u = careUptime(ds, { ...filters, dayFrom: p.from, dayTo: p.to }, assets);
+      for (const [t] of types) {
+        const sm = summaryOf((u?.list ?? []).filter((b) => b.contract === t));
+        if (sm.assets && sm.uptime != null) maps[t].set(p.key, { key: p.key, volume: sm.assets, pct: sm.uptime * 100 });
+      }
+      return { key: p.key, label: p.label };
+    });
+    return {
+      metric: { label: 'Uptime %', color: 'var(--status-good)', value: (d) => d.pct, percent: true },
+      series,
+      split: { lines: types.map(([t, color]) => ({ key: t, label: t, color, map: maps[t] })).filter((l) => l.map.size) },
+    };
+  }, [care, tab, metric.id, ds, filters, assets, uptimeGranularity]);
+  const upOnDash = metric.id === 'uptime';
+  const dashSeries = upOnDash ? (uptimeChart?.series ?? []) : plotted;
+  const dashSplit = upOnDash ? (uptimeChart?.split ?? { lines: [] }) : splitSeries;
 
   const money = MONEY.find((m) => m.id === moneyId) ?? MONEY[0];
 
@@ -1678,10 +1771,10 @@ export default function App() {
                   ))}
                 </div>
                 <div className="segmented" role="tablist" aria-label="Granularity">
-                  {GRANULARITIES.map((g) => (
+                  {GRANULARITIES.filter((g) => !upOnDash || g.id !== 'day').map((g) => (
                     <button
                       key={g.id} type="button" role="tab"
-                      aria-selected={g.id === activeGranularity}
+                      aria-selected={g.id === (upOnDash ? uptimeGranularity : activeGranularity)}
                       onClick={() => setGranularity(g.id)}
                     >
                       {g.label}
@@ -1691,18 +1784,18 @@ export default function App() {
               </div>
               <h2>{metric.label}</h2>
               <p className="caption">
-                {metric.caption} · {plotted.length.toLocaleString()}{' '}
-                {activeGranularity === 'month' ? 'months' : (activeGranularity === 'week' ? 'weeks' : 'days')}
+                {metric.caption} · {dashSeries.length.toLocaleString()}{' '}
+                {(upOnDash ? uptimeGranularity : activeGranularity) === 'month' ? 'months' : ((upOnDash ? uptimeGranularity : activeGranularity) === 'week' ? 'weeks' : 'days')}
                 {granularity === null && ' · granularity follows the date range'}
                 {/* Say why the line stops short, or the missing tail looks like
                     missing data. */}
                 {metric.note && plotted.length < series.length
                   && ` · ${metric.note(ds, referenceDay)}`}
               </p>
-              {splitSeries && (
+              {dashSplit && (
                 <div className="split-legend">
-                  {splitSeries.lines
-                    ? splitSeries.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)
+                  {dashSplit.lines
+                    ? dashSplit.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)
                     : (
                       <>
                         <span><i className="split-key" style={{ background: SPLIT_COLORS.breakdown }} />Breakdown</span>
@@ -1711,7 +1804,7 @@ export default function App() {
                     )}
                 </div>
               )}
-              <MetricChart series={plotted} metric={metric} split={splitSeries} />
+              <MetricChart series={dashSeries} metric={metric} split={dashSplit} />
             </div>
 
             <div className="grid grid-2">
@@ -1887,6 +1980,24 @@ export default function App() {
                 ))}
               </div>
             </div>
+            {perfChart && (
+              <div className="panel chart-panel" style={{ '--i': 0 }}>
+                <div className="chart-head">
+                  <h2>{perfChart.metric.label}</h2>
+                  <div className="segmented" role="tablist" aria-label="Granularity">
+                    {GRANULARITIES.map((g) => (
+                      <button key={g.id} type="button" role="tab" aria-selected={g.id === activeGranularity} onClick={() => setGranularity(g.id)}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="split-legend">
+                  {perfChart.split.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)}
+                </div>
+                <MetricChart series={perfChart.series} metric={perfChart.metric} split={perfChart.split} />
+              </div>
+            )}
             <DrillExplorer
               key={`perf-${stateId}-${perfId}`}
               ds={drillDs}
@@ -1916,6 +2027,24 @@ export default function App() {
 
         {activeTab === 'uptime' && care && (
           <Boundary name="Uptime" resetKey={stateId}>
+            {uptimeChart?.split.lines.length > 0 && (
+              <div className="panel chart-panel" style={{ '--i': 0, marginBottom: 16 }}>
+                <div className="chart-head">
+                  <h2>Uptime %</h2>
+                  <div className="segmented" role="tablist" aria-label="Granularity">
+                    {GRANULARITIES.filter((g) => g.id !== 'day').map((g) => (
+                      <button key={g.id} type="button" role="tab" aria-selected={g.id === uptimeGranularity} onClick={() => setGranularity(g.id)}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="split-legend">
+                  {uptimeChart.split.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)}
+                </div>
+                <MetricChart series={uptimeChart.series} metric={uptimeChart.metric} split={uptimeChart.split} />
+              </div>
+            )}
             <CareUptime key={stateId} uptime={uptime} />
           </Boundary>
         )}
@@ -1992,6 +2121,25 @@ export default function App() {
         )}
 
         {activeTab === 'repeats' && (
+          <>
+            {perfChart && (
+              <div className="panel chart-panel" style={{ '--i': 0 }}>
+                <div className="chart-head">
+                  <h2>{perfChart.metric.label}</h2>
+                  <div className="segmented" role="tablist" aria-label="Granularity">
+                    {GRANULARITIES.map((g) => (
+                      <button key={g.id} type="button" role="tab" aria-selected={g.id === activeGranularity} onClick={() => setGranularity(g.id)}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="split-legend">
+                  {perfChart.split.lines.map((l) => <span key={l.key}><i className="split-key" style={{ background: l.color }} />{l.label}</span>)}
+                </div>
+                <MetricChart series={perfChart.series} metric={perfChart.metric} split={perfChart.split} />
+              </div>
+            )}
           <DrillExplorer
             key={`repeats-${stateId}`}
             ds={drillDs}
@@ -2008,6 +2156,7 @@ export default function App() {
               + `those assets logged in total. Repeat status is re-derived at every level below.`
             )}
           />
+          </>
         )}
 
         {activeTab === 'accounts' && isAdmin(profile) && <AdminTab

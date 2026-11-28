@@ -18,43 +18,53 @@ export default function ContractPanel({ table, hasAssets, onUpload }) {
   const most = Math.max(1, ...table.map((r) => r.calls));
   const total = table.reduce((s, r) => s + r.calls, 0);
 
+  // One colour per contract, the same wherever it is drawn; AMC and CAMC lead (the user, 28 Nov: "more beautiful").
+  const TONE = { AMC: 'var(--series-1)', CAMC: 'var(--series-2)', Warranty: 'var(--series-3)', 'In House': 'var(--series-5)' };
+  const ftfrTone = (pct) => (pct == null ? 'var(--text-muted)' : pct >= 70 ? 'var(--status-good)' : pct >= 50 ? 'var(--status-warning)' : 'var(--status-critical)');
+
   return (
     <div className="panel contract-panel" style={{ '--i': 0 }}>
       <h2>By contract type</h2>
-      <div className="summary-scroll">
-        <table className="summary-grid contract-grid">
-          <thead>
-            <tr>
-              <th>Contract</th>
-              <th className="num">Calls</th>
-              <th className="num">Open</th>
-              <th className="num">Not started</th>
-              <th className="num">FTFR</th>
-              <th className="num">Response TAT</th>
-              <th className="num">Resolution TAT</th>
-            </tr>
-          </thead>
-          <tbody>
-            {table.map((r) => (
-              <tr key={r.name} className={r.name === 'AMC' || r.name === 'CAMC' ? 'is-key' : ''}>
-                <td><strong>{r.name}</strong></td>
-                <td className="num contract-calls">
-                  <span className="contract-bar" style={{ width: `${(r.calls / most) * 100}%` }} aria-hidden="true" />
-                  <span className="contract-n">{r.calls.toLocaleString()}</span>
-                  <span className="contract-share">{total ? `${Math.round((r.calls / total) * 100)}%` : ''}</span>
-                </td>
-                <td className="num">{r.open.toLocaleString()}</td>
-                <td className="num">{r.notStarted.toLocaleString()}</td>
-                <td className="num">
-                  {p1(r.ftfr.pct)}
-                  {r.ftfr.calls > 0 && <span className="contract-of">{r.ftfr.fixed.toLocaleString()}/{r.ftfr.calls.toLocaleString()}</span>}
-                </td>
-                <td className="num">{d2(r.response)}</td>
-                <td className="num">{d2(r.resolution)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="contract-cards">
+        {table.map((r) => {
+          const share = total ? Math.round((r.calls / total) * 100) : 0;
+          const key = r.name === 'AMC' || r.name === 'CAMC';
+          return (
+            <section key={r.name} className={`contract-card${key ? ' is-key' : ''}`} style={{ '--tone': TONE[r.name] ?? 'var(--text-secondary)' }}>
+              <header className="contract-card-head">
+                <span className="contract-name"><span className="contract-dot" aria-hidden="true" />{r.name}</span>
+                <span className="contract-pill">{share}%</span>
+              </header>
+              <div className="contract-big">
+                <strong>{r.calls.toLocaleString()}</strong>
+                <span>calls</span>
+              </div>
+              <div className="contract-track" aria-hidden="true">
+                <span style={{ width: `${(r.calls / most) * 100}%` }} />
+              </div>
+              <dl className="contract-stats">
+                <div>
+                  <dt>FTFR</dt>
+                  <dd style={{ color: ftfrTone(r.ftfr.pct) }}>{p1(r.ftfr.pct)}</dd>
+                  {r.ftfr.calls > 0 && <dd className="contract-of">{r.ftfr.fixed.toLocaleString()} of {r.ftfr.calls.toLocaleString()}</dd>}
+                </div>
+                <div>
+                  <dt>Open</dt>
+                  <dd>{r.open.toLocaleString()}</dd>
+                  <dd className="contract-of">{r.notStarted.toLocaleString()} not started</dd>
+                </div>
+                <div>
+                  <dt>Response TAT</dt>
+                  <dd>{d2(r.response)}</dd>
+                </div>
+                <div>
+                  <dt>Resolution TAT</dt>
+                  <dd>{d2(r.resolution)}</dd>
+                </div>
+              </dl>
+            </section>
+          );
+        })}
       </div>
     </div>
   );

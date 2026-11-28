@@ -9,7 +9,7 @@
  * raised (the user, 26 Nov: "oct tat means like that"). A call not yet started is left out, not counted as zero.
  * Their workbook counts Breakdown Support calls only, so the report opens on that job type.
  */
-import { filterRows } from './query.js';
+import { filterRows, periodStart, periodLabel } from './query.js';
 import { fixedFirstTime } from './careFix.js';
 
 export const CARE_IDS = ['c360', 'pvt'];
@@ -88,6 +88,29 @@ export const startedIn = (ds, rows, from, to) => timedIn(ds, rows, 'attendedAt',
 
 /** Every row the dashboard's filters allow, whatever its dates. */
 export const allDates = (ds, filters) => filterRows(ds, { ...filters, dayFrom: ds.meta.dateRange.minDay, dayTo: ds.meta.dateRange.maxDay + 400 });
+
+/**
+ * A TAT per period for the FTFR-area sub-tab charts (the user, 28 Nov): each row in the period its own date falls in
+ * (Job Start for Response, Job End for Resolution), mean days over the rows with a TAT.
+ */
+export function tatSeries(ds, rows, key, field, granularity, samePeriod = false) {
+  const by = new Map();
+  for (let k = 0; k < rows.length; k++) {
+    const i = rows[k];
+    const v = tatOf(ds, i)[key];
+    const ms = msOf(textOf(ds, field, i));
+    if (!Number.isFinite(v) || !Number.isFinite(ms)) continue;
+    const start = periodStart(Math.floor((ms - EPOCH) / DAY), granularity);
+    // Logged & closed: a call counts in its period only when it was logged in that same period (the user, 28 Nov).
+    if (samePeriod && periodStart(ds.cols.loggedDay[i], granularity) !== start) continue;
+    let p = by.get(start);
+    if (!p) { p = { key: start, label: periodLabel(start, granularity), volume: 0, sum: 0 }; by.set(start, p); }
+    p.volume++; p.sum += v;
+  }
+  const out = [...by.values()].sort((a, b) => a.key - b.key);
+  for (const p of out) p.tat = p.sum / p.volume;
+  return out;
+}
 
 /** The tiles: response over the calls started in the range, resolution over the calls ended in it. */
 export function averageTat(ds, started, ended) {

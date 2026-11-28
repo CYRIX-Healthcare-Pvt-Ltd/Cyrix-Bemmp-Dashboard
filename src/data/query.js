@@ -126,6 +126,8 @@ export function isPenalty(ds, windows, referenceDay, row) {
 const FILTERABLE = [
   'zone', 'district', 'facilityName', 'facilityType', 'equipment', 'equipmentType',
   'manufacturer', 'engineer', 'department', 'parkedReason',
+  // Care 360's Job type, Breakdown / PMS (the user, 28 Nov).
+  'lifecycle',
 ];
 
 /**
@@ -141,6 +143,8 @@ const FILTERABLE = [
  * penalty window — which the SLA applies whatever is selected here.
  */
 export const FILTER_DIMS = ['zone', 'district', 'facilityName', 'equipment'];
+/** Saved, reset and compared with the rest; offered on Care 360 only (Job type, the user, 28 Nov). */
+const ALL_DIMS = [...FILTER_DIMS, 'lifecycle'];
 
 /**
  * The resting selection: the whole contract, nothing narrowed.
@@ -164,8 +168,11 @@ export function blankFilters(meta) {
     dayTo: meta.dateRange.maxDay,
     // One empty Set per filterable dimension. `filterRows` skips empty ones, so
     // the shape is about the panel having something to read back, not the engine.
-    ...Object.fromEntries(FILTER_DIMS.map((k) => [k, new Set()])),
+    ...Object.fromEntries(ALL_DIMS.map((k) => [k, new Set()])),
     bucket: new Set(),
+    // Care 360's two, by name, any number of each (the user, 28 Nov).
+    ticketStatus: new Set(),
+    contract: new Set(),
   };
 }
 
@@ -216,8 +223,10 @@ export function saveDefaultFilters(ds, filters) {
     dayTo: filters.dayTo,
     bucket: [...filters.bucket],
     dims: Object.fromEntries(
-      FILTER_DIMS.map((k) => [k, labelsOf(ds.dict[k] ?? [], filters[k] ?? new Set())]),
+      ALL_DIMS.map((k) => [k, labelsOf(ds.dict[k] ?? [], filters[k] ?? new Set())]),
     ),
+    ticketStatus: [...(filters.ticketStatus ?? [])],
+    contract: [...(filters.contract ?? [])],
   };
   try { localStorage.setItem(DEFAULT_KEY(ds.meta.id), JSON.stringify(payload)); } catch { /* full */ }
 }
@@ -251,8 +260,10 @@ export function defaultFiltersFor(ds) {
     dayTo: clamp(saved.dayTo, blank.dayTo),
     bucket: new Set((saved.bucket ?? []).filter((b) => b >= 0 && b <= 2)),
     ...Object.fromEntries(
-      FILTER_DIMS.map((k) => [k, idsOf(ds.dict[k] ?? [], saved.dims?.[k])]),
+      ALL_DIMS.map((k) => [k, idsOf(ds.dict[k] ?? [], saved.dims?.[k])]),
     ),
+    ticketStatus: new Set(Array.isArray(saved.ticketStatus) ? saved.ticketStatus : []),
+    contract: new Set(Array.isArray(saved.contract) ? saved.contract : []),
   };
 }
 
@@ -268,7 +279,7 @@ export function defaultFiltersFor(ds) {
 export function sameFilters(a, b) {
   if (!a || !b) return false;
   if (a.dayFrom !== b.dayFrom || a.dayTo !== b.dayTo || a.preset !== b.preset) return false;
-  for (const key of [...FILTER_DIMS, 'bucket']) {
+  for (const key of [...ALL_DIMS, 'bucket', 'ticketStatus', 'contract']) {
     const x = a[key] ?? new Set();
     const y = b[key] ?? new Set();
     if (x.size !== y.size) return false;
@@ -735,7 +746,7 @@ const MS_PER_DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** Serial -> the serial that starts its bucket, so periods sort numerically. */
-function periodStart(serial, granularity) {
+export function periodStart(serial, granularity) {
   if (granularity === 'day') return serial;
   const d = new Date((serial - 25569) * MS_PER_DAY);
   if (granularity === 'week') {
@@ -745,7 +756,7 @@ function periodStart(serial, granularity) {
   return serial - (d.getUTCDate() - 1); // month
 }
 
-function periodLabel(serial, granularity) {
+export function periodLabel(serial, granularity) {
   const d = new Date((serial - 25569) * MS_PER_DAY);
   const mon = MONTHS[d.getUTCMonth()];
   const yy = String(d.getUTCFullYear()).slice(2);
