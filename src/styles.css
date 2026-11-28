@@ -3580,6 +3580,9 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
   overflow: hidden;
   text-overflow: unset;
 }
+/* Care 360 (the user, 28 Nov): what the team types is shown in full — no three-line stop, no ceiling on the width. */
+.meeting-table.is-care td.entry .grid-cell { display: block; -webkit-line-clamp: unset; line-clamp: none; overflow: visible; }
+.meeting-table.is-care th.entry, .meeting-table.is-care td.entry { max-width: none; }
 /* An editor is not clamped — you have to see all of what you are
    changing, and it is one cell rather than nine hundred. */
 .meeting-table td.entry .cell { min-width: 0; width: 100%; }

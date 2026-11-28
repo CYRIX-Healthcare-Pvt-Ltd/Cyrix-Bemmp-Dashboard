@@ -111,6 +111,8 @@ export const CARE_TONES = {
 };
 export const CARE_STATUS_HEADING = 'Ticket Status - Pending/Completed';
 export const CARE_FIELDS = [
+  // Their Resolution_Summary (column U), typed by the team, not FieldPro's (the user, 28 Nov); kept in current_status.
+  { key: 'current_status', label: 'Resolution Summary - Updated', kind: 'text', width: 300 },
   { key: 'ticket_status', label: CARE_STATUS_HEADING, kind: 'select', primary: true, width: 200, options: CARE_STATUSES,
     // One colour each (the user, 27 Nov: "make unique status colors").
     tones: CARE_TONES },
