@@ -4242,6 +4242,15 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .tracker-head .meeting-search input { padding-top: 7px; padding-bottom: 7px; }
 .tracker-head .meeting-export { margin-left: 0; padding: 6px 12px; }
 .tracker-head .meeting-columns, .tracker-head .meeting-full { padding-top: 6px; padding-bottom: 6px; }
+/* Full screen (the user, 28 Nov): a slimmer top bar, so the table gets the room. */
+.tracker-full .tracker-head { padding-top: 6px; padding-bottom: 6px; }
+.tracker-full .tracker-head .meeting-search input { padding-top: 4px; padding-bottom: 4px; }
+.tracker-full .tracker-head .meeting-export,
+.tracker-full .tracker-head .meeting-columns,
+.tracker-full .tracker-head .meeting-full { padding-top: 3px; padding-bottom: 3px; }
+.tracker-full.grid { gap: 8px !important; }
+.tracker-full .tracker-head .meeting-views .segmented button { padding-top: 3px; padding-bottom: 3px; }
+.tracker-full .meeting-scroll { max-height: calc(100vh - 150px); }
 .tracker-head .meeting-views { order: 3; margin-left: auto; flex: none; }
 .tracker-head .meeting-views .segmented button { padding-top: 5px; padding-bottom: 5px; }
 .tracker-head > .upload-error { order: 4; flex-basis: 100%; margin: 0; }
