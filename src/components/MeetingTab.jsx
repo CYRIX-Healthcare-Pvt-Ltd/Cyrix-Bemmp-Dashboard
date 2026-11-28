@@ -1821,7 +1821,7 @@ export default function MeetingTab({
          this is what the state's own export said, which is what the
          tracker workbook is built on. The one column the file carries that
          the grid does not. */
-      return c.key === 'age'
+      return c.key === 'age' && !care
         ? [col, { header: 'Down Days (export)', key: 'exportAge', numeric: true }]
         : [col];
     });
@@ -1874,7 +1874,7 @@ export default function MeetingTab({
     // Care 360: open calls by Ticket Status (with how long they have been open) and by state; no penalty
     // (the user, 27 Nov: "need good useful summary, ie need pending wise also").
     if (care) {
-      const ORDER = ['Under Observation', 'Customer', 'Revive Lab', 'Cyrix', 'Purchase', 'Completed', 'Not set'];
+      const ORDER = ['Under Observation', 'Customer', 'Revive Lab', 'Cyrix', 'Purchase', 'RBER', 'OEM', 'Warranty', 'In Transit', 'Local Purchase / Service', 'Completed', 'Not set'];
       const AGES = [['0–2 days', 2], ['3–7 days', 7], ['8–15 days', 15], ['16–30 days', 30], ['Over 30 days', Infinity]];
       const blank = (name) => ({ name, open: 0, counts: {}, ages: AGES.map(() => 0), oldest: 0, days: 0 });
       const byState = new Map(); const byStatus = new Map(ORDER.map((k) => [k, blank(k)]));
@@ -2221,7 +2221,7 @@ export default function MeetingTab({
           onPointerEnter={() => holdBack(true)}
           onPointerLeave={() => holdBack(false)}
         >
-          <table className="meeting-table is-sortable" style={{ width: tableWidth }}>
+          <table className={`meeting-table is-sortable${care ? ' is-care' : ''}`} style={{ width: tableWidth }}>
             <thead>
               <tr>
                 {shown.map((c) => (
@@ -2308,7 +2308,7 @@ export default function MeetingTab({
                     />
                   </th>
                 ))}
-                <th style={{ width: LOG_WIDTH, minWidth: LOG_WIDTH, maxWidth: LOG_WIDTH }}>
+                <th className="th-log" style={{ width: LOG_WIDTH, minWidth: LOG_WIDTH, maxWidth: LOG_WIDTH }}>
                   {/* The same inner box as every sortable heading, so the
                       label sits on their line and at their inset. A bare
                       "Log" took the header row's zero padding and bottom

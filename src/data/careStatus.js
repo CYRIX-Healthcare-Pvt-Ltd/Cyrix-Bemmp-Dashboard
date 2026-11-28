@@ -9,7 +9,7 @@ import { CARE_STATUSES, CARE_STATUS_HEADING } from './meeting.js';
 
 export const NOT_SET = 'Not set';
 /** The Pending split's order (the user, 27 Nov). */
-export const PENDING_ORDER = ['Under Observation', 'Customer', 'Revive Lab', 'Cyrix', 'Purchase'];
+export const PENDING_ORDER = ['Under Observation', 'Customer', 'Revive Lab', 'Cyrix', 'Purchase', 'RBER', 'OEM', 'Warranty', 'In Transit', 'Local Purchase / Service'];
 export const STATUS_CHOICES = [...CARE_STATUSES, NOT_SET];
 
 /** ticket → status for every call the tracker has a status for; paged, since a state passes 1,000 rows. */

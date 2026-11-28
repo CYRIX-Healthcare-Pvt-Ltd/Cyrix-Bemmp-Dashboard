@@ -1,6 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { formatDay, label, parseEngineer, ticketLabel, BUCKET, BUCKET_LABEL } from '../data/store.js';
 import { FTFR_MAX_DAYS, penaltyWindows } from '../data/query.js';
+import { supabase } from '../data/supabase.js';
+import { computeField, fieldsFor, isComputed } from '../data/meeting.js';
+
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const asDay = (v) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? ''));
+  return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1]} ${m[1]}` : v;
+};
 
 const BUCKET_DOT = ['open', 'parked', 'resolved'];
 
@@ -14,7 +22,19 @@ function Row({ term, children }) {
 }
 
 /** Full detail for one ticket, including the assigned engineer. */
-export default function TicketDrawer({ ds, row, latestDay, onClose }) {
+export default function TicketDrawer({ ds, row, latestDay, onClose, state }) {
+  // What the tracker's people entered against this call (the user, 28 Nov), read fresh each time it opens.
+  const ticket = row == null ? null : ticketLabel(ds, row);
+  const [note, setNote] = useState(null);
+  useEffect(() => {
+    setNote(null);
+    if (!ticket || !state || !supabase) return undefined;
+    let live = true;
+    supabase.from('meeting_note').select('*').eq('state', state).eq('ticket', ticket).maybeSingle()
+      .then(({ data }) => { if (live) setNote(data ?? {}); });
+    return () => { live = false; };
+  }, [state, ticket]);
+  const entered = state ? fieldsFor(state) : [];
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -131,6 +151,19 @@ export default function TicketDrawer({ ds, row, latestDay, onClose }) {
               <Row term="Zone">{label(dict.zone, cols.zone[row])}</Row>
             </dl>
           </section>
+
+          {state && (
+            <section>
+              <h3>Tracker</h3>
+              <dl className="dl">
+                {entered.map((f) => {
+                  const v = note ? (isComputed(f.key) ? computeField(f.key, note) : note[f.key]) : null;
+                  const shown = v == null || v === '' ? '—' : f.kind === 'date' ? asDay(v) : String(v);
+                  return <Row key={f.key} term={f.label}>{note ? shown : '…'}</Row>;
+                })}
+              </dl>
+            </section>
+          )}
 
           <section>
             <h3>Status detail</h3>

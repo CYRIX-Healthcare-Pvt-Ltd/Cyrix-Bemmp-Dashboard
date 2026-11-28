@@ -2021,6 +2021,7 @@ export default function App() {
         row={drawerRow}
         latestDay={referenceDay}
         onClose={() => setDrawerRow(null)}
+        state={stateId}
       />
 
       {showCyra && (

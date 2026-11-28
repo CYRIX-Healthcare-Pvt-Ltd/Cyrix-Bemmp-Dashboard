@@ -102,15 +102,26 @@ export const UP_FIELDS = [
 ];
 
 /** Care 360's and Private Service's one column (the user, 27 Nov), as in their Ticket Master (0094). */
-export const CARE_STATUSES = ['Completed', 'Customer', 'Cyrix', 'Purchase', 'Revive Lab', 'Under Observation'];
+export const CARE_STATUSES = ['Completed', 'Customer', 'Cyrix', 'Purchase', 'Revive Lab', 'Under Observation',
+  // From the team's Pending Call - Master "Pending From" (the user, 28 Nov).
+  'RBER', 'OEM', 'Warranty', 'In Transit', 'Local Purchase / Service'];
 export const CARE_TONES = {
   Completed: 'good', Customer: 'warn', Cyrix: 'bad', Purchase: 'violet', 'Revive Lab': 'magenta', 'Under Observation': 'info',
+  RBER: 'orange', OEM: 'blue', Warranty: 'teal', 'In Transit': 'gold', 'Local Purchase / Service': 'slate',
 };
 export const CARE_STATUS_HEADING = 'Ticket Status - Pending/Completed';
 export const CARE_FIELDS = [
   { key: 'ticket_status', label: CARE_STATUS_HEADING, kind: 'select', primary: true, width: 200, options: CARE_STATUSES,
     // One colour each (the user, 27 Nov: "make unique status colors").
     tones: CARE_TONES },
+  // The Pending Call - Master's columns after Pending From (the user, 28 Nov), with the two dates asked for.
+  { key: 'edc', label: 'Expected call closing date', kind: 'date' },
+  { key: 'pr_no', label: 'PR No', kind: 'text', width: 130 },
+  { key: 'pr_date', label: 'PR Date', kind: 'date' },
+  { key: 'po_no', label: 'PO No', kind: 'text', width: 130 },
+  { key: 'po_date', label: 'PO Date', kind: 'date' },
+  { key: 'spare_edd', label: 'Expected delivery date', kind: 'date' },
+  { key: 'coordinator_remark', label: 'Remarks', kind: 'text', width: 260 },
 ];
 const CARE = ['c360', 'pvt'];
 
@@ -596,6 +607,8 @@ export function careColumns(raw) {
       ...(date ? { sortBy: `${key}At`, filterBy: `${key}Day`, date: true } : {}),
     });
   });
+  // Delay Days: raised date to the day the data runs to, as their Delay_Days (the user, 28 Nov).
+  cols.push({ key: 'age', label: 'Delay Days', type: 'num', align: 'num', w: 96, group: 'tm' });
   return [...cols, ...entryColumnsOf(CARE_FIELDS)];
 }
 

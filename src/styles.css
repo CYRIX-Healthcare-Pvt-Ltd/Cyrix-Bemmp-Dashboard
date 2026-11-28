@@ -3635,6 +3635,15 @@ tr:hover .row-form, .row-form:focus-visible { opacity: 1; }
 }
 
 .meeting-table thead th .th-sort { color: var(--text-secondary); font-weight: 600; }
+/* Care 360 (the user, 28 Nov): the Ticket Master's columns, read only, in grey; the ones typed into, in a blue tint. */
+.meeting-table.is-care thead th:not(.entry) { background: color-mix(in srgb, var(--surface) 86%, var(--text-primary)); }
+.meeting-table.is-care thead th.entry { background: color-mix(in srgb, var(--surface) 86%, var(--series-1)); }
+/* The label lets the heading's colour through, so the red rule along the top runs unbroken. */
+.meeting-table.is-care thead th .th-sort { background: transparent; }
+.meeting-table.is-care thead th.th-log { background: color-mix(in srgb, var(--surface) 80%, var(--status-warning)); }
+.meeting-table.is-care thead th.th-log .th-static,
+.meeting-table.is-care thead th.th-log .th-static:hover { color: var(--text-primary); font-weight: 700; }
+.meeting-table.is-care thead th .th-sort { color: var(--text-primary); }
 .meeting-table .th-inner { min-height: 34px; }
 
 /* The label. Wraps rather than stretching its column, which is what the
@@ -3979,6 +3988,11 @@ body.is-resizing * { cursor: col-resize !important; }
 .tone-violet { --tone: var(--series-5); }
 .tone-magenta { --tone: var(--series-4); }
 .tone-muted { --tone: var(--text-muted); }
+.tone-orange { --tone: var(--series-2); }
+.tone-blue { --tone: var(--series-1); }
+.tone-teal { --tone: var(--series-3); }
+.tone-gold { --tone: #b0861a; }
+.tone-slate { --tone: var(--text-secondary); }
 
 /* The open editor says the same thing. Options are reset to plain text
    first, because they inherit the select's tint and a red dash would read
@@ -3990,6 +4004,11 @@ select.cell.tone-info, select.cell option.tone-info { color: var(--status-info);
 select.cell.tone-good, select.cell option.tone-good { color: var(--status-good); }
 select.cell.tone-violet, select.cell option.tone-violet { color: var(--series-5); }
 select.cell.tone-magenta, select.cell option.tone-magenta { color: var(--series-4); }
+select.cell.tone-orange, select.cell option.tone-orange { color: var(--series-2); }
+select.cell.tone-blue, select.cell option.tone-blue { color: var(--series-1); }
+select.cell.tone-teal, select.cell option.tone-teal { color: var(--series-3); }
+select.cell.tone-gold, select.cell option.tone-gold { color: #b0861a; }
+select.cell.tone-slate, select.cell option.tone-slate { color: var(--text-secondary); }
 
 /*
  * Column rules.
