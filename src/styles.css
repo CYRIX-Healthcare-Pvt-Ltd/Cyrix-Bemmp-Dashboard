@@ -4249,6 +4249,10 @@ button.drill-stat:disabled { cursor: default; opacity: .55; }
 .tracker-full .tracker-head .meeting-columns,
 .tracker-full .tracker-head .meeting-full { padding-top: 3px; padding-bottom: 3px; }
 .tracker-full.grid { gap: 8px !important; }
+/* Moving a column by its heading (the user, 28 Nov). */
+.meeting-table thead th .th-sort[draggable="true"] { cursor: grab; }
+.meeting-table thead th.is-dragging { opacity: 0.45; }
+.meeting-table thead th.is-drop { box-shadow: inset 3px 0 0 var(--series-1), inset 0 2px 0 var(--brand-red) !important; }
 .tracker-full .tracker-head .meeting-views .segmented button { padding-top: 3px; padding-bottom: 3px; }
 .tracker-full .meeting-scroll { max-height: calc(100vh - 150px); }
 .tracker-head .meeting-views { order: 3; margin-left: auto; flex: none; }

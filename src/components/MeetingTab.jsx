@@ -73,7 +73,7 @@ const BARE = new Set(['zone', 'district', 'facility', 'equipment']);
  * which columns they wish to see"): every column, grouped as the grid is, with
  * the ticket always on — a row nobody can name is a row nobody can use.
  */
-function ColumnPicker({ columns, hidden, onChange, onClose }) {
+function ColumnPicker({ columns, hidden, onChange, onClose, reordered, onResetOrder }) {
   const ref = useRef(null);
   useEffect(() => {
     const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -105,6 +105,7 @@ function ColumnPicker({ columns, hidden, onChange, onClose }) {
         {hidden.size > 0 && (
           <button type="button" className="linkish" onClick={() => onChange(new Set())}>Show all</button>
         )}
+        {reordered && <button type="button" className="linkish" onClick={onResetOrder}>Reset order</button>}
       </div>
       {grouped.map(([title, list]) => (
         <fieldset key={title} className="column-picker-group">
@@ -1090,9 +1091,53 @@ export default function MeetingTab({
     try { localStorage.setItem(hiddenKey, JSON.stringify([...next])); } catch { /* this visit only */ }
   }, [hiddenKey]);
   const closePicker = useCallback(() => setPicking(false), []);
+  /*
+   * The order somebody has dragged the headings into (the user, 28 Nov). Per device and per contract, like the
+   * columns hidden; the ticket stays first. A column the saved order does not know (new since) sits after the one it
+   * follows by default. The Columns list and the Excel follow it.
+   */
+  const orderKey = `bemmp.tracker.order.${state}`;
+  const [order, setOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(orderKey) ?? '[]');
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      return [];
+    }
+  });
+  const saveOrder = useCallback((next) => {
+    setOrder(next);
+    try {
+      if (next.length) localStorage.setItem(orderKey, JSON.stringify(next));
+      else localStorage.removeItem(orderKey);
+    } catch { /* this visit only */ }
+  }, [orderKey]);
+  const ordered = useMemo(() => {
+    if (!order.length) return columns;
+    const byKey = new Map(columns.map((c) => [c.key, c]));
+    const out = order.filter((k) => byKey.has(k) && k !== 'ticket');
+    columns.forEach((c, i) => {
+      if (c.key === 'ticket' || out.includes(c.key)) return;
+      const prev = columns[i - 1]?.key;
+      out.splice(prev && prev !== 'ticket' ? out.indexOf(prev) + 1 : 0, 0, c.key);
+    });
+    return [...(byKey.has('ticket') ? [byKey.get('ticket')] : []), ...out.map((k) => byKey.get(k))];
+  }, [columns, order]);
+  const [dragKey, setDragKey] = useState(null);
+  const [dropKey, setDropKey] = useState(null);
+  const moveColumn = useCallback((from, to) => {
+    if (!from || !to || from === to || to === 'ticket') return;
+    const keys = ordered.map((c) => c.key).filter((k) => k !== 'ticket' && k !== from);
+    const at = keys.indexOf(to);
+    const fromAt = ordered.findIndex((c) => c.key === from);
+    const toAt = ordered.findIndex((c) => c.key === to);
+    // Dropped on a heading to its right: it goes after that heading; to its left: before it.
+    keys.splice(fromAt < toAt ? at + 1 : at, 0, from);
+    saveOrder(keys);
+  }, [ordered, saveOrder]);
   const shown = useMemo(
-    () => columns.filter((c) => c.key === 'ticket' || !hidden.has(c.key)),
-    [columns, hidden],
+    () => ordered.filter((c) => c.key === 'ticket' || !hidden.has(c.key)),
+    [ordered, hidden],
   );
 
   /*
@@ -2103,7 +2148,7 @@ export default function MeetingTab({
               Columns{hidden.size ? ` · ${columns.length - hidden.size} of ${columns.length}` : ''}
             </button>
             {picking && (
-              <ColumnPicker columns={columns} hidden={hidden} onChange={chooseColumns} onClose={closePicker} />
+              <ColumnPicker columns={ordered} hidden={hidden} onChange={chooseColumns} onClose={closePicker} reordered={order.length > 0} onResetOrder={() => saveOrder([])} />
             )}
           </span>
 
@@ -2236,14 +2281,27 @@ export default function MeetingTab({
                       // Entry columns take a fixed ceiling and wrap; without
                       // it the widest free-text column eats the table.
                       c.entry ? `entry entry-${c.entry.kind}` : null,
+                      dragKey && dropKey === c.key && dragKey !== c.key ? 'is-drop' : null,
+                      dragKey === c.key ? 'is-dragging' : null,
                     ].filter(Boolean).join(' ') || undefined}
+                    onDragOver={(e) => { if (dragKey && c.key !== 'ticket') { e.preventDefault(); if (dropKey !== c.key) setDropKey(c.key); } }}
+                    onDrop={(e) => { e.preventDefault(); moveColumn(dragKey, c.key); setDragKey(null); setDropKey(null); }}
                     style={widthStyle(c.key, c.w)}
                     aria-sort={sort?.key === c.key
                       ? (sort.dir === 'asc' ? 'ascending' : 'descending')
                       : 'none'}
                   >
                     <span className="th-inner">
-                    <button type="button" className="th-sort" onClick={() => toggleSort(c.key)}>
+                    <button
+                      type="button"
+                      className="th-sort"
+                      onClick={() => toggleSort(c.key)}
+                      // Drag a heading to move its column (the user, 28 Nov); the ticket stays first.
+                      draggable={c.key !== 'ticket'}
+                      onDragStart={(e) => { setDragKey(c.key); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.key); } catch { /* some browsers */ } }}
+                      onDragEnd={() => { setDragKey(null); setDropKey(null); }}
+                      title={c.key !== 'ticket' ? 'Drag to move this column' : undefined}
+                    >
                       {c.label}
                       <SortMark active={sort?.key === c.key} dir={sort?.dir} />
                     </button>
