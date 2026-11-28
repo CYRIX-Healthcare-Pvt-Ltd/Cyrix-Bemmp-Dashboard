@@ -344,7 +344,15 @@ export default function Filters({ ds, assets = null, filters, setFilters, contra
    * the copy still said "this month", so Reset put you somewhere the page had
    * never been.
    */
-  const reset = () => setFilters(defaultFiltersFor(ds));
+  /*
+   * Reset clears what is ticked, not the filters somebody chose to have (the user, 28 Nov: "on reset custom added
+   * is done"): the order and the added columns stay, emptied.
+   */
+  const reset = () => {
+    const d = defaultFiltersFor(ds);
+    const keepExtra = Object.fromEntries(Object.keys(filters.extra ?? {}).map((k) => [k, d.extra?.[k] ?? new Set()]));
+    setFilters({ ...d, extra: { ...keepExtra, ...(d.extra ?? {}) }, ...(filters.layout ? { layout: filters.layout } : {}) });
+  };
 
   /*
    * Whether pressing Reset would actually change anything.
@@ -355,7 +363,9 @@ export default function Filters({ ds, assets = null, filters, setFilters, contra
    * and did nothing when pressed. A control that is always there and never does
    * anything is worse than no control.
    */
-  const dirty = !sameFilters(filters, defaultFiltersFor(ds));
+  // Only ticked values count: adding or ordering filters is not something to reset.
+  const valuesOnly = (f) => ({ ...f, layout: null, extra: Object.fromEntries(Object.entries(f.extra ?? {}).filter(([, v]) => v?.size)) });
+  const dirty = !sameFilters(valuesOnly(filters), valuesOnly(defaultFiltersFor(ds)));
 
   /*
    * A saved default, so somebody who only ever looks at one district does not
@@ -625,7 +635,7 @@ export default function Filters({ ds, assets = null, filters, setFilters, contra
                 type="button"
                 className="filter-default is-save"
                 onClick={setAsDefault}
-                disabled={activeCount === 0}
+                disabled={activeCount === 0 && !filters.layout}
               >
                 Save as default view
               </button>
